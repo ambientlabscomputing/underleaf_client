@@ -58,6 +58,12 @@ func AddRuntimeValues(l *slog.Logger) *slog.Logger {
 	return l.With("os", os, "arch", arch)
 }
 
+func AddRuntimeValuesToCtx(ctx context.Context) context.Context {
+	logger := GetLogger(ctx)
+	logger = AddRuntimeValues(logger)
+	return context.WithValue(ctx, LogKey{}, logger)
+}
+
 func ContextualizeLogger(ctx context.Context, args ...any) context.Context {
 	if loggerFromCtx, ok := ctx.Value(LogKey{}).(*slog.Logger); ok {
 		loggerFromCtx = loggerFromCtx.With(args...)
@@ -72,4 +78,11 @@ func GetLogger(ctx context.Context) *slog.Logger {
 		return loggerFromCtx
 	}
 	return logger
+}
+
+func GetCtxWithLogger(ctx context.Context) (context.Context, *slog.Logger) {
+	if loggerFromCtx, ok := ctx.Value(LogKey{}).(*slog.Logger); ok {
+		return ctx, loggerFromCtx
+	}
+	return ctx, logger
 }
