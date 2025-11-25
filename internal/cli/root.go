@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -10,6 +13,7 @@ var rootCmd = &cobra.Command{
 	Long:  `Underleaf CLI provides commands to manage nodes, configurations, and other aspects of the Underleaf platform.`,
 }
 
-func Execute() error {
-	return rootCmd.Execute()
+func Execute(ctx context.Context) error {
+	return fmt.Errorf("test error")
+	// return rootCmd.Execute()
 }

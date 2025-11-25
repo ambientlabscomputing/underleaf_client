@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"runtime"
 
 	"github.com/lmittmann/tint"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -45,6 +46,30 @@ func Init(parentCtx context.Context, mode string, filePath *string) (context.Con
 	}
 
 	logger = slog.New(handler)
+	logger = AddRuntimeValues(logger)
+	slog.SetDefault(logger)
 	ctx := context.WithValue(parentCtx, LogKey{}, logger)
 	return ctx, logger
+}
+
+func AddRuntimeValues(l *slog.Logger) *slog.Logger {
+	os := runtime.GOOS
+	arch := runtime.GOARCH
+	return l.With("os", os, "arch", arch)
+}
+
+func ContextualizeLogger(ctx context.Context, args ...any) context.Context {
+	if loggerFromCtx, ok := ctx.Value(LogKey{}).(*slog.Logger); ok {
+		loggerFromCtx = loggerFromCtx.With(args...)
+		return context.WithValue(ctx, LogKey{}, loggerFromCtx)
+	}
+	ctx = context.WithValue(ctx, LogKey{}, logger.With(args...))
+	return ctx
+}
+
+func GetLogger(ctx context.Context) *slog.Logger {
+	if loggerFromCtx, ok := ctx.Value(LogKey{}).(*slog.Logger); ok {
+		return loggerFromCtx
+	}
+	return logger
 }
