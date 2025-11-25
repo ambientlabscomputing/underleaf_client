@@ -7,7 +7,7 @@ underleaf/
 ├─ cmd/
 │  ├─ ufctl/                   # CLI binary (dev/operator tool)
 │  │  └─ main.go
-│  └─ underleaf-agent/         # Node agent binary (runs on edge nodes)
+│  └─ underleaf-agent/         # Server agent binary (runs on edge servers)
 │     └─ main.go
 │
 ├─ internal/
@@ -20,13 +20,13 @@ underleaf/
 │  │  ├─ local/                # `ufctl local ...` (local cli commands)
 │  │  │  ├─ local.go           # parent `local` cmd
 │  │  │  ├─ auth.go            # authenticate with the control plan
-│  │  ├─ node/                 # `ufctl node ...` (remote nodes)
-│  │  │  ├─ node.go            # parent `node` cmd
-│  │  │  ├─ list.go            # `node list`
-│  │  │  ├─ describe.go        # `node describe <node>`
-│  │  │  ├─ exec.go            # `node exec <selector> -- ...`
-│  │  │  ├─ logs.go            # `node logs <selector>`
-│  │  │  └─ status.go          # `node status <selector>`
+│  │  ├─ server/                 # `ufctl server ...` (remote servers)
+│  │  │  ├─ server.go            # parent `server` cmd
+│  │  │  ├─ list.go            # `server list`
+│  │  │  ├─ describe.go        # `server describe <server>`
+│  │  │  ├─ exec.go            # `server exec <selector> -- ...`
+│  │  │  ├─ logs.go            # `server logs <selector>`
+│  │  │  └─ status.go          # `server status <selector>`
 │  │
 │  ├─ config_manager/               # SHARED: config manager core + RPC endpoints
 │  │  ├─ manager.go            # subscribes to control plane, reconciles snapshots
@@ -35,25 +35,25 @@ underleaf/
 │  │  ├─ server.go             # local API server (Unix socket / HTTP)
 │  │  └─ client.go             # local client used by CLI (`local config ...`)
 │  │
-│  ├─ agent/                   # Node agent entry + lifecycle
+│  ├─ agent/                   # Server agent entry + lifecycle
 │  │  ├─ server.go             # Start all agent services (config_manager, exec, etc.)
 │  │  ├─ runtime.go            # signal handling, graceful shutdown
 │  │  └─ wiring.go             # wire config_manager.Manager, exec.Runner, bus clients
 │  │
-│  ├─ exec/                    # SHARED: command execution on node
+│  ├─ exec/                    # SHARED: command execution on server
 │  │  ├─ runner.go             # runs commands, handles timeouts, env, etc.
 │  │  ├─ types.go              # CommandRequest, Result, ExitCode, etc.
 │  │  ├─ server.go             # agent-side exec API (used by CLI `local exec`)
 │  │  └─ client.go             # local exec client (CLI & tests)
 │  │
-│  ├─ node/                    # Node "domain" model + selectors
-│  │  ├─ selector.go           # parse self/labels/ids → NodeSelector
-│  │  ├─ types.go              # Node, NodeStatus, Labels, etc.
-│  │  └─ service.go            # high-level node ops via control plane API
+│  ├─ server/                    # Server "domain" model + selectors
+│  │  ├─ selector.go           # parse self/labels/ids → ServerSelector
+│  │  ├─ types.go              # Server, ServerStatus, Labels, etc.
+│  │  └─ service.go            # high-level server ops via control plane API
 │  │
 │  ├─ controlplane/            # SHARED: backend/control-plane HTTP clients
 │  │  ├─ client.go             # base client (auth, transport)
-│  │  ├─ node_client.go
+│  │  ├─ server_client.go
 │  │  ├─ request_client.go
 │  │  └─ cluster_client.go
 │  │

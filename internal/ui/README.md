@@ -12,7 +12,7 @@ The UI package (`internal/ui/`) provides reusable, interactive terminal UI compo
 Interactive multi-select lists with keyboard navigation.
 
 ```go
-selected, err := ui.RunSelection("Choose nodes:", nodeList)
+selected, err := ui.RunSelection("Choose servers:", serverList)
 ```
 
 Features:
@@ -25,14 +25,14 @@ Features:
 Prompt users for text input with validation support.
 
 ```go
-name, err := ui.PromptInput("Enter node name:", "node-001")
+name, err := ui.PromptInput("Enter server name:", "server-001")
 ```
 
 ### 3. **Confirmation Dialogs** (`input.go`)
 Yes/No confirmation prompts.
 
 ```go
-confirmed, err := ui.Confirm("Delete this node?")
+confirmed, err := ui.Confirm("Delete this server?")
 ```
 
 Features:
@@ -46,9 +46,9 @@ Formatted data tables with borders and styling.
 ```go
 table := ui.NewTableBuilder().
     WithTitle("Cluster Status").
-    WithHeaders("Node", "Status", "CPU", "Memory").
-    AddRow("node-001", "Running", "45%", "2.1GB").
-    AddRow("node-002", "Running", "23%", "1.8GB")
+    WithHeaders("Server", "Status", "CPU", "Memory").
+    AddRow("server-001", "Running", "45%", "2.1GB").
+    AddRow("server-002", "Running", "23%", "1.8GB")
 
 table.Print()
 ```
@@ -63,7 +63,7 @@ Features:
 Loading indicators for long-running operations.
 
 ```go
-err := ui.ShowSpinner("Connecting to node...", func() error {
+err := ui.ShowSpinner("Connecting to server...", func() error {
     // Your work here
     return doWork()
 })
@@ -93,7 +93,7 @@ Styled messages and boxed errors.
 ui.PrintError("Connection failed")
 ui.PrintWarning("Low memory")
 ui.PrintSuccess("Deployment complete")
-ui.PrintInfo("New node registered")
+ui.PrintInfo("New server registered")
 
 // Boxed messages
 fmt.Println(ui.ErrorBox("Error", "Details here"))
@@ -159,11 +159,11 @@ import (
 )
 
 var deleteCmd = &cobra.Command{
-    Use:   "delete [node-id]",
-    Short: "Delete a node",
+    Use:   "delete [server-id]",
+    Short: "Delete a server",
     RunE: func(cmd *cobra.Command, args []string) error {
         // Confirm before deletion
-        confirmed, err := ui.Confirm("Are you sure you want to delete this node?")
+        confirmed, err := ui.Confirm("Are you sure you want to delete this server?")
         if err != nil {
             return err
         }
@@ -174,16 +174,16 @@ var deleteCmd = &cobra.Command{
         }
         
         // Show spinner while deleting
-        err = ui.ShowSpinner("Deleting node...", func() error {
-            return deleteNode(args[0])
+        err = ui.ShowSpinner("Deleting server...", func() error {
+            return deleteServer(args[0])
         })
         
         if err != nil {
-            ui.PrintError(fmt.Sprintf("Failed to delete node: %v", err))
+            ui.PrintError(fmt.Sprintf("Failed to delete server: %v", err))
             return err
         }
         
-        ui.PrintSuccess("Node deleted successfully")
+        ui.PrintSuccess("Server deleted successfully")
         return nil
     },
 }

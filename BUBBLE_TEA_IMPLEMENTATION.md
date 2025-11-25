@@ -108,19 +108,19 @@ require (
 import "github.com/ambientlabscomputing/underleaf_client/internal/ui"
 
 // Selection
-nodes, _ := ui.RunSelection("Select nodes:", nodeList)
+servers, _ := ui.RunSelection("Select servers:", serverList)
 
 // Input
-name, _ := ui.PromptInput("Node name:", "default")
+name, _ := ui.PromptInput("Server name:", "default")
 
 // Confirmation
-ok, _ := ui.Confirm("Delete node?")
+ok, _ := ui.Confirm("Delete server?")
 
 // Table
 ui.NewTableBuilder().
     WithTitle("Status").
-    WithHeaders("Node", "CPU", "Memory").
-    AddRow("node-1", "45%", "2GB").
+    WithHeaders("Server", "CPU", "Memory").
+    AddRow("server-1", "45%", "2GB").
     Print()
 
 // Spinner
@@ -156,7 +156,7 @@ go build ./examples/...
 
 The UI components are ready for integration into CLI commands:
 
-1. Add selection lists to `node list` command
+1. Add selection lists to `server list` command
 2. Use confirmations in destructive operations
 3. Display tables for status outputs
 4. Show spinners during API calls

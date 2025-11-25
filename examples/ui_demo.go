@@ -13,11 +13,11 @@ func main() {
 	fmt.Println("=== Example 1: Selection List ===\n")
 
 	choices := []string{
-		"List all nodes",
-		"Describe a node",
-		"Execute command on node",
-		"View node logs",
-		"Check node status",
+		"List all servers",
+		"Describe a server",
+		"Execute command on server",
+		"View server logs",
+		"Check server status",
 	}
 
 	selected, err := ui.RunSelection("What would you like to do?", choices)
@@ -73,12 +73,12 @@ func main() {
 	fmt.Println("=== Example 4: Table ===\n")
 
 	table := ui.NewTableBuilder().
-		WithTitle("Node Status").
-		WithHeaders("Node ID", "Status", "CPU", "Memory").
-		AddRow("node-001", "Running", "45%", "2.1GB").
-		AddRow("node-002", "Running", "23%", "1.8GB").
-		AddRow("node-003", "Stopped", "0%", "0GB").
-		AddRow("node-004", "Running", "67%", "3.2GB")
+		WithTitle("Server Status").
+		WithHeaders("Server ID", "Status", "CPU", "Memory").
+		AddRow("server-001", "Running", "45%", "2.1GB").
+		AddRow("server-002", "Running", "23%", "1.8GB").
+		AddRow("server-003", "Stopped", "0%", "0GB").
+		AddRow("server-004", "Running", "67%", "3.2GB")
 
 	fmt.Println(table.Render())
 
@@ -87,9 +87,9 @@ func main() {
 	// Example 5: Error formatting
 	fmt.Println("=== Example 5: Error Messages ===\n")
 
-	ui.PrintError("Failed to connect to node")
-	ui.PrintWarning("Node is running low on memory")
-	ui.PrintInfo("New node added to cluster")
+	ui.PrintError("Failed to connect to server")
+	ui.PrintWarning("Server is running low on memory")
+	ui.PrintInfo("New server added to cluster")
 	ui.PrintSuccess("Command executed successfully")
 
 	fmt.Println()
@@ -111,7 +111,7 @@ func main() {
 
 	items := []string{
 		"Initialize cluster configuration",
-		"Register node with control plane",
+		"Register server with control plane",
 		"Start agent services",
 		"Begin health monitoring",
 	}

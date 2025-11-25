@@ -94,13 +94,13 @@ func deleteCommand(id string) error {
 
 ### Display Status Table
 ```go
-func showStatus(nodes []Node) {
+func showStatus(servers []Server) {
     table := ui.NewTableBuilder().
-        WithTitle("Node Status").
+        WithTitle("Server Status").
         WithHeaders("ID", "Status", "CPU", "Memory")
     
-    for _, node := range nodes {
-        table.AddRow(node.ID, node.Status, node.CPU, node.Memory)
+    for _, server := range servers {
+        table.AddRow(server.ID, server.Status, server.CPU, server.Memory)
     }
     
     table.Print()
@@ -122,18 +122,18 @@ ui.PrintSuccess("All steps complete!")
 
 ### Select from API Results
 ```go
-nodes, err := fetchNodes()
+servers, err := fetchServers()
 if err != nil {
     ui.PrintError(fmt.Sprintf("Failed to fetch: %v", err))
     return err
 }
 
-names := make([]string, len(nodes))
-for i, n := range nodes {
+names := make([]string, len(servers))
+for i, n := range servers {
     names[i] = n.Name
 }
 
-selected, err := ui.RunSelection("Select nodes:", names)
+selected, err := ui.RunSelection("Select servers:", names)
 ```
 
 ## Color Codes
