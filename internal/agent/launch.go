@@ -94,9 +94,22 @@ func (l *Launcher) startDev(ctx context.Context) error {
 	}
 	defer l.removePID()
 
-	// Start the server directly
-	server := NewServer(l.port)
-	return server.Start(ctx)
+	// Wire up all dependencies (config manager, event bus, etc.)
+	deps, err := WireAgent(ctx, l.port)
+	if err != nil {
+		logger.Error("failed to wire agent dependencies", "err", err)
+		return fmt.Errorf("failed to wire agent: %w", err)
+	}
+
+	// Stop config manager on exit
+	defer func() {
+		if deps.ConfigManager != nil {
+			deps.ConfigManager.Stop(ctx)
+		}
+	}()
+
+	// Start the server with all dependencies
+	return deps.Server.Start(ctx)
 }
 
 // startDaemon forks the process to run in background

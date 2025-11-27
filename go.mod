@@ -3,7 +3,7 @@ module github.com/ambientlabscomputing/underleaf_client
 go 1.24.3
 
 require (
-	github.com/ambientlabscomputing/event_bus_client v1.0.2
+	github.com/ambientlabscomputing/event_bus_client v1.0.3
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0

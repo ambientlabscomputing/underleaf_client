@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	ctx, logger := logging.Init(context.Background(), logging.LoggerModeCLI, nil)
+	ctx, logger := logging.Init(context.Background(), logging.LoggerModeDev, nil)
 	ctx, printer := ui.NewPrinterToContext(ctx, ui.FormatTable)
 	ctx, config := config_manager.NewConfigClientInCtx(ctx, config_manager.ConfigClientTypeCLI)
 	config.Set("version", version.Version)

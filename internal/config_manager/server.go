@@ -3,6 +3,7 @@ package config_manager
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -205,12 +206,31 @@ func (c *SnapshotConfigClient) ConfigClientInfo() map[string]interface{} {
 }
 
 // GetBasePath returns appropriate base path for config storage
+// Uses XDG Base Directory specification on Unix and standard locations on other platforms
 func GetBasePath(isAgent bool) string {
 	if isAgent {
-		// Agent uses /var/lib/underleaf or /usr/local/var/underleaf
-		return "/var/lib/underleaf"
+		// Agent uses XDG_STATE_HOME or falls back to user home
+		// This is user-writable without requiring root
+		if stateHome := os.Getenv("XDG_STATE_HOME"); stateHome != "" {
+			return filepath.Join(stateHome, "underleaf")
+		}
+		// Fallback to ~/.local/state/underleaf (XDG default)
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, ".local", "state", "underleaf")
+		}
+		// Last resort: current directory
+		return ".underleaf-agent"
 	}
-	// CLI uses ~/.underleaf
-	home, _ := filepath.Abs(".")
-	return filepath.Join(home, ".underleaf")
+
+	// CLI uses XDG_CONFIG_HOME or falls back to ~/.config
+	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		return filepath.Join(configHome, "underleaf")
+	}
+	// Fallback to ~/.config/underleaf (XDG default) or ~/.underleaf (traditional)
+	if home, err := os.UserHomeDir(); err == nil {
+		// Use ~/.underleaf for simplicity (matches existing usage)
+		return filepath.Join(home, ".underleaf")
+	}
+	// Last resort: current directory
+	return ".underleaf"
 }

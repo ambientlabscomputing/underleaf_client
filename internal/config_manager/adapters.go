@@ -3,6 +3,7 @@ package config_manager
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
@@ -22,6 +23,10 @@ func NewEventBusAdapter(client *bus.Client) *EventBusAdapter {
 
 // Subscribe subscribes to a topic with target ID filter
 func (a *EventBusAdapter) Subscribe(ctx context.Context, topic string, targetID string, handler func(payload []byte)) error {
+	if a == nil || a.client == nil {
+		return fmt.Errorf("event bus adapter not initialized")
+	}
+
 	selector := bus.SelectorFields{
 		Topic:    topic,
 		TargetID: targetID,

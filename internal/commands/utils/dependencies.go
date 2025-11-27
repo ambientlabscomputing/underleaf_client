@@ -19,6 +19,16 @@ type DependencyManager struct {
 	ServerSvc    server.ServerService
 }
 
+// getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
+func getConfigValue(config config_manager.ConfigClient, key string) (interface{}, bool) {
+	// Try with local. prefix first
+	if val, ok := config.Get("local." + key); ok {
+		return val, true
+	}
+	// Fallback to non-prefixed for backward compatibility
+	return config.Get(key)
+}
+
 func NewDependencyManager(ctx context.Context) *DependencyManager {
 	printer := ui.GetPrinter(ctx)
 	configClient := config_manager.NewConfigClient(config_manager.ConfigClientTypeCLI)
@@ -27,12 +37,12 @@ func NewDependencyManager(ctx context.Context) *DependencyManager {
 
 	// Event bus is optional - only initialize if all required config is present
 	var appEventClient bus.EventClient
-	endpoint, hasEndpoint := configClient.Get("local.event_bus.endpoint")
-	token, hasToken := configClient.Get("local.auth.token")
-	serverID, hasServerID := configClient.Get("local.server_id")
+	endpoint, hasEndpoint := getConfigValue(configClient, "event_bus.endpoint")
+	token, hasToken := getConfigValue(configClient, "auth.token")
+	serverID, hasServerID := getConfigValue(configClient, "server_id")
 
 	if hasEndpoint && hasToken && hasServerID {
-		commitInterval, _ := configClient.Get("local.event_bus.commit_interval")
+		commitInterval, _ := getConfigValue(configClient, "event_bus.commit_interval")
 		if commitInterval == "" || commitInterval == nil {
 			commitInterval = "5s"
 		}

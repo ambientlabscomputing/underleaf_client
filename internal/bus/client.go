@@ -47,11 +47,15 @@ type Client struct {
 }
 
 func (c *Client) Start(ctx context.Context, serverID string) error {
+	logger := logging.GetLogger(ctx)
+	logger.Info("starting event bus client")
+	c.channels = make(map[string][]chan event_bus_client.Message)
 	InitSubscriptions(serverID)
 	if err := c.eventBus.Connect(ctx, &StartingSubscriptions); err != nil {
 		return err
 	}
 	go c.handleIncomingMessages(ctx)
+	logger.Info("event bus client started")
 	return nil
 }
 

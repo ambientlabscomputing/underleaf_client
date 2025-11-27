@@ -179,6 +179,7 @@ func (m *SnapshotConfigManager) listenForUpdates() {
 	defer m.wg.Done()
 
 	if m.eventBus == nil {
+		slog.Debug("event bus not configured, skipping push updates")
 		return
 	}
 
