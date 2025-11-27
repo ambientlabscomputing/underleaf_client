@@ -2,6 +2,7 @@ package config_manager
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 
 	"github.com/spf13/viper"
@@ -15,9 +16,8 @@ const (
 type ConfigKey struct{}
 
 type Configuration struct {
-	Version    string
-	ClientType string
-	Payload    map[string]interface{}
+	Version int
+	Payload map[string]interface{}
 }
 
 type ConfigClient interface {
@@ -31,9 +31,43 @@ func NewConfigClient(configType string) ConfigClient {
 	switch configType {
 	case ConfigClientTypeCLI:
 		return NewCLIConfigClient()
+	case ConfigClientTypeAgent:
+		// For agent, try to use snapshot client if available
+		// Fall back to CLI client if not
+		return NewCLIConfigClient() // Will be replaced when manager is running
 	default:
 		return NewDefaultConfigClient()
 	}
+}
+
+// NewConfigClientWithSnapshot creates a config client that uses snapshot manager
+// when token is available, falls back to simple viper otherwise
+func NewConfigClientWithSnapshot(ctx context.Context, isAgent bool) ConfigClient {
+	// Try simple CLI client first to check if we have token
+	cliClient := NewCLIConfigClient()
+
+	if token, ok := cliClient.Get("auth.token"); !ok || token == "" {
+		// No token, use simple CLI client
+		slog.Debug("no auth token found, using simple config client")
+		return cliClient
+	}
+
+	serverID, ok := cliClient.Get("server.id")
+	if !ok || serverID == "" {
+		slog.Debug("no server ID found, using simple config client")
+		return cliClient
+	}
+
+	// We have token and server ID, try to use snapshot client
+	basePath := GetBasePath(isAgent)
+	snapshotClient, err := NewSnapshotConfigClient(ctx, serverID.(string), basePath, isAgent)
+	if err != nil {
+		slog.Warn("failed to create snapshot client, falling back to simple client", "error", err)
+		return cliClient
+	}
+
+	slog.Info("using snapshot-based config client", "server_id", serverID)
+	return snapshotClient
 }
 
 func NewDefaultConfigClient() ConfigClient {
@@ -107,9 +141,16 @@ func (c *CLIConfigClient) Set(key string, value interface{}) error {
 
 // Config returns the full configuration
 func (c *CLIConfigClient) Config() Configuration {
+	payloadBytes, err := json.Marshal(c.viper.AllSettings())
+	if err != nil {
+		slog.Error("failed to marshal config payload", "error", err)
+	}
+	var configPayload map[string]interface{}
+	if err := json.Unmarshal(payloadBytes, &configPayload); err != nil {
+		slog.Error("failed to unmarshal config payload", "error", err)
+	}
 	return Configuration{
-		Version:    "unversioned", // viper configs are not  versioned in this simple client
-		ClientType: ConfigClientTypeCLI,
-		Payload:    c.viper.AllSettings(),
+		Version: 0, // viper configs are not versioned in this simple client
+		Payload: configPayload,
 	}
 }

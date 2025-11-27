@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
@@ -24,6 +25,14 @@ func NewAPIClient(config config_manager.ConfigClient, h *http.Client) *APIClient
 func (c *APIClient) GET(path string, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
+
+	if baseURL == nil {
+		return fmt.Errorf("api.base_url not configured")
+	}
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+	}
+
 	req, err := http.NewRequest("GET", baseURL.(string)+path, nil)
 	if err != nil {
 		return err
@@ -52,6 +61,15 @@ func (c *APIClient) GET(path string, response interface{}) error {
 func (c *APIClient) POST(path string, payload interface{}, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
+
+	if baseURL == nil {
+		return fmt.Errorf("api.base_url not configured")
+	}
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+	}
+
+	slog.Debug("APIClient POST", "url", baseURL.(string)+path, "payload", payload)
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -62,13 +80,12 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
-	req.Body = http.NoBody
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var errorResp any
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err != nil {
 			return err

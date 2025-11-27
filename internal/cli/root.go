@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/ambientlabscomputing/underleaf_client/pkg/version"
@@ -43,6 +44,7 @@ local servers and the control plane.`,
 func init() {
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.LocalCmd)
+	rootCmd.AddCommand(servers.ServersCmd)
 }
 
 func Execute(ctx context.Context) error {

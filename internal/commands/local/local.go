@@ -14,4 +14,6 @@ var LocalCmd = &cobra.Command{
 func init() {
 	LocalCmd.AddCommand(AuthCmd)
 	LocalCmd.AddCommand(RegisterCmd)
+	LocalCmd.AddCommand(ConfigCmd)
+	LocalCmd.AddCommand(AgentCmd)
 }

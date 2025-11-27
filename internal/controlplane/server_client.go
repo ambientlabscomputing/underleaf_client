@@ -39,9 +39,13 @@ func (c *ServerClient) GetServer(ctx context.Context, serverID string) (interfac
 }
 
 func (c *ServerClient) ListServers(ctx context.Context) ([]interface{}, error) {
-	var response []interface{}
+	// API returns paginated response with structure: { "servers": [...], "total": X }
+	var response struct {
+		Results []interface{} `json:"results"`
+		Total   int           `json:"total_count"`
+	}
 	if err := c.api.GET("/servers", &response); err != nil {
 		return nil, err
 	}
-	return response, nil
+	return response.Results, nil
 }

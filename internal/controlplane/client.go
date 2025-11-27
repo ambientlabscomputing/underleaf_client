@@ -9,6 +9,7 @@ import (
 
 type CPlaneClient struct {
 	Servers    CPlaneServerClient
+	Config     CPlaneConfigClient
 	config     *config_manager.ConfigClient
 	httpClient *http.Client
 	apiClient  *APIClient
@@ -21,6 +22,7 @@ func NewCPlaneClient(config *config_manager.ConfigClient, h *http.Client) *CPlan
 		httpClient: h,
 		apiClient:  apiClient,
 		Servers:    NewCPlaneServerClient(config, apiClient),
+		Config:     NewCPlaneConfigClient(apiClient),
 	}
 }
 
@@ -32,4 +34,12 @@ type CPlaneServerClient interface {
 
 func NewCPlaneServerClient(config *config_manager.ConfigClient, a *APIClient) CPlaneServerClient {
 	return NewServerClient(config, a)
+}
+
+type CPlaneConfigClient interface {
+	GetServerConfig(ctx context.Context, serverID string) (map[string]interface{}, int, error)
+}
+
+func NewCPlaneConfigClient(a *APIClient) CPlaneConfigClient {
+	return NewConfigClient(a)
 }

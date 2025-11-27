@@ -1,11 +1,7 @@
 package local
 
 import (
-	"net/http"
-
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
-	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
-	"github.com/ambientlabscomputing/underleaf_client/internal/server"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -18,29 +14,25 @@ var RegisterCmd = &cobra.Command{
 	Long:  "Registers a new Underleaf edge server with the control plane.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
-		printer := ui.GetPrinter(ctx)
-		configClient := config_manager.NewConfigClient(config_manager.ConfigClientTypeCLI)
-		h := http.DefaultClient
-		cPlane := controlplane.NewCPlaneClient(&configClient, h)
-		service := server.NewServerService(cPlane, configClient)
+		deps := utils.NewDependencyManager(ctx)
 
 		// Prompt for server name
 		name, err := ui.PromptInput("Enter a name for this edge server:", "my-edge-server")
 		if err != nil {
-			printer.PrintError("Failed to get input: " + err.Error())
+			deps.Printer.PrintError("Failed to get input: " + err.Error())
 			return err
 		}
 
 		if name == "" {
-			printer.PrintWarning("Registration cancelled - no name provided")
+			deps.Printer.PrintWarning("Registration cancelled - no name provided")
 			return nil
 		}
 
-		if err := service.RegisterServer(ctx, name); err != nil {
-			printer.PrintError("Failed to register edge server: " + err.Error())
+		if err := deps.ServerSvc.RegisterServer(ctx, name); err != nil {
+			deps.Printer.PrintError("Failed to register edge server: " + err.Error())
 			return err
 		}
-		printer.PrintSuccess("Edge server '" + name + "' registered successfully!")
+		deps.Printer.PrintSuccess("Edge server '" + name + "' registered successfully!")
 
 		return nil
 	},
