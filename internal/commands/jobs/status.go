@@ -19,7 +19,8 @@ var StatusCmd = &cobra.Command{
 
 Examples:
   ufctl jobs status abc-123-xyz
-  ufctl jobs status abc-123-xyz --watch`,
+  ufctl jobs status abc-123-xyz --watch
+  ufctl jobs status abc-123-xyz --output    # Show command output`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
@@ -27,16 +28,17 @@ Examples:
 		jobID := args[0]
 
 		watch, _ := cmd.Flags().GetBool("watch")
+		showOutput, _ := cmd.Flags().GetBool("output")
 
 		if watch {
-			return watchJobStatus(ctx, deps, jobID)
+			return watchJobStatus(ctx, deps, jobID, showOutput)
 		}
 
-		return showJobStatus(ctx, deps, jobID)
+		return showJobStatus(ctx, deps, jobID, showOutput)
 	},
 }
 
-func showJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID string) error {
+func showJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID string, showOutput bool) error {
 	// Get job status from API
 	job, err := getJob(ctx, deps, jobID)
 	if err != nil {
@@ -44,11 +46,11 @@ func showJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID str
 		return err
 	}
 
-	displayJobStatus(deps.Printer, job)
+	displayJobStatus(deps.Printer, job, showOutput)
 	return nil
 }
 
-func watchJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID string) error {
+func watchJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID string, showOutput bool) error {
 	deps.Printer.Print(fmt.Sprintf("Watching job: %s (Ctrl+C to exit)\n", jobID))
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -67,7 +69,7 @@ func watchJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID st
 
 			// Clear screen and show status
 			fmt.Print("\033[H\033[2J") // Clear screen
-			displayJobStatus(deps.Printer, job)
+			displayJobStatus(deps.Printer, job, showOutput)
 
 			// If job is completed or failed, stop watching
 			status := getStringField(job, "status")
@@ -88,15 +90,19 @@ func getJob(ctx context.Context, deps *utils.DependencyManager, jobID string) (m
 	return job, nil
 }
 
-func displayJobStatus(printer ui.Printer, job map[string]interface{}) {
+func displayJobStatus(printer ui.Printer, job map[string]interface{}, showOutput bool) {
 	boldStyle := lipgloss.NewStyle().Bold(true)
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	labelStyle := lipgloss.NewStyle().Width(20)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 
 	jobID := getStringField(job, "id")
 	jobType := getStringField(job, "type")
 	status := getStringField(job, "status")
-	createdAt := getStringField(job, "created_at")
+	createdAt := getStringField(job, "createdat")
+	if createdAt == "" {
+		createdAt = getStringField(job, "created_at")
+	}
 
 	printer.Print("")
 	printer.Print(boldStyle.Render(fmt.Sprintf("Job: %s", jobID)))
@@ -110,67 +116,16 @@ func displayJobStatus(printer ui.Printer, job map[string]interface{}) {
 	printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Status:"), formatStatus(status)))
 	printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Created:"), createdAt))
 
-	// Payload (command details)
-	if payload, ok := job["payload"].(map[string]interface{}); ok {
-		printer.Print("")
-		printer.Print(headerStyle.Render("Command Details"))
-
-		if command, ok := payload["command"].(string); ok {
-			printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Command:"), command))
-		}
-		if timeout, ok := payload["timeout"].(float64); ok && timeout > 0 {
-			printer.Print(fmt.Sprintf("%s%ds", labelStyle.Render("Timeout:"), int(timeout)))
-		}
-		if envVars, ok := payload["env_vars"].(map[string]interface{}); ok && len(envVars) > 0 {
-			printer.Print(fmt.Sprintf("%s%d vars", labelStyle.Render("Environment:"), len(envVars)))
-		}
-
-		// Server targeting
-		if allServers, ok := payload["all_servers"].(bool); ok && allServers {
-			printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Target:"), "All Servers"))
-		} else if serverIDs, ok := payload["server_ids"].([]interface{}); ok && len(serverIDs) > 0 {
-			printer.Print(fmt.Sprintf("%s%d server(s)", labelStyle.Render("Target:"), len(serverIDs)))
-		} else if tags, ok := payload["tags"].(map[string]interface{}); ok && len(tags) > 0 {
-			tagStrs := []string{}
-			for k, v := range tags {
-				tagStrs = append(tagStrs, fmt.Sprintf("%s=%v", k, v))
-			}
-			printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Target:"), strings.Join(tagStrs, ", ")))
-		}
+	// Display type-specific content
+	switch jobType {
+	case "run_command":
+		displayRunCommandJob(printer, job, showOutput, headerStyle, labelStyle, dimStyle)
+	default:
+		displayGenericJob(printer, job, headerStyle, labelStyle)
 	}
 
-	// Server requests (individual server results)
-	if serverRequests, ok := job["server_requests"].(map[string]interface{}); ok && len(serverRequests) > 0 {
-		printer.Print("")
-		printer.Print(headerStyle.Render("Server Results"))
-
-		table := ui.NewTableBuilder().
-			WithHeaders("Server ID", "Status", "Exit Code", "Duration")
-
-		for serverID, reqData := range serverRequests {
-			if req, ok := reqData.(map[string]interface{}); ok {
-				reqStatus := getStringField(req, "status")
-				exitCode := "-"
-				if ec, ok := req["exit_code"].(float64); ok {
-					exitCode = fmt.Sprintf("%d", int(ec))
-				}
-				duration := "-"
-				if dur, ok := req["duration"].(float64); ok {
-					duration = fmt.Sprintf("%.2fs", dur/1000)
-				}
-
-				// Truncate server ID for display
-				displayID := serverID
-				if len(displayID) > 12 {
-					displayID = displayID[:12] + "..."
-				}
-
-				table.AddRow(displayID, formatStatus(reqStatus), exitCode, duration)
-			}
-		}
-
-		printer.Print(table.Render())
-	}
+	// Events timeline
+	displayEvents(printer, job, headerStyle, dimStyle)
 
 	// Error information
 	if errors, ok := job["errors"].([]interface{}); ok && len(errors) > 0 {
@@ -178,12 +133,173 @@ func displayJobStatus(printer ui.Printer, job map[string]interface{}) {
 		printer.Print(headerStyle.Render("Errors"))
 		for _, err := range errors {
 			if errStr, ok := err.(string); ok {
-				printer.PrintError(errStr)
+				printer.PrintError("  " + errStr)
 			}
 		}
 	}
 
 	printer.Print("")
+}
+
+// displayRunCommandJob shows rich output for run_command job type
+func displayRunCommandJob(printer ui.Printer, job map[string]interface{}, showOutput bool, headerStyle, labelStyle, dimStyle lipgloss.Style) {
+	payload, ok := job["payload"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	printer.Print("")
+	printer.Print(headerStyle.Render("Command Details"))
+
+	if command, ok := payload["command"].(string); ok {
+		printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Command:"), command))
+	}
+	if workDir, ok := payload["work_dir"].(string); ok && workDir != "" {
+		printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Work Directory:"), workDir))
+	}
+	if timeout, ok := payload["timeout"].(float64); ok && timeout > 0 {
+		printer.Print(fmt.Sprintf("%s%ds", labelStyle.Render("Timeout:"), int(timeout)))
+	}
+
+	// Server targeting
+	if allServers, ok := payload["all_servers"].(bool); ok && allServers {
+		printer.Print(fmt.Sprintf("%s%s", labelStyle.Render("Target:"), "All Servers"))
+	} else if serverIDs, ok := payload["server_ids"].([]interface{}); ok && len(serverIDs) > 0 {
+		printer.Print(fmt.Sprintf("%s%d server(s)", labelStyle.Render("Target:"), len(serverIDs)))
+		for _, id := range serverIDs {
+			if idStr, ok := id.(string); ok {
+				printer.Print(fmt.Sprintf("%s  • %s", labelStyle.Render(""), dimStyle.Render(idStr)))
+			}
+		}
+	}
+
+	// Server requests with results
+	serverRequests, ok := payload["server_requests"].(map[string]interface{})
+	if !ok || len(serverRequests) == 0 {
+		return
+	}
+
+	printer.Print("")
+	printer.Print(headerStyle.Render("Server Results"))
+
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	outputStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	outputHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("4"))
+
+	for serverID, reqData := range serverRequests {
+		req, ok := reqData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		reqStatus := getStringField(req, "status")
+
+		// Display server header
+		printer.Print("")
+		printer.Print(fmt.Sprintf("  %s %s", formatStatus(reqStatus), dimStyle.Render(serverID)))
+
+		// Get result data
+		result, hasResult := req["result"].(map[string]interface{})
+		if hasResult {
+			// Exit code
+			if exitCode, ok := result["exitcode"].(float64); ok {
+				exitCodeInt := int(exitCode)
+				exitCodeStr := fmt.Sprintf("%d", exitCodeInt)
+				if exitCodeInt == 0 {
+					exitCodeStr = successStyle.Render(exitCodeStr)
+				} else {
+					exitCodeStr = errorStyle.Render(exitCodeStr)
+				}
+				printer.Print(fmt.Sprintf("      Exit Code: %s", exitCodeStr))
+			}
+
+			// Timestamp
+			if timestamp, ok := result["timestamp"].(string); ok {
+				printer.Print(fmt.Sprintf("      Completed: %s", dimStyle.Render(timestamp)))
+			}
+
+			// Show output if requested or if there's stderr
+			stdout := getStringField(result, "stdout")
+			stderr := getStringField(result, "stderr")
+
+			if showOutput || stderr != "" {
+				if stdout != "" {
+					printer.Print("")
+					printer.Print(fmt.Sprintf("      %s", outputHeaderStyle.Render("stdout:")))
+					printIndentedOutput(printer, stdout, "        ", outputStyle)
+				}
+
+				if stderr != "" {
+					printer.Print("")
+					printer.Print(fmt.Sprintf("      %s", errorStyle.Render("stderr:")))
+					printIndentedOutput(printer, stderr, "        ", errorStyle)
+				}
+			} else if stdout != "" {
+				// Show truncated output hint
+				lines := strings.Split(strings.TrimSpace(stdout), "\n")
+				printer.Print(fmt.Sprintf("      Output: %s", dimStyle.Render(fmt.Sprintf("%d lines (use --output to show)", len(lines)))))
+			}
+		}
+	}
+}
+
+// printIndentedOutput prints multi-line output with indentation
+func printIndentedOutput(printer ui.Printer, output string, indent string, style lipgloss.Style) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	maxLines := 50 // Limit output display
+
+	for i, line := range lines {
+		if i >= maxLines {
+			printer.Print(fmt.Sprintf("%s%s", indent, style.Render(fmt.Sprintf("... (%d more lines)", len(lines)-maxLines))))
+			break
+		}
+		printer.Print(fmt.Sprintf("%s%s", indent, style.Render(line)))
+	}
+}
+
+// displayGenericJob shows basic payload info for unknown job types
+func displayGenericJob(printer ui.Printer, job map[string]interface{}, headerStyle, labelStyle lipgloss.Style) {
+	payload, ok := job["payload"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	printer.Print("")
+	printer.Print(headerStyle.Render("Payload"))
+
+	for key, value := range payload {
+		printer.Print(fmt.Sprintf("%s%v", labelStyle.Render(key+":"), value))
+	}
+}
+
+// displayEvents shows the job events timeline
+func displayEvents(printer ui.Printer, job map[string]interface{}, headerStyle, dimStyle lipgloss.Style) {
+	events, ok := job["events"].([]interface{})
+	if !ok || len(events) == 0 {
+		return
+	}
+
+	printer.Print("")
+	printer.Print(headerStyle.Render("Events Timeline"))
+
+	for _, event := range events {
+		eventMap, ok := event.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		timestamp := getStringField(eventMap, "timestamp")
+		message := getStringField(eventMap, "message")
+
+		// Format timestamp to show just time if same day
+		timeStr := timestamp
+		if t, err := time.Parse(time.RFC3339, timestamp); err == nil {
+			timeStr = t.Format("15:04:05")
+		}
+
+		printer.Print(fmt.Sprintf("  %s  %s", dimStyle.Render(timeStr), message))
+	}
 }
 
 func formatStatus(status string) string {
@@ -212,5 +328,6 @@ func getStringField(m map[string]interface{}, key string) string {
 
 func init() {
 	StatusCmd.Flags().BoolP("watch", "w", false, "Watch job status until completion")
+	StatusCmd.Flags().BoolP("output", "o", false, "Show full command output (stdout/stderr)")
 	JobsCmd.AddCommand(StatusCmd)
 }

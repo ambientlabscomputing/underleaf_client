@@ -22,14 +22,14 @@ func NewCommandClient(api *APIClient) *CommandClient {
 }
 
 // CommandResultRequest is the request body for reporting command results
+// Must match the API schema exactly: exit_code, server_id, stderr, stdout, timestamp, trace_id
 type CommandResultRequest struct {
-	TraceID   string    `json:"trace_id"`
-	ServerID  string    `json:"server_id"`
-	ExitCode  int       `json:"exit_code"`
-	Stdout    string    `json:"stdout,omitempty"`
-	Stderr    string    `json:"stderr,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+	ExitCode  int    `json:"exit_code"`
+	ServerID  string `json:"server_id"`
+	Stderr    string `json:"stderr"`
+	Stdout    string `json:"stdout"`
+	Timestamp string `json:"timestamp"`
+	TraceID   string `json:"trace_id"`
 }
 
 // CommandResultResponse is the response from reporting command results
@@ -40,14 +40,23 @@ type CommandResultResponse struct {
 
 // ReportResult reports a command execution result to the control plane
 func (c *CommandClient) ReportResult(ctx context.Context, result exec.CommandResult) error {
+	// Include error message in stderr if present
+	stderr := result.Stderr
+	if result.Error != "" {
+		if stderr != "" {
+			stderr = stderr + "\n" + result.Error
+		} else {
+			stderr = result.Error
+		}
+	}
+
 	req := CommandResultRequest{
-		TraceID:   result.TraceID,
-		ServerID:  result.ServerID,
 		ExitCode:  result.ExitCode,
+		ServerID:  result.ServerID,
+		Stderr:    stderr,
 		Stdout:    result.Stdout,
-		Stderr:    result.Stderr,
-		Error:     result.Error,
-		Timestamp: result.Timestamp,
+		Timestamp: result.Timestamp.Format(time.RFC3339),
+		TraceID:   result.TraceID,
 	}
 
 	slog.Info("reporting command result",
