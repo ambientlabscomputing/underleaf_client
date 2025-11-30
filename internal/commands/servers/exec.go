@@ -149,7 +149,7 @@ func applyCommandSelector(req *controlplane.DispatchCommandRequest, selector str
 func showExecPlan(printer ui.Printer, selector string, command []string, timeout int, detach bool) {
 	boldStyle := lipgloss.NewStyle().Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	
+
 	printer.Print("")
 	printer.Print(boldStyle.Render("Command Execution"))
 	printer.Print(fmt.Sprintf("  Selector: %s", selector))
@@ -234,7 +234,7 @@ func waitForCompletion(ctx context.Context, deps *utils.DependencyManager, jobID
 			// Check if completed
 			if status == "completed" || status == "failed" {
 				deps.Printer.Print("")
-				
+
 				if status == "completed" {
 					deps.Printer.Print(successStyle.Render(fmt.Sprintf("✓ Completed in %s", elapsed)))
 				} else {
@@ -281,14 +281,14 @@ func showResultsSummary(printer ui.Printer, job map[string]interface{}, boldStyl
 		}
 
 		reqStatus := getStringField(req, "status")
-		
+
 		// Get result data
 		result, hasResult := req["result"].(map[string]interface{})
-		
+
 		// Format server line
 		var statusIcon string
 		var exitCodeStr string
-		
+
 		if reqStatus == "completed" {
 			statusIcon = successStyle.Render("✓")
 		} else if reqStatus == "failed" {
