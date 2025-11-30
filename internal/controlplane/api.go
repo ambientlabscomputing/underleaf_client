@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -85,16 +86,20 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 		return err
 	}
 	defer resp.Body.Close()
+
+	// Read the body for debugging and parsing
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	slog.Debug("APIClient POST response", "status", resp.StatusCode, "body", string(bodyBytes))
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		var errorResp any
-		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err != nil {
-			return err
-		}
-		return fmt.Errorf("API request failed with status %s: %s", resp.Status, errorResp)
+		return fmt.Errorf("API request failed with status %s: %s", resp.Status, string(bodyBytes))
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(response); err != nil {
-		return err
+	if err := json.Unmarshal(bodyBytes, response); err != nil {
+		return fmt.Errorf("failed to parse response: %w, body: %s", err, string(bodyBytes))
 	}
 
 	return nil

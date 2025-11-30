@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
@@ -45,6 +46,7 @@ func init() {
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.LocalCmd)
 	rootCmd.AddCommand(servers.ServersCmd)
+	rootCmd.AddCommand(jobs.JobsCmd)
 }
 
 func Execute(ctx context.Context) error {

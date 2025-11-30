@@ -7,16 +7,18 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/gin-gonic/gin"
 )
 
 // Server is the agent HTTP server
 type Server struct {
-	port          int
-	router        *gin.Engine
-	server        *http.Server
-	configManager config_manager.ConfigManager
-	configClient  config_manager.ConfigClient
+	port           int
+	router         *gin.Engine
+	server         *http.Server
+	configManager  config_manager.ConfigManager
+	configClient   config_manager.ConfigClient
+	commandHandler *exec.CommandHandler
 }
 
 // NewServer creates a new agent server
@@ -41,6 +43,11 @@ func (s *Server) SetDependencies(configManager config_manager.ConfigManager, con
 	s.configClient = configClient
 }
 
+// SetCommandHandler injects the command handler into the server
+func (s *Server) SetCommandHandler(handler *exec.CommandHandler) {
+	s.commandHandler = handler
+}
+
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
 	// Health check
@@ -52,6 +59,7 @@ func (s *Server) setupRoutes() {
 	{
 		api.GET("/status", s.handleStatus)
 		api.POST("/commands/execute", s.handleExecuteCommand)
+		api.GET("/commands/settings", s.handleGetCommandSettings)
 		api.GET("/config", s.handleGetConfig)
 		api.PUT("/config", s.handleUpdateConfig)
 	}
@@ -120,9 +128,12 @@ func (s *Server) handleStatus(c *gin.Context) {
 
 func (s *Server) handleExecuteCommand(c *gin.Context) {
 	var req struct {
-		Command string   `json:"command" binding:"required"`
-		Args    []string `json:"args"`
-		Timeout int      `json:"timeout"` // seconds
+		TraceID    string            `json:"trace_id"`
+		Command    string            `json:"command" binding:"required"`
+		Args       []string          `json:"args"`
+		Env        map[string]string `json:"env"`
+		WorkingDir string            `json:"working_dir"`
+		Timeout    int               `json:"timeout"` // seconds
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -130,11 +141,46 @@ func (s *Server) handleExecuteCommand(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement command execution
-	c.JSON(http.StatusOK, gin.H{
-		"status": "executed",
-		"result": "command execution not yet implemented",
-	})
+	if s.commandHandler == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "command handler not initialized",
+		})
+		return
+	}
+
+	// Generate trace ID if not provided
+	traceID := req.TraceID
+	if traceID == "" {
+		traceID = fmt.Sprintf("local-%d", time.Now().UnixNano())
+	}
+
+	// Execute command locally via the handler's runner
+	cmdReq := exec.CommandRequest{
+		TraceID:    traceID,
+		Command:    req.Command,
+		Args:       req.Args,
+		Env:        req.Env,
+		WorkingDir: req.WorkingDir,
+		Timeout:    req.Timeout,
+	}
+
+	// Get the runner from the handler and execute directly
+	// For local execution via HTTP, we return the result directly instead of reporting to control plane
+	result := s.commandHandler.ExecuteLocal(cmdReq)
+
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) handleGetCommandSettings(c *gin.Context) {
+	if s.commandHandler == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "command handler not initialized",
+		})
+		return
+	}
+
+	settings := s.commandHandler.GetSettings()
+	c.JSON(http.StatusOK, settings)
 }
 
 func (s *Server) handleGetConfig(c *gin.Context) {

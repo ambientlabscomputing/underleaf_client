@@ -10,13 +10,15 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 )
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config        config_manager.ConfigClient
-	ConfigManager config_manager.ConfigManager
-	Server        *Server
+	Config         config_manager.ConfigClient
+	ConfigManager  config_manager.ConfigManager
+	Server         *Server
+	CommandHandler *exec.CommandHandler
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -57,13 +59,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	slog.Info("initializing agent with config", "server_id", serverID, "has_token", true)
 
-	// Initialize control plane client for config fetching
+	// Initialize control plane client for config fetching and command results
 	httpClient := http.DefaultClient
 	cplaneClient := controlplane.NewCPlaneClient(&configClient, httpClient)
 	cpConfigAdapter := config_manager.NewControlPlaneConfigAdapter(cplaneClient.Config)
 
-	// Initialize event bus client for push updates (if configured)
+	// Initialize event bus client for push updates and command events
 	var eventBusAdapter *config_manager.EventBusAdapter
+	var busClient *bus.Client
 	endpoint, hasEndpoint := getConfigValue(configClient, "event_bus.endpoint")
 	if hasEndpoint && endpoint != "" {
 		commitInterval, _ := getConfigValue(configClient, "event_bus.commit_interval")
@@ -80,13 +83,18 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			GroupID:        serverID.(string),
 		})
 
-		busClient, err := bus.NewClient(ebClient)
+		// Enable verbose mode to debug WebSocket communication
+		ebClient.SetVerbose(true)
+
+		var err error
+		busClient, err = bus.NewClient(ebClient)
 		if err != nil {
 			slog.Warn("failed to create event bus client", "error", err)
 		} else {
 			slog.Info("starting event bus client")
 			if err := busClient.Start(ctx, serverID.(string)); err != nil {
 				slog.Warn("failed to start event bus client", "error", err)
+				busClient = nil
 			} else {
 				slog.Info("event bus client started successfully")
 				eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
@@ -120,15 +128,162 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Create snapshot config client
 	snapshotClient := config_manager.NewSnapshotConfigClientWithManager(snapshotManager, store)
 
+	// Initialize command execution system
+	commandSettings := getCommandSettingsFromConfig(snapshotClient)
+	runner := exec.NewLocalRunner(serverID.(string), commandSettings)
+	commandHandler := exec.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
+
+	// Subscribe to command events if event bus is available
+	if busClient != nil {
+		go subscribeToCommandEvents(ctx, busClient, commandHandler, serverID.(string))
+	}
+
+	// Watch for config updates to refresh command settings
+	go watchConfigForCommandSettings(ctx, snapshotManager, commandHandler)
+
 	// Initialize server
 	server := NewServer(port)
 	server.SetDependencies(snapshotManager, snapshotClient)
+	server.SetCommandHandler(commandHandler)
 
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
-		Config:        snapshotClient,
-		ConfigManager: snapshotManager,
-		Server:        server,
+		Config:         snapshotClient,
+		ConfigManager:  snapshotManager,
+		Server:         server,
+		CommandHandler: commandHandler,
 	}, nil
+}
+
+// getCommandSettingsFromConfig extracts command settings from config snapshot
+func getCommandSettingsFromConfig(config config_manager.ConfigClient) exec.CommandSettings {
+	settings := exec.DefaultCommandSettings()
+
+	// Try to get commands config from payload
+	if commands, ok := config.Get("commands"); ok {
+		if commandsMap, ok := commands.(map[string]interface{}); ok {
+			if whitelist, ok := commandsMap["whitelist"].([]interface{}); ok {
+				settings.Whitelist = make([]string, 0, len(whitelist))
+				for _, v := range whitelist {
+					if s, ok := v.(string); ok {
+						settings.Whitelist = append(settings.Whitelist, s)
+					}
+				}
+			}
+			if blacklist, ok := commandsMap["blacklist"].([]interface{}); ok {
+				settings.Blacklist = make([]string, 0, len(blacklist))
+				for _, v := range blacklist {
+					if s, ok := v.(string); ok {
+						settings.Blacklist = append(settings.Blacklist, s)
+					}
+				}
+			}
+			if allowLiteral, ok := commandsMap["allow_literal_commands"].(bool); ok {
+				settings.AllowLiteralCommands = allowLiteral
+			}
+			if timeout, ok := commandsMap["default_timeout"].(float64); ok {
+				settings.DefaultTimeout = int(timeout)
+			}
+		}
+	}
+
+	slog.Info("loaded command settings",
+		"whitelist_count", len(settings.Whitelist),
+		"blacklist_count", len(settings.Blacklist),
+		"allow_literal", settings.AllowLiteralCommands,
+		"default_timeout", settings.DefaultTimeout,
+	)
+
+	return settings
+}
+
+// subscribeToCommandEvents subscribes to command execution events
+func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handler *exec.CommandHandler, serverID string) {
+	slog.Info("subscribing to command events", "server_id", serverID)
+
+	// Subscribe to command run requests - topic only, filter by server_id in handler
+	// Note: server_id is in message content, not in message metadata (TargetID)
+	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
+		Topic: bus.CommandsRunRequest,
+		// Don't filter by TargetID here - it's in the message payload, not metadata
+	})
+	if err != nil {
+		slog.Error("failed to subscribe to command events", "error", err)
+		return
+	}
+
+	slog.Info("subscribed to command events successfully", "topic", bus.CommandsRunRequest)
+
+	// Handle incoming command messages
+	for {
+		select {
+		case msg := <-subscription.HandlerChan:
+			slog.Debug("received command event message")
+			handler.HandleCommandEvent(ctx, []byte(msg.Content))
+		case <-ctx.Done():
+			slog.Info("stopping command event subscription")
+			return
+		}
+	}
+}
+
+// watchConfigForCommandSettings watches for config updates and refreshes command settings
+func watchConfigForCommandSettings(ctx context.Context, manager config_manager.ConfigManager, handler *exec.CommandHandler) {
+	watchChan := manager.Watch()
+
+	for {
+		select {
+		case snapshot := <-watchChan:
+			if snapshot == nil {
+				continue
+			}
+
+			// Extract and update command settings from new snapshot
+			settings := extractCommandSettingsFromSnapshot(snapshot)
+			handler.UpdateSettings(settings)
+			slog.Info("updated command settings from config snapshot", "version", snapshot.Version)
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// extractCommandSettingsFromSnapshot extracts command settings from a config snapshot
+func extractCommandSettingsFromSnapshot(snapshot *config_manager.ConfigSnapshot) exec.CommandSettings {
+	settings := exec.DefaultCommandSettings()
+
+	if snapshot == nil || snapshot.Payload == nil {
+		return settings
+	}
+
+	if commands, ok := snapshot.Payload["commands"]; ok {
+		if commandsMap, ok := commands.(map[string]interface{}); ok {
+			if whitelist, ok := commandsMap["whitelist"].([]interface{}); ok {
+				settings.Whitelist = make([]string, 0, len(whitelist))
+				for _, v := range whitelist {
+					if s, ok := v.(string); ok {
+						settings.Whitelist = append(settings.Whitelist, s)
+					}
+				}
+			}
+			if blacklist, ok := commandsMap["blacklist"].([]interface{}); ok {
+				settings.Blacklist = make([]string, 0, len(blacklist))
+				for _, v := range blacklist {
+					if s, ok := v.(string); ok {
+						settings.Blacklist = append(settings.Blacklist, s)
+					}
+				}
+			}
+			if allowLiteral, ok := commandsMap["allow_literal_commands"].(bool); ok {
+				settings.AllowLiteralCommands = allowLiteral
+			}
+			if timeout, ok := commandsMap["default_timeout"].(float64); ok {
+				settings.DefaultTimeout = int(timeout)
+			}
+		}
+	}
+
+	return settings
 }

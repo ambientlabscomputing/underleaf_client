@@ -20,10 +20,10 @@ type SelectorFields struct {
 func (s SelectorFields) ToSubscriptionRequest() event_bus_client.SubscriptionRequest {
 	return event_bus_client.SubscriptionRequest{
 		Topic:      s.Topic,
-		TargetType: &s.TargetType,
-		TargetID:   &s.TargetID,
-		OrgID:      &s.OrgID,
-		TraceID:    &s.TraceID,
+		TargetType: nilIfEmpty(s.TargetType),
+		TargetID:   nilIfEmpty(s.TargetID),
+		OrgID:      nilIfEmpty(s.OrgID),
+		TraceID:    nilIfEmpty(s.TraceID),
 	}
 }
 
@@ -51,6 +51,22 @@ func (c *Client) Start(ctx context.Context, serverID string) error {
 	logger.Info("starting event bus client")
 	c.channels = make(map[string][]chan event_bus_client.Message)
 	InitSubscriptions(serverID)
+
+	// Pre-register channels for starting subscriptions so they're ready when messages arrive
+	for _, sub := range StartingSubscriptions {
+		selector := SelectorFields{
+			Topic:      sub.Topic,
+			TargetType: defref(sub.TargetType),
+			TargetID:   defref(sub.TargetID),
+			OrgID:      defref(sub.OrgID),
+			TraceID:    defref(sub.TraceID),
+		}
+		index := selector.ToIndex()
+		handlerChan := make(chan event_bus_client.Message, 100)
+		c.channels[index] = append(c.channels[index], handlerChan)
+		logger.Debug("pre-registered channel for starting subscription", "index", index)
+	}
+
 	if err := c.eventBus.Connect(ctx, &StartingSubscriptions); err != nil {
 		return err
 	}
@@ -84,19 +100,48 @@ func (c *Client) Publish(ctx context.Context, selector SelectorFields, payload i
 }
 
 func (c *Client) Subscribe(ctx context.Context, selector SelectorFields) (ClientSubscription, error) {
+	logger := logging.GetLogger(ctx)
+	index := selector.ToIndex()
+
+	logger.Debug("subscribing to event bus",
+		"topic", selector.Topic,
+		"target_type", selector.TargetType,
+		"target_id", selector.TargetID,
+		"index", index,
+	)
+
+	// Check if already subscribed (from StartingSubscriptions)
+	if chans, ok := c.channels[index]; ok && len(chans) > 0 {
+		logger.Debug("reusing existing subscription channel", "index", index)
+		return ClientSubscription{
+			Selector:    selector,
+			HandlerChan: chans[0], // Return the first (pre-registered) channel
+		}, nil
+	}
+
+	// New subscription - register with event bus
+	// Use nil for empty filter fields (event_bus_client expects nil for "no filter")
 	subscriptionReq := event_bus_client.SubscriptionRequest{
 		Topic:      selector.Topic,
-		TargetType: &selector.TargetType,
-		TargetID:   &selector.TargetID,
-		OrgID:      &selector.OrgID,
-		TraceID:    &selector.TraceID,
+		TargetType: nilIfEmpty(selector.TargetType),
+		TargetID:   nilIfEmpty(selector.TargetID),
+		OrgID:      nilIfEmpty(selector.OrgID),
+		TraceID:    nilIfEmpty(selector.TraceID),
 	}
-	handlerChan := make(chan event_bus_client.Message, 100)
+
 	err := c.eventBus.Subscribe(ctx, subscriptionReq)
 	if err != nil {
+		logger.Error("failed to subscribe to event bus", "error", err)
 		return ClientSubscription{}, err
 	}
-	c.channels[selector.ToIndex()] = append(c.channels[selector.ToIndex()], handlerChan)
+
+	handlerChan := make(chan event_bus_client.Message, 100)
+	c.channels[index] = append(c.channels[index], handlerChan)
+
+	logger.Debug("subscription registered",
+		"index", index,
+		"total_channels", len(c.channels),
+	)
 	return ClientSubscription{
 		Selector:    selector,
 		HandlerChan: handlerChan,
@@ -108,10 +153,21 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 	// get incoming msg channel
 	incomingChan := c.eventBus.IncomingMsgChannel()
 
+	logger.Info("message handler started, waiting for messages...")
+
 	// for select loop to handle incoming messages
 	for {
 		select {
-		case msg := <-incomingChan:
+		case msg, ok := <-incomingChan:
+			if !ok {
+				logger.Warn("incoming message channel closed")
+				return
+			}
+			logger.Info("RAW MESSAGE RECEIVED FROM EVENT BUS",
+				"topic", msg.Topic,
+				"content_length", len(msg.Content),
+				"target_id", defref(msg.TargetID),
+			)
 			selector := SelectorFields{
 				Topic:      msg.Topic,
 				TargetType: defref(msg.TargetType),
@@ -120,23 +176,64 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 				TraceID:    defref(msg.TraceID),
 			}
 			index := selector.ToIndex()
+			logger.Debug("incoming message",
+				"topic", msg.Topic,
+				"target_id", defref(msg.TargetID),
+				"index", index,
+				"registered_channels", len(c.channels),
+			)
+
+			// Try exact match first
 			if chans, ok := c.channels[index]; ok {
 				for _, ch := range chans {
-					logger.Debug("message received", "destination", index)
+					logger.Debug("message delivered (exact match)", "destination", index)
 					ch <- msg
 				}
-			} else {
-				logger.Warn("no subscribers for message", "selector", index)
+				continue
 			}
+
+			// Fallback: try topic-only match (for subscriptions that filter in handler)
+			topicOnlySelector := SelectorFields{Topic: msg.Topic}
+			topicOnlyIndex := topicOnlySelector.ToIndex()
+			if chans, ok := c.channels[topicOnlyIndex]; ok {
+				for _, ch := range chans {
+					logger.Debug("message delivered (topic match)", "destination", topicOnlyIndex)
+					ch <- msg
+				}
+				continue
+			}
+
+			logger.Warn("no subscribers for message",
+				"selector", index,
+				"available_indices", c.getChannelIndices(),
+			)
 		case <-ctx.Done():
 			return
 		}
 	}
 }
 
+func (c *Client) getChannelIndices() []string {
+	indices := make([]string, 0, len(c.channels))
+	for k := range c.channels {
+		indices = append(indices, k)
+	}
+	return indices
+}
+
+// defref dereferences a string pointer, returning empty string if nil
 func defref(s *string) string {
 	if s != nil {
 		return *s
 	}
 	return ""
+}
+
+// nilIfEmpty returns nil if the string is empty, otherwise a pointer to the string.
+// This is important because event_bus_client expects nil for "no filter", not a pointer to an empty string.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

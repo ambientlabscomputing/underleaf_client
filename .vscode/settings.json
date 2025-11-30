@@ -1,0 +1,11 @@
+{
+    "idf.pythonInstallPath": "/Users/jose/.pyenv/shims/python",
+    "workbench.colorCustomizations": {
+        "statusBar.background": "#af120d",
+        "statusBar.foreground": "#FFFFFF",
+        "statusBar.noFolderBackground": "#af120d",
+        "statusBar.debuggingBackground": "#af120d",
+        "statusBarItem.hoverBackground": "#af120d",
+        "statusBarItem.activeBackground": "#af120d"
+    }
+}

@@ -10,6 +10,7 @@ import (
 type CPlaneClient struct {
 	Servers    CPlaneServerClient
 	Config     CPlaneConfigClient
+	Commands   CPlaneCommandClient
 	config     *config_manager.ConfigClient
 	httpClient *http.Client
 	apiClient  *APIClient
@@ -23,6 +24,7 @@ func NewCPlaneClient(config *config_manager.ConfigClient, h *http.Client) *CPlan
 		apiClient:  apiClient,
 		Servers:    NewCPlaneServerClient(config, apiClient),
 		Config:     NewCPlaneConfigClient(apiClient),
+		Commands:   NewCommandClient(apiClient),
 	}
 }
 
@@ -42,4 +44,13 @@ type CPlaneConfigClient interface {
 
 func NewCPlaneConfigClient(a *APIClient) CPlaneConfigClient {
 	return NewConfigClient(a)
+}
+
+func NewCPlaneCommandClient(a *APIClient) CPlaneCommandClient {
+	return NewCommandClient(a)
+}
+
+// API returns the underlying API client for direct API calls
+func (c *CPlaneClient) API() *APIClient {
+	return c.apiClient
 }
