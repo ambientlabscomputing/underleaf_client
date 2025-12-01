@@ -1,0 +1,50 @@
+# Underleaf Client Configuration Example
+# Copy this file to config.yaml and update with your values
+# Location: ~/.underleaf/config.yaml or ./config.yaml
+
+version: 0.0.0
+
+payload:
+  # Control Plane API Configuration
+  api:
+    base_url: http://localhost:8080/api/v1
+    # Use HTTPS in production:
+    # base_url: https://api.underleaf.example.com/api/v1
+
+  # Authentication Configuration
+  auth:
+    # JWT token from authentication
+    # Obtain with: ufctl local auth
+    token: your-jwt-token-here
+    # Example token format: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+
+  # Event Bus Configuration
+  event_bus:
+    # WebSocket endpoint for event bus
+    endpoint: ws://localhost:9000
+    # Use WSS in production:
+    # endpoint: wss://eventbus.underleaf.example.com
+    
+    # How often to commit message offsets (consumer group tracking)
+    commit_interval: 5s
+
+  # Local Server Configuration (for agent mode)
+  local:
+    # Unique identifier for this server
+    # Obtain with: ufctl local register
+    server_id: 00000000-0000-0000-0000-000000000000
+    
+    # Optional: Server display name
+    # name: my-edge-server
+    
+    # Optional: Server tags for targeting
+    # tags:
+    #   env: production
+    #   region: us-west
+    #   role: web
+
+  # Optional: Logging Configuration
+  logging:
+    level: info  # debug, info, warn, error
+    format: json # json, text
+    output: stdout # stdout, stderr, or file path

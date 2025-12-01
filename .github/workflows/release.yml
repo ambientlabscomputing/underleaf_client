@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.x'
+    
+    - name: Run tests
+      run: go test -v ./...
+    
+    - name: Build binaries
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/v}
+        
+        # Build for multiple platforms
+        mkdir -p dist
+        
+        # macOS
+        GOOS=darwin GOARCH=amd64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/ufctl-darwin-amd64 ./cmd/ufctl
+        GOOS=darwin GOARCH=arm64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/ufctl-darwin-arm64 ./cmd/ufctl
+        GOOS=darwin GOARCH=amd64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/underleaf_agent-darwin-amd64 ./cmd/underleaf_agent
+        GOOS=darwin GOARCH=arm64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/underleaf_agent-darwin-arm64 ./cmd/underleaf_agent
+        
+        # Linux
+        GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/ufctl-linux-amd64 ./cmd/ufctl
+        GOOS=linux GOARCH=arm64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/ufctl-linux-arm64 ./cmd/ufctl
+        GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/underleaf_agent-linux-amd64 ./cmd/underleaf_agent
+        GOOS=linux GOARCH=arm64 go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$VERSION" -o dist/underleaf_agent-linux-arm64 ./cmd/underleaf_agent
+        
+        # Create archives
+        cd dist
+        for binary in *; do
+          if [[ $binary == *"darwin"* ]]; then
+            tar czf "${binary}.tar.gz" "$binary"
+          else
+            tar czf "${binary}.tar.gz" "$binary"
+          fi
+        done
+        
+        # Generate checksums
+        sha256sum *.tar.gz > checksums.txt
+    
+    - name: Extract release notes
+      id: extract_notes
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        # Extract changelog entry for this version
+        sed -n "/## \[${VERSION}\]/,/## \[/p" CHANGELOG.md | sed '$d' > release_notes.md
+        if [ ! -s release_notes.md ]; then
+          echo "Release $VERSION" > release_notes.md
+        fi
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        body_path: release_notes.md
+        files: |
+          dist/*.tar.gz
+          dist/checksums.txt
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

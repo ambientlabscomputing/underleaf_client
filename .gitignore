@@ -1,2 +1,38 @@
+# Binaries
+ufctl
+underleaf_agent
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of go build
+*.out
+
+# Logs
 *.log
+
+# Config files (use config.example.yaml for templates)
 config.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Development
+.env
+.envrc
+tmp/
+dist/
+
+# Coverage
+*.coverprofile
+coverage.out
+coverage.html

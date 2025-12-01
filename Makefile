@@ -1,0 +1,107 @@
+.PHONY: build test clean install fmt vet lint run-cli run-agent help
+
+# Variables
+BINARY_CLI=ufctl
+BINARY_AGENT=underleaf_agent
+VERSION?=dev
+LDFLAGS=-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION)"
+
+## help: Display this help message
+help:
+	@echo "Underleaf Client - Makefile targets:"
+	@echo ""
+	@grep -E '^##' Makefile | sed 's/## /  /'
+	@echo ""
+
+## build: Build both CLI and agent binaries
+build: build-cli build-agent
+
+## build-cli: Build the CLI binary (ufctl)
+build-cli:
+	@echo "Building $(BINARY_CLI)..."
+	@go build $(LDFLAGS) -o $(BINARY_CLI) ./cmd/ufctl
+	@echo "✓ Built $(BINARY_CLI)"
+
+## build-agent: Build the agent binary
+build-agent:
+	@echo "Building $(BINARY_AGENT)..."
+	@go build $(LDFLAGS) -o $(BINARY_AGENT) ./cmd/underleaf_agent
+	@echo "✓ Built $(BINARY_AGENT)"
+
+## install: Install binaries to $GOPATH/bin
+install:
+	@echo "Installing binaries..."
+	@go install $(LDFLAGS) ./cmd/ufctl
+	@go install $(LDFLAGS) ./cmd/underleaf_agent
+	@echo "✓ Installed to $(GOPATH)/bin"
+
+## test: Run all tests
+test:
+	@echo "Running tests..."
+	@go test -v ./...
+
+## test-coverage: Run tests with coverage
+test-coverage:
+	@echo "Running tests with coverage..."
+	@go test -coverprofile=coverage.out ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "✓ Coverage report generated: coverage.html"
+
+## fmt: Format code
+fmt:
+	@echo "Formatting code..."
+	@go fmt ./...
+	@echo "✓ Code formatted"
+
+## vet: Run go vet
+vet:
+	@echo "Running go vet..."
+	@go vet ./...
+	@echo "✓ Vet passed"
+
+## lint: Run golangci-lint (requires golangci-lint installed)
+lint:
+	@echo "Running golangci-lint..."
+	@golangci-lint run ./...
+	@echo "✓ Lint passed"
+
+## clean: Remove build artifacts
+clean:
+	@echo "Cleaning up..."
+	@rm -f $(BINARY_CLI) $(BINARY_AGENT)
+	@rm -f coverage.out coverage.html
+	@rm -rf dist/
+	@echo "✓ Cleaned"
+
+## run-cli: Run the CLI with arguments (usage: make run-cli ARGS="servers list")
+run-cli:
+	@go run ./cmd/ufctl $(ARGS)
+
+## run-agent: Run the agent locally
+run-agent:
+	@go run ./cmd/underleaf_agent
+
+## deps: Download dependencies
+deps:
+	@echo "Downloading dependencies..."
+	@go mod download
+	@go mod tidy
+	@echo "✓ Dependencies updated"
+
+## check: Run fmt, vet, and test
+check: fmt vet test
+	@echo "✓ All checks passed"
+
+## release: Build release binaries for multiple platforms
+release:
+	@echo "Building release binaries..."
+	@mkdir -p dist
+	@GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_CLI)-darwin-amd64 ./cmd/ufctl
+	@GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_CLI)-darwin-arm64 ./cmd/ufctl
+	@GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_CLI)-linux-amd64 ./cmd/ufctl
+	@GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_CLI)-linux-arm64 ./cmd/ufctl
+	@GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_AGENT)-darwin-amd64 ./cmd/underleaf_agent
+	@GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_AGENT)-darwin-arm64 ./cmd/underleaf_agent
+	@GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY_AGENT)-linux-amd64 ./cmd/underleaf_agent
+	@GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o dist/$(BINARY_AGENT)-linux-arm64 ./cmd/underleaf_agent
+	@echo "✓ Release binaries built in dist/"

@@ -211,8 +211,10 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement config update
-	c.JSON(http.StatusOK, gin.H{
-		"status": "updated",
+	// Config updates are handled by the config_manager via event bus
+	// This endpoint is reserved for future local override functionality
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"error": "local config updates not yet supported",
+		"hint":  "config updates are managed via the control plane",
 	})
 }
