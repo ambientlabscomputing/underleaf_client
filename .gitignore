@@ -17,6 +17,8 @@ underleaf_agent
 
 # Config files (use config.example.yaml for templates)
 config.yaml
+*.yaml
+!config.example.yaml
 
 # IDE
 .vscode/
@@ -25,6 +27,9 @@ config.yaml
 *.swo
 *~
 .DS_Store
+
+# Documentation (keep public docs only)
+.github/docs/
 
 # Development
 .env

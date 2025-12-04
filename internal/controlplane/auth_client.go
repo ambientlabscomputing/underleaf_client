@@ -105,7 +105,6 @@ func (c *CPlaneAuthClient) PollForToken(ctx context.Context, deviceCode string) 
 	}
 
 	url := fmt.Sprintf("%s/users/device/token?device_code=%s", apiBaseURL, deviceCode)
-	fmt.Printf("DEBUG [auth_client]: Polling token endpoint: %s\n", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -116,29 +115,22 @@ func (c *CPlaneAuthClient) PollForToken(ctx context.Context, deviceCode string) 
 
 	resp, err := c.apiClient.httpClient.Do(req)
 	if err != nil {
-		fmt.Printf("DEBUG [auth_client]: HTTP request failed: %v\n", err)
 		return nil, fmt.Errorf("failed to poll token: %w", err)
 	}
 	defer resp.Body.Close()
-	fmt.Printf("DEBUG [auth_client]: Response status: %d\n", resp.StatusCode)
 
 	// Handle different status codes
 	switch resp.StatusCode {
 	case http.StatusOK:
 		// Decode the response - could be success or pending
-		fmt.Println("DEBUG [auth_client]: Status 200 OK, decoding response")
 		var tokenResp TokenResponse
 		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-			fmt.Printf("DEBUG [auth_client]: Failed to decode response: %v\n", err)
 			return nil, fmt.Errorf("failed to decode token response: %w", err)
 		}
-
-		fmt.Printf("DEBUG [auth_client]: Decoded response - AccessToken length=%d, TokenType=%s\n", len(tokenResp.AccessToken), tokenResp.TokenType)
 
 		// If access_token is empty, this means authorization is still pending
 		// The backend returns 200 OK with empty token while waiting for user authorization
 		if tokenResp.AccessToken == "" {
-			fmt.Println("DEBUG [auth_client]: AccessToken empty, returning authorization_pending")
 			return nil, &TokenError{
 				Code:        "authorization_pending",
 				Description: "User has not yet authorized the device",
@@ -146,7 +138,6 @@ func (c *CPlaneAuthClient) PollForToken(ctx context.Context, deviceCode string) 
 		}
 
 		// Authorization complete - we have a token!
-		fmt.Println("DEBUG [auth_client]: Authorization complete, returning token")
 		return &tokenResp, nil
 
 	case http.StatusBadRequest:

@@ -177,13 +177,6 @@ var AuthLoginCmd = &cobra.Command{
 		// Save the token
 		token := final.token.AccessToken
 
-		// Debug output
-		fmt.Printf("\nDEBUG: Token response received\n")
-		fmt.Printf("  AccessToken length: %d\n", len(token))
-		fmt.Printf("  TokenType: %s\n", final.token.TokenType)
-		fmt.Printf("  ExpiresIn: %d\n", final.token.ExpiresIn)
-		fmt.Printf("  RefreshToken length: %d\n", len(final.token.RefreshToken))
-
 		if token == "" {
 			logger.Error("Received empty access token")
 			return fmt.Errorf("authentication failed: received empty access token")
@@ -195,14 +188,6 @@ var AuthLoginCmd = &cobra.Command{
 			return fmt.Errorf("failed to save authentication token: %w", err)
 		}
 		logger.Info("Token saved successfully")
-
-		// Verify it was saved
-		savedToken, ok := config.Get("auth.token")
-		if ok && savedToken != "" {
-			fmt.Printf("DEBUG: Token saved successfully, length: %d\n", len(savedToken.(string)))
-		} else {
-			fmt.Println("DEBUG: Failed to verify saved token")
-		}
 
 		fmt.Println()
 		fmt.Println(successStyle.Render("✓ Authentication successful!"))
@@ -262,13 +247,11 @@ func (m authSpinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case authSuccessMsg:
-		fmt.Println("\nDEBUG: authSuccessMsg received in Update")
 		m.token = msg.token
 		m.quitting = true
 		return m, tea.Quit
 
 	case authErrorMsg:
-		fmt.Printf("\nDEBUG: authErrorMsg received in Update: %v\n", msg.err)
 		m.err = msg.err
 		m.quitting = true
 		return m, tea.Quit
