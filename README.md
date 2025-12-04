@@ -37,31 +37,78 @@ go install ./cmd/underleaf_agent
 
 Download pre-built binaries from the [Releases](https://github.com/ambientlabscomputing/underleaf_client/releases) page.
 
+#### Quick Install (Latest Release)
+
+**Linux (AMD64)**
+```bash
+VERSION="v1.0.0"  # Replace with desired version
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**macOS (ARM64 - M1/M2/M3)**
+```bash
+VERSION="v1.0.0"  # Replace with desired version
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**macOS (Intel)**
+```bash
+VERSION="v1.0.0"  # Replace with desired version
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**Windows (PowerShell)**
+```powershell
+$VERSION = "v1.0.0"  # Replace with desired version
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+```
+
+Verify installation:
+```bash
+ufctl local auth status
+```
+
 ## Quick Start
 
 ### 1. Configure the CLI
 
-Create a configuration file at `~/.underleaf/config.yaml` or use the provided example:
+Copy the example configuration:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Or create `config.yaml` manually:
 
 ```yaml
+api:
+  base_url: http://localhost:8080/api/v1/servers
+auth:
+  token: ""  # Will be set after login
+event_bus:
+  endpoint: ws://localhost:9000
+  commit_interval: 5s
+local:
+  server_id: ""  # Will be set after registration
+  server_name: my-server
 version: 0.0.0
-payload:
-  api:
-    base_url: http://localhost:8080/api/v1
-  auth:
-    token: your-jwt-token-here
-  event_bus:
-    endpoint: ws://localhost:9000
-    commit_interval: 5s
-  local:
-    server_id: your-server-id
 ```
 
 ### 2. Authenticate
 
 ```bash
-# Authenticate with the control plane
-ufctl local auth
+# Authenticate using OAuth2 device code flow
+ufctl local auth login
+
+# Check authentication status
+ufctl local auth status
 
 # Register as a server (for running agent)
 ufctl local register
@@ -133,15 +180,18 @@ ufctl local agent status
 
 ### Communication Flow
 
-```
-┌─────────┐                  ┌──────────────┐                 ┌─────────┐
-│  ufctl  │ ──── HTTP ────> │Control Plane│                 │  Agent  │
-└─────────┘                  └──────┬───────┘                 └────┬────┘
-                                    │                              │
-                                    └──── Event Bus (WebSocket) ──┘
-                                          │                     │
-                                    Publish Command       Subscribe
-                                    Listen Results        Execute & Report
+```mermaid
+graph LR
+    A[ufctl] -->|HTTP| B[Control Plane]
+    B -->|Publish Command| C[Event Bus]
+    C -->|Subscribe| D[Agent]
+    D -->|Execute & Report| C
+    C -->|Listen Results| B
+    
+    style A fill:#4CAF50
+    style B fill:#2196F3
+    style C fill:#FF9800
+    style D fill:#9C27B0
 ```
 
 ## CLI Commands
@@ -150,10 +200,15 @@ ufctl local agent status
 
 ```bash
 ufctl servers list                         # List all servers
+ufctl servers list --status online         # Filter by status
+ufctl servers list --location us-east-1    # Filter by location
 ufctl servers describe <server-id>         # Describe a specific server
 ufctl servers exec <selector> -- <cmd>     # Execute command
-ufctl servers status <selector>            # Get server status
-ufctl servers logs <selector>              # View server logs
+ufctl servers status <server-id>           # Get server status
+ufctl servers logs <server-id>             # View server logs
+ufctl servers metrics <server-id>          # View current metrics
+ufctl servers activity <server-id>         # View activity feed
+ufctl servers update <server-id>           # Update server metadata
 ```
 
 ### Jobs
@@ -168,33 +223,37 @@ ufctl jobs status <job-id> --output        # Show full stdout/stderr
 ### Local
 
 ```bash
-ufctl local auth                           # Authenticate with control plane
+ufctl local auth login                     # Authenticate with OAuth2 device flow
+ufctl local auth logout                    # Clear authentication token
+ufctl local auth status                    # Check authentication status
 ufctl local register                       # Register this machine as a server
-ufctl local config get                     # Show current configuration
-ufctl local config set <key> <value>       # Set configuration value
-ufctl local agent start [-d]               # Start local agent
+ufctl local config                         # View current configuration
+ufctl local config --edit                  # Edit configuration file
+ufctl local agent start [-d] [-p PORT]     # Start local agent
 ufctl local agent stop                     # Stop local agent
+ufctl local agent restart                  # Restart local agent
 ufctl local agent status                   # Check agent status
+ufctl local agent logs                     # View agent logs
 ```
 
 ## Configuration
 
 ### CLI Configuration
 
-Location: `~/.underleaf/config.yaml`
+Location: `./config.yaml` or `~/.underleaf/config.yaml`
 
 ```yaml
+api:
+  base_url: http://localhost:8080/api/v1/servers  # Control plane API URL
+auth:
+  token: eyJhbGc...                                # JWT authentication token (from login)
+event_bus:
+  endpoint: ws://localhost:9000                    # Event bus WebSocket endpoint
+  commit_interval: 5s                              # Offset commit interval
+local:
+  server_id: 62db5115-b200-469f-bc8b-4ce7         # This server's ID (for agent mode)
+  server_name: my-server                           # Human-readable server name
 version: 0.0.0
-payload:
-  api:
-    base_url: http://localhost:8080/api/v1  # Control plane API URL
-  auth:
-    token: eyJhbGc...                        # JWT authentication token
-  event_bus:
-    endpoint: ws://localhost:9000            # Event bus WebSocket endpoint
-    commit_interval: 5s                      # Offset commit interval
-  local:
-    server_id: 62db5115-b200-469f-bc8b      # This server's ID (for agent mode)
 ```
 
 ### Agent Configuration
@@ -217,29 +276,40 @@ UNDERLEAF_SERVER_ID=your-server-id
 
 ### Project Structure
 
-```bash
-underleaf_client/
-├─ cmd/
-│  ├─ ufctl/              # CLI binary
-│  └─ underleaf_agent/    # Agent binary
-├─ internal/
-│  ├─ agent/              # Agent server and lifecycle
-│  ├─ bus/                # Event bus client wrapper
-│  ├─ cli/                # CLI root command and flags
-│  ├─ commands/           # CLI subcommands
-│  │  ├─ jobs/            # Job management commands
-│  │  ├─ local/           # Local commands (auth, agent, config)
-│  │  └─ servers/         # Server management commands
-│  ├─ config/             # Configuration loading and storage
-│  ├─ config_manager/     # Config snapshot management
-│  ├─ controlplane/       # Control plane API clients
-│  ├─ exec/               # Command execution engine
-│  ├─ logging/            # Structured logging
-│  ├─ server/             # Server domain models
-│  └─ ui/                 # Terminal UI components
-├─ pkg/
-│  └─ version/            # Version information
-└─ guides/                # Development guides
+```mermaid
+graph TD
+    Root[underleaf_client/]
+    
+    Root --> Cmd[cmd/]
+    Cmd --> Ufctl[ufctl/ - CLI binary]
+    Cmd --> Agent[underleaf_agent/ - Agent binary]
+    
+    Root --> Internal[internal/]
+    Internal --> AgentPkg[agent/ - Agent server and lifecycle]
+    Internal --> Bus[bus/ - Event bus client wrapper]
+    Internal --> CLI[cli/ - CLI root command and flags]
+    Internal --> Commands[commands/ - CLI subcommands]
+    Commands --> Jobs[jobs/ - Job management]
+    Commands --> Local[local/ - Auth, agent, config]
+    Commands --> Servers[servers/ - Server management]
+    Internal --> Config[config/ - Configuration loading]
+    Internal --> ConfigMgr[config_manager/ - Snapshot management]
+    Internal --> ControlPlane[controlplane/ - API clients]
+    Internal --> Exec[exec/ - Command execution engine]
+    Internal --> Logging[logging/ - Structured logging]
+    Internal --> Server[server/ - Domain models]
+    Internal --> UI[ui/ - Terminal UI components]
+    
+    Root --> Pkg[pkg/]
+    Pkg --> Version[version/ - Version information]
+    
+    Root --> Guides[guides/ - Development guides]
+    
+    style Root fill:#2196F3
+    style Cmd fill:#4CAF50
+    style Internal fill:#FF9800
+    style Pkg fill:#9C27B0
+    style Guides fill:#607D8B
 ```
 
 ### Running Tests
@@ -350,23 +420,29 @@ The system uses an event bus for real-time communication:
 # Check agent is running
 ufctl local agent status
 
+# View agent logs
+ufctl local agent logs
+
 # Check event bus connection
 # Look for "event bus client started" in logs
 
-# Verify server_id matches
-ufctl local config get local.server_id
+# Verify configuration
+ufctl local config
 ```
 
 ### Authentication Issues
 
 ```bash
-# Re-authenticate
-ufctl local auth
+# Check authentication status
+ufctl local auth status
 
-# Verify token
-ufctl local config get auth.token
+# Re-authenticate using OAuth2 device flow
+ufctl local auth login
 
-# Check token expiry (JWT tokens expire after 24 hours)
+# Logout and clear token
+ufctl local auth logout
+
+# Check token expiry (JWT tokens typically expire after 24 hours)
 ```
 
 ### Command Timeouts

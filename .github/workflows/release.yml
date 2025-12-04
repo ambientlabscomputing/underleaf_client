@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.3'
+
+    - name: Build binaries
+      run: |
+        mkdir -p bin
+        
+        # ufctl - Linux AMD64
+        GOOS=linux GOARCH=amd64 go build -o bin/ufctl-linux-amd64 cmd/ufctl/main.go
+        
+        # ufctl - Linux ARM64
+        GOOS=linux GOARCH=arm64 go build -o bin/ufctl-linux-arm64 cmd/ufctl/main.go
+        
+        # ufctl - macOS AMD64
+        GOOS=darwin GOARCH=amd64 go build -o bin/ufctl-darwin-amd64 cmd/ufctl/main.go
+        
+        # ufctl - macOS ARM64 (M1/M2/M3)
+        GOOS=darwin GOARCH=arm64 go build -o bin/ufctl-darwin-arm64 cmd/ufctl/main.go
+        
+        # ufctl - Windows AMD64
+        GOOS=windows GOARCH=amd64 go build -o bin/ufctl-windows-amd64.exe cmd/ufctl/main.go
+        
+        # underleaf_agent - Linux AMD64
+        GOOS=linux GOARCH=amd64 go build -o bin/underleaf_agent-linux-amd64 cmd/underleaf_agent/main.go
+        
+        # underleaf_agent - Linux ARM64
+        GOOS=linux GOARCH=arm64 go build -o bin/underleaf_agent-linux-arm64 cmd/underleaf_agent/main.go
+        
+        # underleaf_agent - macOS AMD64
+        GOOS=darwin GOARCH=amd64 go build -o bin/underleaf_agent-darwin-amd64 cmd/underleaf_agent/main.go
+        
+        # underleaf_agent - macOS ARM64 (M1/M2/M3)
+        GOOS=darwin GOARCH=arm64 go build -o bin/underleaf_agent-darwin-arm64 cmd/underleaf_agent/main.go
+        
+        # underleaf_agent - Windows AMD64
+        GOOS=windows GOARCH=amd64 go build -o bin/underleaf_agent-windows-amd64.exe cmd/underleaf_agent/main.go
+
+    - name: Generate checksums
+      run: |
+        cd bin
+        sha256sum * > checksums.txt
+        cat checksums.txt
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          bin/ufctl-*
+          bin/underleaf_agent-*
+          bin/checksums.txt
+        body: |
+          # Underleaf Client ${{ github.ref_name }}
+          
+          See [CHANGELOG.md](https://github.com/ambientlabscomputing/underleaf_client/blob/main/CHANGELOG.md) for details.
+          
+          ## What's Included
+          
+          - **ufctl** - CLI tool for managing Underleaf servers and executing remote commands
+          - **underleaf_agent** - Agent binary that runs on edge servers
+          
+          ## Installation
+          
+          ### ufctl (CLI)
+          
+          Download the appropriate binary for your platform:
+          - **Linux AMD64**: `ufctl-linux-amd64`
+          - **Linux ARM64**: `ufctl-linux-arm64`
+          - **macOS AMD64**: `ufctl-darwin-amd64`
+          - **macOS ARM64** (M1/M2/M3): `ufctl-darwin-arm64`
+          - **Windows AMD64**: `ufctl-windows-amd64.exe`
+          
+          #### Unix/macOS
+          ```bash
+          # Download and make executable
+          curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${{ github.ref_name }}/ufctl-darwin-arm64
+          chmod +x ufctl
+          sudo mv ufctl /usr/local/bin/
+          
+          # Verify installation
+          ufctl --help
+          ```
+          
+          #### Windows
+          ```powershell
+          # Download ufctl-windows-amd64.exe and add to PATH
+          ```
+          
+          ### underleaf_agent (Agent)
+          
+          Download the appropriate binary for your platform:
+          - **Linux AMD64**: `underleaf_agent-linux-amd64`
+          - **Linux ARM64**: `underleaf_agent-linux-arm64`
+          - **macOS AMD64**: `underleaf_agent-darwin-amd64`
+          - **macOS ARM64** (M1/M2/M3): `underleaf_agent-darwin-arm64`
+          - **Windows AMD64**: `underleaf_agent-windows-amd64.exe`
+          
+          #### Unix/macOS
+          ```bash
+          # Download and make executable
+          curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${{ github.ref_name }}/underleaf_agent-linux-amd64
+          chmod +x underleaf_agent
+          sudo mv underleaf_agent /usr/local/bin/
+          ```
+          
+          ## Verification
+          
+          Verify the integrity of downloaded binaries using the checksums:
+          ```bash
+          sha256sum -c checksums.txt
+          ```
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
