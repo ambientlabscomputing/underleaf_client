@@ -75,6 +75,9 @@ func (r *LocalRunner) Execute(req CommandRequest) CommandResult {
 		cmd = exec.CommandContext(ctx, "sh", "-c", req.Command)
 	}
 
+	// Configure platform-specific process attributes
+	configureCommand(cmd)
+
 	// Set working directory
 	if req.WorkingDir != "" {
 		cmd.Dir = req.WorkingDir
@@ -111,10 +114,8 @@ func (r *LocalRunner) Execute(req CommandRequest) CommandResult {
 
 	select {
 	case <-ctx.Done():
-		// Context timeout - kill the process
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
+		// Context timeout - kill the process (and process group on Unix)
+		killCommand(cmd)
 		<-done // Wait for Wait() to finish
 		result.Error = ErrTimeout.Message
 		result.ExitCode = 124 // Standard timeout exit code
