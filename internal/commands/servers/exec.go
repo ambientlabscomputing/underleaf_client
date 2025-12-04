@@ -289,11 +289,12 @@ func showResultsSummary(printer ui.Printer, job map[string]interface{}, boldStyl
 		var statusIcon string
 		var exitCodeStr string
 
-		if reqStatus == "completed" {
+		switch reqStatus {
+		case "completed":
 			statusIcon = successStyle.Render("✓")
-		} else if reqStatus == "failed" {
+		case "failed":
 			statusIcon = errorStyle.Render("✗")
-		} else {
+		default:
 			statusIcon = dimStyle.Render("◷")
 		}
 

@@ -114,9 +114,7 @@ func NewCLIConfigClient() *CLIConfigClient {
 	v.AutomaticEnv()
 
 	// for CLI, start a new empty config if no config file found
-	if err := v.ReadInConfig(); err != nil {
-		// ignore error and start with empty config
-	}
+	_ = v.ReadInConfig() // ignore error and start with empty config
 	if err := v.WriteConfigAs("./config.yaml"); err != nil {
 		slog.Error("failed to write config file")
 	}

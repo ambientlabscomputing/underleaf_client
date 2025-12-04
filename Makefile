@@ -92,6 +92,39 @@ deps:
 check: fmt vet test
 	@echo "✓ All checks passed"
 
+## ci: Run CI pipeline locally (matches GitHub Actions workflow)
+ci: ci-test ci-lint
+	@echo "✓ CI pipeline completed successfully"
+
+## ci-test: Run test job (matches ci.yml test job)
+ci-test:
+	@echo "Running CI test pipeline..."
+	@echo "→ Downloading dependencies..."
+	@go mod download
+	@echo "→ Verifying dependencies..."
+	@go mod verify
+	@echo "→ Running go vet..."
+	@go vet ./...
+	@echo "→ Running tests with race detector..."
+	@go test -v -race -coverprofile=coverage.out ./...
+	@echo "→ Building ufctl..."
+	@go build -v ./cmd/ufctl
+	@echo "→ Building underleaf_agent..."
+	@go build -v ./cmd/underleaf_agent
+	@echo "✓ Test pipeline completed"
+
+## ci-lint: Run lint job (matches ci.yml lint job)
+ci-lint:
+	@echo "Running CI lint pipeline..."
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "Error: golangci-lint is not installed"; \
+		echo "Install it with: brew install golangci-lint (macOS) or go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
+		exit 1; \
+	fi
+	@echo "→ Running golangci-lint with 5m timeout..."
+	@golangci-lint run --timeout=5m
+	@echo "✓ Lint pipeline completed"
+
 ## release: Build release binaries for multiple platforms
 release:
 	@echo "Building release binaries..."
