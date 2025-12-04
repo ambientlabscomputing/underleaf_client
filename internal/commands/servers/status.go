@@ -95,12 +95,39 @@ func checkRemoteStatus(deps *utils.DependencyManager, serverID string) error {
 
 	table.AddRow("ID", server.ID)
 	table.AddRow("Name", server.Name)
-	table.AddRow("Platform", fmt.Sprintf("%s/%s", server.Config.Payload.Platform.OS, server.Config.Payload.Platform.Arch))
+
+	// Show status from API
+	if server.Status != "" {
+		table.AddRow("Status", server.Status)
+	} else {
+		table.AddRow("Status", "Registered")
+	}
+
+	// Show location if available
+	if server.Location != "" {
+		table.AddRow("Location", server.Location)
+	}
+
+	// Show platform
+	if server.Platform != nil {
+		table.AddRow("Platform", fmt.Sprintf("%s/%s", server.Platform.OS, server.Platform.Arch))
+	} else if server.Config.Payload.Platform.OS != "" {
+		table.AddRow("Platform", fmt.Sprintf("%s/%s", server.Config.Payload.Platform.OS, server.Config.Payload.Platform.Arch))
+	}
+
 	table.AddRow("Config Version", fmt.Sprintf("%d", server.Config.Version))
 
-	// Note: Actual health status would need to come from control plane API
-	// which tracks heartbeats. For now, we just show the server exists.
-	table.AddRow("Status", "Registered")
+	// Show metrics if available
+	if server.Metrics != nil {
+		table.AddRow("CPU Usage", fmt.Sprintf("%.1f%%", server.Metrics.CPUUsage))
+		table.AddRow("Memory Usage", fmt.Sprintf("%.1f%%", server.Metrics.MemoryUsage))
+		table.AddRow("Disk Usage", fmt.Sprintf("%.1f%%", server.Metrics.DiskUsage))
+	}
+
+	// Show last check-in if available
+	if server.LastCheckIn != nil && server.LastCheckIn.Valid {
+		table.AddRow("Last Check-in", server.LastCheckIn.Time.Format("2006-01-02 15:04:05 MST"))
+	}
 
 	deps.Printer.Print(table.Render())
 	return nil

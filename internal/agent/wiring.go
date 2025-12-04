@@ -15,10 +15,11 @@ import (
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config         config_manager.ConfigClient
-	ConfigManager  config_manager.ConfigManager
-	Server         *Server
-	CommandHandler *exec.CommandHandler
+	Config           config_manager.ConfigClient
+	ConfigManager    config_manager.ConfigManager
+	Server           *Server
+	CommandHandler   *exec.CommandHandler
+	MetricsCollector *MetricsCollector
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -141,6 +142,10 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Watch for config updates to refresh command settings
 	go watchConfigForCommandSettings(ctx, snapshotManager, commandHandler)
 
+	// Initialize and start metrics collector
+	metricsCollector := NewMetricsCollector(serverID.(string), cplaneClient.Servers, DefaultMetricsInterval)
+	metricsCollector.Start(ctx)
+
 	// Initialize server
 	server := NewServer(port)
 	server.SetDependencies(snapshotManager, snapshotClient)
@@ -149,10 +154,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
-		Config:         snapshotClient,
-		ConfigManager:  snapshotManager,
-		Server:         server,
-		CommandHandler: commandHandler,
+		Config:           snapshotClient,
+		ConfigManager:    snapshotManager,
+		Server:           server,
+		CommandHandler:   commandHandler,
+		MetricsCollector: metricsCollector,
 	}, nil
 }
 

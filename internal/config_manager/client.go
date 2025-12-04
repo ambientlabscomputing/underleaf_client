@@ -136,7 +136,21 @@ func (c *CLIConfigClient) Get(key string) (interface{}, bool) {
 // Set sets a configuration value by key
 func (c *CLIConfigClient) Set(key string, value interface{}) error {
 	c.viper.Set(key, value)
-	return c.viper.WriteConfig()
+
+	// Try WriteConfig first (writes to existing file)
+	err := c.viper.WriteConfig()
+	if err != nil {
+		// If WriteConfig fails (e.g., no config file set), try SafeWriteConfig
+		slog.Debug("WriteConfig failed, trying SafeWriteConfig", "error", err)
+		err = c.viper.SafeWriteConfigAs("./config.yaml")
+		if err != nil {
+			// If SafeWriteConfig also fails (file exists), use WriteConfigAs to overwrite
+			slog.Debug("SafeWriteConfig failed, using WriteConfigAs", "error", err)
+			return c.viper.WriteConfigAs("./config.yaml")
+		}
+	}
+
+	return nil
 }
 
 // Config returns the full configuration

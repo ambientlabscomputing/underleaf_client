@@ -2,8 +2,12 @@ package controlplane
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"strconv"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/types"
 )
 
 type ServerClient struct {
@@ -39,13 +43,98 @@ func (c *ServerClient) GetServer(ctx context.Context, serverID string) (interfac
 }
 
 func (c *ServerClient) ListServers(ctx context.Context) ([]interface{}, error) {
-	// API returns paginated response with structure: { "servers": [...], "total": X }
+	return c.ListServersWithParams(ctx, types.ListServersParams{})
+}
+
+func (c *ServerClient) ListServersWithParams(ctx context.Context, params types.ListServersParams) ([]interface{}, error) {
+	queryParams := url.Values{}
+	if params.Status != "" {
+		queryParams.Set("status", params.Status)
+	}
+	if params.Location != "" {
+		queryParams.Set("location", params.Location)
+	}
+	if params.Search != "" {
+		queryParams.Set("search", params.Search)
+	}
+	if params.Limit > 0 {
+		queryParams.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Offset > 0 {
+		queryParams.Set("offset", strconv.Itoa(params.Offset))
+	}
+
 	var response struct {
 		Results []interface{} `json:"results"`
 		Total   int           `json:"total_count"`
 	}
-	if err := c.api.GET("/servers", &response); err != nil {
+	if err := c.api.GETWithParams("/servers", queryParams, &response); err != nil {
 		return nil, err
 	}
 	return response.Results, nil
+}
+
+func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, updates types.UpdateServerRequest) (interface{}, error) {
+	var response interface{}
+	if err := c.api.PATCH("/servers/"+serverID, updates, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (c *ServerClient) GetServerMetrics(ctx context.Context, serverID string) (*types.ServerMetrics, error) {
+	var response types.ServerMetrics
+	if err := c.api.GET(fmt.Sprintf("/servers/%s/metrics", serverID), &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string, metrics types.MetricsUpdateRequest) error {
+	var response interface{}
+	if err := c.api.PUT(fmt.Sprintf("/servers/%s/metrics", serverID), metrics, &response); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error) {
+	queryParams := url.Values{}
+	if period != "" {
+		queryParams.Set("period", period)
+	}
+	if resolution != "" {
+		queryParams.Set("resolution", resolution)
+	}
+
+	var response types.MetricsHistoryResponse
+	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/metrics/history", serverID), queryParams, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error) {
+	queryParams := url.Values{}
+	if params.Type != "" {
+		queryParams.Set("type", params.Type)
+	}
+	if params.From != nil {
+		queryParams.Set("from", params.From.Format("2006-01-02T15:04:05Z07:00"))
+	}
+	if params.To != nil {
+		queryParams.Set("to", params.To.Format("2006-01-02T15:04:05Z07:00"))
+	}
+	if params.Limit > 0 {
+		queryParams.Set("limit", strconv.Itoa(params.Limit))
+	}
+	if params.Offset > 0 {
+		queryParams.Set("offset", strconv.Itoa(params.Offset))
+	}
+
+	var response types.ActivityResponse
+	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/activity", serverID), queryParams, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
 }
