@@ -93,44 +93,68 @@ func (r *LocalRunner) Execute(req CommandRequest) CommandResult {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Execute
-	err := cmd.Run()
-	result.Stdout = stdout.String()
-	result.Stderr = stderr.String()
-	result.Timestamp = time.Now()
-	result.Duration = time.Since(start).Milliseconds()
-
-	if err != nil {
-		// Check if it was a timeout
-		if ctx.Err() == context.DeadlineExceeded {
-			result.Error = ErrTimeout.Message
-			result.ExitCode = 124 // Standard timeout exit code
-			slog.Warn("command timed out", "trace_id", req.TraceID, "timeout", timeout)
-			return result
-		}
-
-		// Get exit code from error
-		if exitError, ok := err.(*exec.ExitError); ok {
-			result.ExitCode = exitError.ExitCode()
-		} else {
-			result.ExitCode = 1
-			result.Error = err.Error()
-		}
-
-		slog.Info("command failed",
-			"trace_id", req.TraceID,
-			"exit_code", result.ExitCode,
-			"error", err,
-		)
-	} else {
-		result.ExitCode = 0
-		slog.Info("command completed successfully",
-			"trace_id", req.TraceID,
-			"duration_ms", result.Duration,
-		)
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		result.Error = err.Error()
+		result.ExitCode = 1
+		result.Timestamp = time.Now()
+		result.Duration = time.Since(start).Milliseconds()
+		slog.Warn("command failed to start", "trace_id", req.TraceID, "error", err)
+		return result
 	}
 
-	return result
+	// Wait for command to complete or context to timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Context timeout - kill the process
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		<-done // Wait for Wait() to finish
+		result.Error = ErrTimeout.Message
+		result.ExitCode = 124 // Standard timeout exit code
+		result.Stdout = stdout.String()
+		result.Stderr = stderr.String()
+		result.Timestamp = time.Now()
+		result.Duration = time.Since(start).Milliseconds()
+		slog.Warn("command timed out", "trace_id", req.TraceID, "timeout", timeout)
+		return result
+	case err := <-done:
+		// Command completed
+		result.Stdout = stdout.String()
+		result.Stderr = stderr.String()
+		result.Timestamp = time.Now()
+		result.Duration = time.Since(start).Milliseconds()
+
+		if err != nil {
+			// Get exit code from error
+			if exitError, ok := err.(*exec.ExitError); ok {
+				result.ExitCode = exitError.ExitCode()
+			} else {
+				result.ExitCode = 1
+				result.Error = err.Error()
+			}
+
+			slog.Info("command failed",
+				"trace_id", req.TraceID,
+				"exit_code", result.ExitCode,
+				"error", err,
+			)
+		} else {
+			result.ExitCode = 0
+			slog.Info("command completed successfully",
+				"trace_id", req.TraceID,
+				"duration_ms", result.Duration,
+			)
+		}
+
+		return result
+	}
 }
 
 // SetSettings updates the command settings

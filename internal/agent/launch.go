@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
@@ -131,9 +130,7 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	cmd := exec.Command(exe, "agent", "serve", "--mode", "dev")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true, // Create new process group
-	}
+	configureProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start daemon: %w", err)
@@ -175,9 +172,7 @@ func (l *Launcher) startBinary(ctx context.Context) error {
 	cmd := exec.Command(l.binaryPath, "serve")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	configureProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start binary: %w", err)
@@ -204,9 +199,9 @@ func (l *Launcher) Stop() error {
 		return fmt.Errorf("failed to find process: %w", err)
 	}
 
-	// Send SIGTERM for graceful shutdown
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
+	// Send terminate signal for graceful shutdown
+	if err := terminateProcess(process); err != nil {
+		return fmt.Errorf("failed to terminate process: %w", err)
 	}
 
 	// Wait up to 10 seconds for graceful shutdown
@@ -219,7 +214,7 @@ func (l *Launcher) Stop() error {
 	}
 
 	// Force kill if still running
-	if err := process.Signal(syscall.SIGKILL); err != nil {
+	if err := killProcess(process); err != nil {
 		return fmt.Errorf("failed to kill process: %w", err)
 	}
 
@@ -249,9 +244,8 @@ func (l *Launcher) IsRunning() bool {
 		return false
 	}
 
-	// Send signal 0 to check if process exists
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	// Check if process exists
+	return isProcessRunning(process)
 }
 
 // GetStatus returns the agent status
