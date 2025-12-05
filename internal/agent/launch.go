@@ -144,21 +144,38 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Write PID file
-	if err := l.writePID(cmd.Process.Pid); err != nil {
-		cmd.Process.Kill()
-		return fmt.Errorf("failed to write PID file: %w", err)
-	}
+	// Don't write PID here - the spawned process will write its own PID
+	// when it calls startDev(). This avoids a race condition where we write
+	// the PID before the process finishes initializing, causing it to think
+	// another instance is already running.
 
-	// Wait a moment to see if it crashes immediately
-	time.Sleep(500 * time.Millisecond)
-	if !l.IsRunning() {
-		// Read last few lines of log for error message
-		logger.Error("agent failed to start, check logs", "logFile", l.logFile)
-		return fmt.Errorf("agent failed to start, check logs at: %s", l.logFile)
+	// Wait for the process to write its PID file and start successfully
+	maxWait := 5 * time.Second
+	checkInterval := 200 * time.Millisecond
+	elapsed := time.Duration(0)
+	
+	for elapsed < maxWait {
+		time.Sleep(checkInterval)
+		elapsed += checkInterval
+		
+		if l.IsRunning() {
+			// PID file exists and process is running
+			logger.Info("daemon started successfully", "pid", l.getPID())
+			return nil
+		}
 	}
-
-	return nil
+	
+	// If we reach here, either PID file wasn't created or process isn't running
+	// Check one more time after the timeout
+	if l.IsRunning() {
+		logger.Info("daemon started successfully (after timeout)", "pid", l.getPID())
+		return nil
+	}
+	
+	// Process failed to start or write PID file
+	logger.Error("timeout waiting for agent to write PID file", "logFile", l.logFile)
+	cmd.Process.Kill()
+	return fmt.Errorf("agent failed to start within %v, check logs at: %s", maxWait, l.logFile)
 }
 
 // findAgentBinary locates the underleaf_agent binary

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
+	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +27,10 @@ var serveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize logging context
 		ctx := context.Background()
+		
+		// Initialize logging for the agent
+		logFile := "/tmp/underleaf-agent.log"
+		ctx, _ = logging.Init(ctx, logging.LoggerModeAgent, &logFile)
 
 		// Determine launch mode
 		launchMode := agent.ModeDaemon
