@@ -114,7 +114,7 @@ func (l *Launcher) startDev(ctx context.Context) error {
 // startDaemon forks the process to run in background
 func (l *Launcher) startDaemon(ctx context.Context) error {
 	logger := logging.GetLogger(ctx)
-	
+
 	// Find underleaf_agent binary
 	// Try these locations in order:
 	// 1. Same directory as current executable
@@ -124,7 +124,7 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to find underleaf_agent binary: %w", err)
 	}
-	
+
 	logger.Info("found agent binary", "path", agentBinary)
 
 	// Open log file
@@ -153,25 +153,25 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	maxWait := 5 * time.Second
 	checkInterval := 200 * time.Millisecond
 	elapsed := time.Duration(0)
-	
+
 	for elapsed < maxWait {
 		time.Sleep(checkInterval)
 		elapsed += checkInterval
-		
+
 		if l.IsRunning() {
 			// PID file exists and process is running
 			logger.Info("daemon started successfully", "pid", l.getPID())
 			return nil
 		}
 	}
-	
+
 	// If we reach here, either PID file wasn't created or process isn't running
 	// Check one more time after the timeout
 	if l.IsRunning() {
 		logger.Info("daemon started successfully (after timeout)", "pid", l.getPID())
 		return nil
 	}
-	
+
 	// Process failed to start or write PID file
 	logger.Error("timeout waiting for agent to write PID file", "logFile", l.logFile)
 	cmd.Process.Kill()
