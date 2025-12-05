@@ -49,6 +49,11 @@ func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient
 func (m *MetricsCollector) Start(ctx context.Context) {
 	slog.Info("starting metrics collector", "server_id", m.serverID, "interval", m.interval)
 
+	// Initialize CPU stats on startup to avoid "not implemented yet" error on first call
+	// This is required for gopsutil to establish baseline CPU measurements
+	slog.Debug("initializing CPU stats with warmup call")
+	_, _ = cpu.Percent(0, false)
+	
 	go m.run(ctx)
 }
 
