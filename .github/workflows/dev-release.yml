@@ -90,9 +90,7 @@ jobs:
         name: Development Build (Latest)
         prerelease: true
         files: |
-          bin/ufctl-*
-          bin/underleaf_agent-*
-          bin/checksums.txt
+          bin/*
         body: |
           # Underleaf Client - Development Build
           
@@ -101,7 +99,7 @@ jobs:
           - Version: `dev-${{ steps.sha.outputs.short }}`
           - Commit: ${{ github.sha }}
           - Built: ${{ github.event.head_commit.timestamp }}
-          - Environment: **Development** (underleafapp.com)
+          - Environment: **Development** (underleafdev.com)
           
           This build is configured to connect to the development environment:
           - API: `https://api.underleafdev.com/api/v1/servers`
