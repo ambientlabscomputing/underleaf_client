@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -113,40 +112,40 @@ func (m *MetricsCollector) collectAndSend(ctx context.Context) {
 func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
 	slog.Debug("metrics collection starting", "step", "begin")
 	
-	// Collect CPU usage
+	// Collect CPU usage - gracefully handle failures
 	slog.Debug("collecting CPU metrics", "step", "cpu_start", "interval", 0)
+	cpuUsage := 0.0
 	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
-		slog.Error("CPU collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
-		return nil, fmt.Errorf("cpu.Percent failed: %w", err)
-	}
-	cpuUsage := 0.0
-	if len(cpuPercent) > 0 {
+		slog.Warn("CPU collection failed, using 0", "error", err)
+	} else if len(cpuPercent) > 0 {
 		cpuUsage = cpuPercent[0]
+		slog.Debug("CPU metrics collected", "cpu_usage", cpuUsage, "cpu_count", len(cpuPercent))
 	}
-	slog.Debug("CPU metrics collected", "cpu_usage", cpuUsage, "cpu_count", len(cpuPercent))
 
-	// Collect memory usage
+	// Collect memory usage - gracefully handle failures
 	slog.Debug("collecting memory metrics", "step", "mem_start")
+	memUsage := 0.0
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		slog.Error("memory collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
-		return nil, fmt.Errorf("mem.VirtualMemory failed: %w", err)
+		slog.Warn("memory collection failed, using 0", "error", err)
+	} else {
+		memUsage = memInfo.UsedPercent
+		slog.Debug("memory metrics collected", "mem_usage", memUsage)
 	}
-	memUsage := memInfo.UsedPercent
-	slog.Debug("memory metrics collected", "mem_usage", memUsage)
 
-	// Collect disk usage (root partition)
+	// Collect disk usage - gracefully handle failures
 	slog.Debug("collecting disk metrics", "step", "disk_start")
+	diskUsage := 0.0
 	diskInfo, err := disk.Usage("/")
 	if err != nil {
-		slog.Error("disk collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
-		return nil, fmt.Errorf("disk.Usage failed: %w", err)
+		slog.Warn("disk collection failed, using 0", "error", err)
+	} else {
+		diskUsage = diskInfo.UsedPercent
+		slog.Debug("disk metrics collected", "disk_usage", diskUsage)
 	}
-	diskUsage := diskInfo.UsedPercent
-	slog.Debug("disk metrics collected", "disk_usage", diskUsage)
 
-	slog.Info("metrics collection completed successfully",
+	slog.Info("metrics collection completed",
 		"cpu", cpuUsage,
 		"memory", memUsage,
 		"disk", diskUsage)
