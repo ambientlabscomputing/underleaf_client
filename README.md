@@ -54,61 +54,146 @@ Download pre-built binaries from the [Releases](https://github.com/ambientlabsco
 
 Production releases are tagged with version numbers (e.g., `v1.0.0`) and connect to **underleafapp.com** endpoints.
 
+> 💡 **Note**: To use agent daemon mode (`ufctl local agent start -d`), you need to install both `ufctl` and `underleaf_agent` binaries.
+
 **Linux (AMD64)**
 ```bash
 # Option 1: Specify version manually
 VERSION="v1.0.0"  # Replace with latest version from releases page
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
 
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-linux-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
+
 # Option 2: Auto-detect latest version
 VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-linux-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
+```
+
+**Linux (ARM64)**
+```bash
+# Option 1: Specify version manually
+VERSION="v1.0.0"  # Replace with latest version from releases page
+
+# Install ufctl
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-linux-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
+
+# Option 2: Auto-detect latest version
+VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Install ufctl
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-linux-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **macOS (ARM64 - M1/M2/M3)**
 ```bash
 # Option 1: Specify version manually
 VERSION="v1.0.0"  # Replace with latest version from releases page
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-arm64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
 
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-darwin-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
+
 # Option 2: Auto-detect latest version
 VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-arm64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-darwin-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **macOS (Intel)**
 ```bash
 # Option 1: Specify version manually
 VERSION="v1.0.0"  # Replace with latest version from releases page
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
 
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-darwin-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
+
 # Option 2: Auto-detect latest version
 VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/underleaf_agent-darwin-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **Windows (PowerShell)**
 ```powershell
 # Option 1: Specify version manually
 $VERSION = "v1.0.0"  # Replace with latest version from releases page
+
+# Install ufctl
 Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+
+# Install underleaf_agent (required for daemon mode)
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/underleaf_agent-windows-amd64.exe" -OutFile "underleaf_agent.exe"
 # Move to a directory in your PATH
 
 # Option 2: Auto-detect latest version
 $VERSION = (Invoke-RestMethod -Uri "https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest").tag_name
+
+# Install ufctl
 Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+
+# Install underleaf_agent (required for daemon mode)
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/underleaf_agent-windows-amd64.exe" -OutFile "underleaf_agent.exe"
 # Move to a directory in your PATH
 ```
 
@@ -120,43 +205,76 @@ Development builds are automatically built from the `develop` branch and connect
 
 **Linux (AMD64)**
 ```bash
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-linux-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/underleaf_agent-linux-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **Linux (ARM64)**
 ```bash
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-linux-arm64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/underleaf_agent-linux-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **macOS (ARM64 - M1/M2/M3)**
 ```bash
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-darwin-arm64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/underleaf_agent-darwin-arm64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **macOS (Intel)**
 ```bash
+# Install ufctl
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-darwin-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
+
+# Install underleaf_agent (required for daemon mode)
+curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/underleaf_agent-darwin-amd64
+chmod +x underleaf_agent
+sudo mv underleaf_agent /usr/local/bin/
 ```
 
 **Windows (PowerShell)**
 ```powershell
+# Install ufctl
 Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+
+# Install underleaf_agent (required for daemon mode)
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/underleaf_agent-windows-amd64.exe" -OutFile "underleaf_agent.exe"
 # Move to a directory in your PATH
 ```
 
 #### Verify Installation
 
 ```bash
-# Check version and configuration
+# Check ufctl version and configuration
 ufctl local auth status
+
+# Verify underleaf_agent is installed (required for daemon mode)
+which underleaf_agent
+underleaf_agent version
 
 # For production builds, config will show:
 # - API: https://api.underleafapp.com/api/v1/servers
@@ -241,10 +359,10 @@ ufctl jobs status <job-id> --output
 ### 5. Run Local Agent
 
 ```bash
-# Start agent in foreground
-ufctl local agent start
+# Start agent in development mode (foreground)
+ufctl local agent start --dev
 
-# Start agent in detached mode
+# Start agent in daemon mode (background - requires underleaf_agent binary)
 ufctl local agent start -d
 
 # Stop agent
@@ -252,6 +370,9 @@ ufctl local agent stop
 
 # Check agent status
 ufctl local agent status
+
+# View agent logs
+ufctl local agent logs
 ```
 
 ## Architecture
