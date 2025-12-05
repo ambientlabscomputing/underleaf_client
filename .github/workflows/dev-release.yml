@@ -89,8 +89,7 @@ jobs:
         tag_name: dev
         name: Development Build (Latest)
         prerelease: true
-        files: |
-          bin/*
+        files: bin/*
         body: |
           # Underleaf Client - Development Build
           
