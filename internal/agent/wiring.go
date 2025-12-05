@@ -109,6 +109,12 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	basePath := config_manager.GetBasePath(true) // true = agent
 	store := config_manager.NewStore(basePath, true)
 
+	// Ensure local metadata is populated from CLI config
+	// This syncs values from config.yaml into the snapshot's localmeta
+	if err := ensureLocalMetadata(store, simpleConfig, serverID.(string)); err != nil {
+		slog.Warn("failed to ensure local metadata", "error", err)
+	}
+
 	// Create snapshot config manager
 	snapshotManager := config_manager.NewSnapshotConfigManager(config_manager.SnapshotConfigManagerConfig{
 		Store:             store,
@@ -160,6 +166,43 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CommandHandler:   commandHandler,
 		MetricsCollector: metricsCollector,
 	}, nil
+}
+
+// ensureLocalMetadata ensures local metadata in snapshot store matches CLI config
+func ensureLocalMetadata(store *config_manager.Store, cliConfig config_manager.ConfigClient, serverID string) error {
+	// Load existing metadata or create new
+	meta, err := store.LoadLocalMeta()
+	if err != nil {
+		meta = &config_manager.LocalMetadata{
+			Extra: make(map[string]interface{}),
+		}
+	}
+
+	// Sync values from CLI config to local metadata
+	meta.ServerID = serverID
+
+	if serverName, ok := cliConfig.Get("local.server_name"); ok && serverName != "" {
+		meta.ServerName = serverName.(string)
+	}
+
+	if token, ok := cliConfig.Get("auth.token"); ok && token != "" {
+		meta.AuthToken = token.(string)
+	}
+
+	if apiURL, ok := cliConfig.Get("api.base_url"); ok && apiURL != "" {
+		meta.APIBaseURL = apiURL.(string)
+	}
+
+	if ebEndpoint, ok := cliConfig.Get("event_bus.endpoint"); ok && ebEndpoint != "" {
+		meta.EventBus.Endpoint = ebEndpoint.(string)
+	}
+
+	if ebCommit, ok := cliConfig.Get("event_bus.commit_interval"); ok && ebCommit != "" {
+		meta.EventBus.CommitInterval = ebCommit.(string)
+	}
+
+	// Save updated metadata
+	return store.SaveLocalMeta(meta)
 }
 
 // getCommandSettingsFromConfig extracts command settings from config snapshot
