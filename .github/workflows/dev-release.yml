@@ -31,8 +31,8 @@ jobs:
     - name: Build binaries
       env:
         VERSION: dev-${{ steps.sha.outputs.short }}
-        API_BASE_URL: https://api.underleafapp.com/api/v1/servers
-        EVENT_BUS_ENDPOINT: wss://events.underleafapp.com/ws
+        API_BASE_URL: https://api.underleafdev.com/api/v1/servers
+        EVENT_BUS_ENDPOINT: wss://events.underleafdev.com/ws
       run: |
         mkdir -p bin
         
@@ -104,8 +104,8 @@ jobs:
           - Environment: **Development** (underleafapp.com)
           
           This build is configured to connect to the development environment:
-          - API: `https://api.underleafapp.com/api/v1/servers`
-          - Event Bus: `wss://events.underleafapp.com/ws`
+          - API: `https://api.underleafdev.com/api/v1/servers`
+          - Event Bus: `wss://events.underleafdev.com/ws`
           
           ## Installation
           

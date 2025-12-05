@@ -17,6 +17,17 @@
 
 ## Installation
 
+### Build Types
+
+Underleaf Client offers two types of pre-built binaries:
+
+| Build Type | Tag | Environment | Use Case |
+|------------|-----|-------------|----------|
+| **Production** | `v*` (e.g., `v1.0.0`) | underleafapp.com | Stable releases for production use |
+| **Development** | `dev` | underleafdev.com | Latest features from `develop` branch |
+
+Production builds connect to the production control plane, while development builds connect to the staging environment for testing new features.
+
 ### From Source
 
 ```bash
@@ -37,11 +48,22 @@ go install ./cmd/underleaf_agent
 
 Download pre-built binaries from the [Releases](https://github.com/ambientlabscomputing/underleaf_client/releases) page.
 
-#### Quick Install (Latest Release)
+> 💡 **Finding the latest version**: Check the [Releases page](https://github.com/ambientlabscomputing/underleaf_client/releases/latest) or use `curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep tag_name` to get the latest version tag.
+
+#### Quick Install - Production (Latest Stable Release)
+
+Production releases are tagged with version numbers (e.g., `v1.0.0`) and connect to **underleafapp.com** endpoints.
 
 **Linux (AMD64)**
 ```bash
-VERSION="v1.0.0"  # Replace with desired version
+# Option 1: Specify version manually
+VERSION="v1.0.0"  # Replace with latest version from releases page
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+
+# Option 2: Auto-detect latest version
+VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-linux-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
@@ -49,7 +71,14 @@ sudo mv ufctl /usr/local/bin/
 
 **macOS (ARM64 - M1/M2/M3)**
 ```bash
-VERSION="v1.0.0"  # Replace with desired version
+# Option 1: Specify version manually
+VERSION="v1.0.0"  # Replace with latest version from releases page
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+
+# Option 2: Auto-detect latest version
+VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-arm64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
@@ -57,7 +86,14 @@ sudo mv ufctl /usr/local/bin/
 
 **macOS (Intel)**
 ```bash
-VERSION="v1.0.0"  # Replace with desired version
+# Option 1: Specify version manually
+VERSION="v1.0.0"  # Replace with latest version from releases page
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+
+# Option 2: Auto-detect latest version
+VERSION=$(curl -s https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${VERSION}/ufctl-darwin-amd64
 chmod +x ufctl
 sudo mv ufctl /usr/local/bin/
@@ -65,14 +101,70 @@ sudo mv ufctl /usr/local/bin/
 
 **Windows (PowerShell)**
 ```powershell
-$VERSION = "v1.0.0"  # Replace with desired version
+# Option 1: Specify version manually
+$VERSION = "v1.0.0"  # Replace with latest version from releases page
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+
+# Option 2: Auto-detect latest version
+$VERSION = (Invoke-RestMethod -Uri "https://api.github.com/repos/ambientlabscomputing/underleaf_client/releases/latest").tag_name
 Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/$VERSION/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
 # Move to a directory in your PATH
 ```
 
-Verify installation:
+#### Quick Install - Development (Latest Dev Build)
+
+Development builds are automatically built from the `develop` branch and connect to **underleafdev.com** endpoints.
+
+> ⚠️ **Warning**: Development builds are bleeding edge and may contain unstable features. Use production releases for production workloads.
+
+**Linux (AMD64)**
 ```bash
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-linux-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**Linux (ARM64)**
+```bash
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-linux-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**macOS (ARM64 - M1/M2/M3)**
+```bash
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-darwin-arm64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**macOS (Intel)**
+```bash
+curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-darwin-amd64
+chmod +x ufctl
+sudo mv ufctl /usr/local/bin/
+```
+
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-windows-amd64.exe" -OutFile "ufctl.exe"
+# Move to a directory in your PATH
+```
+
+#### Verify Installation
+
+```bash
+# Check version and configuration
 ufctl local auth status
+
+# For production builds, config will show:
+# - API: https://api.underleafapp.com/api/v1/servers
+# - Event Bus: wss://events.underleafapp.com/ws
+
+# For development builds, config will show:
+# - API: https://api.underleafdev.com/api/v1/servers
+# - Event Bus: wss://events.underleafdev.com/ws
 ```
 
 ## Quick Start
@@ -329,14 +421,31 @@ go test ./internal/exec/...
 ### Building
 
 ```bash
-# Build CLI
+# Build CLI (development defaults)
 go build -o ufctl ./cmd/ufctl
 
 # Build agent
 go build -o underleaf_agent ./cmd/underleaf_agent
 
-# Build with version info
-go build -ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=1.0.0" ./cmd/ufctl
+# Build with custom environment (production)
+make build-cli \
+  VERSION=1.0.0 \
+  API_BASE_URL=https://api.underleafapp.com/api/v1/servers \
+  EVENT_BUS_ENDPOINT=wss://events.underleafapp.com/ws
+
+# Build with custom environment (development)
+make build-cli \
+  VERSION=dev \
+  API_BASE_URL=https://api.underleafdev.com/api/v1/servers \
+  EVENT_BUS_ENDPOINT=wss://events.underleafdev.com/ws
+```
+
+**Check Build Configuration**
+```bash
+# View embedded defaults
+./ufctl local config view
+
+# The output shows which environment the binary was built for
 ```
 
 ## Usage Examples
