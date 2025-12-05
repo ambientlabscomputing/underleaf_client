@@ -1,16 +1,16 @@
-name: Release
+name: Development Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - develop
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    name: Create Release
+  dev-release:
+    name: Create Development Release
     runs-on: ubuntu-latest
     
     steps:
@@ -24,11 +24,15 @@ jobs:
       with:
         go-version: '1.24.3'
 
+    - name: Get short SHA
+      id: sha
+      run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
     - name: Build binaries
       env:
-        VERSION: ${{ github.ref_name }}
-        API_BASE_URL: https://api.underleafdev.com/api/v1/servers
-        EVENT_BUS_ENDPOINT: wss://events.underleafdev.com/ws
+        VERSION: dev-${{ steps.sha.outputs.short }}
+        API_BASE_URL: https://api.underleafapp.com/api/v1/servers
+        EVENT_BUS_ENDPOINT: wss://events.underleafapp.com/ws
       run: |
         mkdir -p bin
         
@@ -72,74 +76,56 @@ jobs:
         sha256sum * > checksums.txt
         cat checksums.txt
 
-    - name: Create Release
+    - name: Delete existing dev release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release delete dev --yes || true
+        git push origin :refs/tags/dev || true
+
+    - name: Create Development Release
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: dev
+        name: Development Build (Latest)
+        prerelease: true
         files: |
           bin/ufctl-*
           bin/underleaf_agent-*
           bin/checksums.txt
         body: |
-          # Underleaf Client ${{ github.ref_name }}
+          # Underleaf Client - Development Build
           
-          See [CHANGELOG.md](https://github.com/ambientlabscomputing/underleaf_client/blob/main/CHANGELOG.md) for details.
+          **⚠️ This is an automated development build from the `develop` branch**
           
-          ## What's Included
+          - Version: `dev-${{ steps.sha.outputs.short }}`
+          - Commit: ${{ github.sha }}
+          - Built: ${{ github.event.head_commit.timestamp }}
+          - Environment: **Development** (underleafapp.com)
           
-          - **ufctl** - CLI tool for managing Underleaf servers and executing remote commands
-          - **underleaf_agent** - Agent binary that runs on edge servers
+          This build is configured to connect to the development environment:
+          - API: `https://api.underleafapp.com/api/v1/servers`
+          - Event Bus: `wss://events.underleafapp.com/ws`
           
           ## Installation
           
-          ### ufctl (CLI)
+          Download the appropriate binary for your platform and make it executable:
           
-          Download the appropriate binary for your platform:
-          - **Linux AMD64**: `ufctl-linux-amd64`
-          - **Linux ARM64**: `ufctl-linux-arm64`
-          - **macOS AMD64**: `ufctl-darwin-amd64`
-          - **macOS ARM64** (M1/M2/M3): `ufctl-darwin-arm64`
-          - **Windows AMD64**: `ufctl-windows-amd64.exe`
-          
-          #### Unix/macOS
           ```bash
-          # Download and make executable
-          curl -L -o ufctl https://github.com/ambientlabscomputing/underleaf_client/releases/download/${{ github.ref_name }}/ufctl-darwin-arm64
+          # macOS ARM64 (M1/M2/M3)
+          curl -L https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-darwin-arm64 -o ufctl
           chmod +x ufctl
           sudo mv ufctl /usr/local/bin/
           
-          # Verify installation
-          ufctl --help
+          # Linux AMD64
+          curl -L https://github.com/ambientlabscomputing/underleaf_client/releases/download/dev/ufctl-linux-amd64 -o ufctl
+          chmod +x ufctl
+          sudo mv ufctl /usr/local/bin/
           ```
           
-          #### Windows
-          ```powershell
-          # Download ufctl-windows-amd64.exe and add to PATH
-          ```
+          ## What's Included
           
-          ### underleaf_agent (Agent)
+          - **ufctl**: CLI tool for managing Underleaf servers
+          - **underleaf_agent**: Agent binary for server monitoring
           
-          Download the appropriate binary for your platform:
-          - **Linux AMD64**: `underleaf_agent-linux-amd64`
-          - **Linux ARM64**: `underleaf_agent-linux-arm64`
-          - **macOS AMD64**: `underleaf_agent-darwin-amd64`
-          - **macOS ARM64** (M1/M2/M3): `underleaf_agent-darwin-arm64`
-          - **Windows AMD64**: `underleaf_agent-windows-amd64.exe`
-          
-          #### Unix/macOS
-          ```bash
-          # Download and make executable
-          curl -L -o underleaf_agent https://github.com/ambientlabscomputing/underleaf_client/releases/download/${{ github.ref_name }}/underleaf_agent-linux-amd64
-          chmod +x underleaf_agent
-          sudo mv underleaf_agent /usr/local/bin/
-          ```
-          
-          ## Verification
-          
-          Verify the integrity of downloaded binaries using the checksums:
-          ```bash
-          sha256sum -c checksums.txt
-          ```
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          For production releases, use version tags (e.g., `v1.0.0`).

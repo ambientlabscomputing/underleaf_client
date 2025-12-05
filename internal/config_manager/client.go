@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 	"github.com/spf13/viper"
 )
 
@@ -115,6 +116,15 @@ func NewCLIConfigClient() *CLIConfigClient {
 
 	// for CLI, start a new empty config if no config file found
 	_ = v.ReadInConfig() // ignore error and start with empty config
+	
+	// Set build-time defaults if not already configured
+	if !v.IsSet("api.base_url") {
+		v.Set("api.base_url", defaults.APIBaseURL)
+	}
+	if !v.IsSet("event_bus.endpoint") {
+		v.Set("event_bus.endpoint", defaults.EventBusEndpoint)
+	}
+	
 	if err := v.WriteConfigAs("./config.yaml"); err != nil {
 		slog.Error("failed to write config file")
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 )
 
 // SnapshotConfigClient implements ConfigClient using snapshot manager
@@ -84,9 +86,15 @@ func (c *SnapshotConfigClient) getFromLocalMeta(meta *LocalMetadata, key string)
 	case "auth.token":
 		return meta.AuthToken, meta.AuthToken != ""
 	case "api.base_url":
-		return meta.APIBaseURL, meta.APIBaseURL != ""
+		if meta.APIBaseURL != "" {
+			return meta.APIBaseURL, true
+		}
+		return defaults.APIBaseURL, true
 	case "event_bus.endpoint":
-		return meta.EventBus.Endpoint, meta.EventBus.Endpoint != ""
+		if meta.EventBus.Endpoint != "" {
+			return meta.EventBus.Endpoint, true
+		}
+		return defaults.EventBusEndpoint, true
 	case "event_bus.commit_interval":
 		return meta.EventBus.CommitInterval, meta.EventBus.CommitInterval != ""
 	default:
