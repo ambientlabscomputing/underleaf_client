@@ -20,17 +20,34 @@ var AgentCmd = &cobra.Command{
 var agentStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the agent daemon",
+	Long: `Start the Underleaf agent daemon.
+
+In daemon mode (-d), requires the 'underleaf_agent' binary to be in PATH or the same directory as ufctl.
+In development mode (--dev), runs the agent in the current process (foreground).
+
+Examples:
+  # Start in foreground (development mode)
+  ufctl local agent start --dev
+
+  # Start as background daemon (requires underleaf_agent binary)
+  ufctl local agent start -d
+
+  # Start on custom port
+  ufctl local agent start --dev --port 9090`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		printer := ui.GetPrinter(cmd.Context())
 
 		// Get flags
 		dev, _ := cmd.Flags().GetBool("dev")
+		detach, _ := cmd.Flags().GetBool("detach")
 		port, _ := cmd.Flags().GetInt("port")
 
 		// Determine launch mode
-		mode := agent.ModeDaemon
-		if dev {
+		mode := agent.ModeDev
+		if detach {
+			mode = agent.ModeDaemon
+		} else if dev {
 			mode = agent.ModeDev
 		}
 
@@ -48,14 +65,22 @@ var agentStartCmd = &cobra.Command{
 		}
 
 		// Start the agent
-		if dev {
+		if mode == agent.ModeDev {
 			printer.PrintInfo(fmt.Sprintf("Starting agent in development mode on port %d...", port))
+			printer.PrintInfo("Press Ctrl+C to stop")
 			// In dev mode, this blocks until shutdown
 			return launcher.Start(ctx)
 		} else {
 			printer.PrintInfo(fmt.Sprintf("Starting agent daemon on port %d...", port))
+			printer.PrintInfo("Requires 'underleaf_agent' binary in PATH or same directory")
+			
 			if err := launcher.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start agent: %w", err)
+				printer.PrintError(fmt.Sprintf("Failed to start agent: %v", err))
+				printer.PrintInfo("\nTroubleshooting:")
+				printer.PrintInfo("- Ensure 'underleaf_agent' binary is installed")
+				printer.PrintInfo("- Check if it's in PATH: which underleaf_agent")
+				printer.PrintInfo("- Or use development mode: ufctl local agent start --dev")
+				return err
 			}
 
 			status := launcher.GetStatus()
@@ -199,7 +224,8 @@ var agentLogsCmd = &cobra.Command{
 
 func init() {
 	// Start flags
-	agentStartCmd.Flags().BoolP("dev", "d", false, "Run in development mode (foreground)")
+	agentStartCmd.Flags().Bool("dev", false, "Run in development mode (foreground)")
+	agentStartCmd.Flags().BoolP("detach", "d", false, "Run as background daemon (requires underleaf_agent binary)")
 	agentStartCmd.Flags().IntP("port", "p", 8081, "Port to run the agent on")
 
 	// Restart flags

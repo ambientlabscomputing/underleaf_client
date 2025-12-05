@@ -113,11 +113,19 @@ func (l *Launcher) startDev(ctx context.Context) error {
 
 // startDaemon forks the process to run in background
 func (l *Launcher) startDaemon(ctx context.Context) error {
-	// Get the current executable path
-	exe, err := os.Executable()
+	logger := logging.GetLogger(ctx)
+	
+	// Find underleaf_agent binary
+	// Try these locations in order:
+	// 1. Same directory as current executable
+	// 2. PATH lookup
+	// 3. Common installation paths
+	agentBinary, err := l.findAgentBinary()
 	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+		return fmt.Errorf("failed to find underleaf_agent binary: %w", err)
 	}
+	
+	logger.Info("found agent binary", "path", agentBinary)
 
 	// Open log file
 	logFile, err := os.OpenFile(l.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -126,8 +134,8 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	}
 	defer logFile.Close()
 
-	// Fork the process
-	cmd := exec.Command(exe, "agent", "serve", "--mode", "dev")
+	// Fork the process with underleaf_agent binary
+	cmd := exec.Command(agentBinary, "serve", "--port", fmt.Sprintf("%d", l.port), "--mode", "dev")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	configureProcAttr(cmd)
@@ -145,10 +153,44 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	// Wait a moment to see if it crashes immediately
 	time.Sleep(500 * time.Millisecond)
 	if !l.IsRunning() {
-		return fmt.Errorf("agent failed to start")
+		// Read last few lines of log for error message
+		logger.Error("agent failed to start, check logs", "logFile", l.logFile)
+		return fmt.Errorf("agent failed to start, check logs at: %s", l.logFile)
 	}
 
 	return nil
+}
+
+// findAgentBinary locates the underleaf_agent binary
+func (l *Launcher) findAgentBinary() (string, error) {
+	// Try PATH lookup first
+	if path, err := exec.LookPath("underleaf_agent"); err == nil {
+		return path, nil
+	}
+
+	// Try same directory as current executable
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		agentPath := filepath.Join(exeDir, "underleaf_agent")
+		if _, err := os.Stat(agentPath); err == nil {
+			return agentPath, nil
+		}
+	}
+
+	// Try common installation paths
+	commonPaths := []string{
+		"/usr/local/bin/underleaf_agent",
+		"/usr/bin/underleaf_agent",
+		filepath.Join(os.Getenv("HOME"), ".local", "bin", "underleaf_agent"),
+	}
+
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("underleaf_agent binary not found in PATH or common locations")
 }
 
 // startBinary executes the binary from the specified path
