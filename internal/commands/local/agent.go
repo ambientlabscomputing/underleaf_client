@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
@@ -73,7 +74,7 @@ Examples:
 		} else {
 			printer.PrintInfo(fmt.Sprintf("Starting agent daemon on port %d...", port))
 			printer.PrintInfo("Requires 'underleaf_agent' binary in PATH or same directory")
-			
+
 			if err := launcher.Start(ctx); err != nil {
 				printer.PrintError(fmt.Sprintf("Failed to start agent: %v", err))
 				printer.PrintInfo("\nTroubleshooting:")
@@ -84,8 +85,10 @@ Examples:
 			}
 
 			status := launcher.GetStatus()
+			structuredLogFile := filepath.Join(os.TempDir(), "underleaf-agent-structured.log")
 			printer.PrintSuccess(fmt.Sprintf("Agent started successfully (PID: %d)", status.PID))
-			printer.Print(fmt.Sprintf("Log file: %s", status.LogFile))
+			printer.Print(fmt.Sprintf("Stdout/Stderr: %s", status.LogFile))
+			printer.Print(fmt.Sprintf("Structured logs: %s", structuredLogFile))
 			return nil
 		}
 	},
@@ -163,6 +166,9 @@ var agentStatusCmd = &cobra.Command{
 		client := agent.NewClient(status.Port)
 		healthy, err := client.GetHealth()
 
+		// Show structured log file location (where slog writes)
+		structuredLogFile := filepath.Join(os.TempDir(), "underleaf-agent-structured.log")
+
 		table := ui.NewTableBuilder().
 			WithTitle("Agent Status").
 			WithHeaders("Property", "Value").
@@ -170,7 +176,8 @@ var agentStatusCmd = &cobra.Command{
 			AddRow("PID", fmt.Sprintf("%d", status.PID)).
 			AddRow("Port", fmt.Sprintf("%d", status.Port)).
 			AddRow("PID File", status.PIDFile).
-			AddRow("Log File", status.LogFile)
+			AddRow("Stdout/Stderr Log", status.LogFile).
+			AddRow("Structured Log", structuredLogFile)
 
 		if err == nil && healthy {
 			table.AddRow("Health", "Healthy")

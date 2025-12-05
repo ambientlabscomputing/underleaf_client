@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
@@ -28,11 +29,9 @@ var serveCmd = &cobra.Command{
 		// Initialize logging context
 		ctx := context.Background()
 
-		// Initialize logging for the agent
-		logFile := "/tmp/underleaf-agent.log"
-		ctx, _ = logging.Init(ctx, logging.LoggerModeAgent, &logFile)
-
-		// Determine launch mode
+		// Initialize logging for the agent (use system temp directory)
+		logFile := filepath.Join(os.TempDir(), "underleaf-agent-structured.log")
+		ctx, _ = logging.Init(ctx, logging.LoggerModeAgent, &logFile) // Determine launch mode
 		launchMode := agent.ModeDaemon
 		if mode == "dev" {
 			launchMode = agent.ModeDev
