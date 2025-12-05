@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -99,31 +100,45 @@ func (m *MetricsCollector) collectAndSend(ctx context.Context) {
 }
 
 func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
-	// Collect CPU usage (average over 1 second)
-	// Note: Pass 0 for interval to get instantaneous reading, as time.Second
-	// causes issues on first call on some systems (macOS)
+	slog.Debug("metrics collection starting", "step", "begin")
+	
+	// Collect CPU usage
+	slog.Debug("collecting CPU metrics", "step", "cpu_start", "interval", 0)
 	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
-		return nil, err
+		slog.Error("CPU collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
+		return nil, fmt.Errorf("cpu.Percent failed: %w", err)
 	}
 	cpuUsage := 0.0
 	if len(cpuPercent) > 0 {
 		cpuUsage = cpuPercent[0]
 	}
+	slog.Debug("CPU metrics collected", "cpu_usage", cpuUsage, "cpu_count", len(cpuPercent))
 
 	// Collect memory usage
+	slog.Debug("collecting memory metrics", "step", "mem_start")
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		return nil, err
+		slog.Error("memory collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
+		return nil, fmt.Errorf("mem.VirtualMemory failed: %w", err)
 	}
 	memUsage := memInfo.UsedPercent
+	slog.Debug("memory metrics collected", "mem_usage", memUsage)
 
 	// Collect disk usage (root partition)
+	slog.Debug("collecting disk metrics", "step", "disk_start")
 	diskInfo, err := disk.Usage("/")
 	if err != nil {
-		return nil, err
+		slog.Error("disk collection failed", "error", err, "error_type", fmt.Sprintf("%T", err))
+		return nil, fmt.Errorf("disk.Usage failed: %w", err)
 	}
 	diskUsage := diskInfo.UsedPercent
+	slog.Debug("disk metrics collected", "disk_usage", diskUsage)
+
+	slog.Info("metrics collection completed successfully",
+		"cpu", cpuUsage,
+		"memory", memUsage,
+		"disk", diskUsage)
 
 	return &types.MetricsUpdateRequest{
 		CPUUsage:    cpuUsage,
