@@ -50,9 +50,15 @@ func (m *MetricsCollector) Start(ctx context.Context) {
 	slog.Info("starting metrics collector", "server_id", m.serverID, "interval", m.interval)
 
 	// Initialize CPU stats on startup to avoid "not implemented yet" error on first call
-	// This is required for gopsutil to establish baseline CPU measurements
+	// gopsutil requires a time interval on the FIRST call to establish baseline measurements
+	// Subsequent calls can use interval=0 for instantaneous readings
 	slog.Debug("initializing CPU stats with warmup call")
-	_, _ = cpu.Percent(0, false)
+	_, err := cpu.Percent(500*time.Millisecond, false)
+	if err != nil {
+		slog.Warn("CPU warmup call failed, metrics may not work correctly", "error", err)
+	} else {
+		slog.Debug("CPU stats initialized successfully")
+	}
 	
 	go m.run(ctx)
 }
