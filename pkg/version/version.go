@@ -1,6 +1,7 @@
 package version
 
-const (
+// These variables can be overridden at build time using ldflags
+var (
 	Version   = "0.0.0"
 	GitCommit = ""
 	BuildDate = ""
