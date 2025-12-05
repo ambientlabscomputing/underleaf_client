@@ -100,7 +100,9 @@ func (m *MetricsCollector) collectAndSend(ctx context.Context) {
 
 func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
 	// Collect CPU usage (average over 1 second)
-	cpuPercent, err := cpu.Percent(time.Second, false)
+	// Note: Pass 0 for interval to get instantaneous reading, as time.Second
+	// causes issues on first call on some systems (macOS)
+	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
 		return nil, err
 	}
