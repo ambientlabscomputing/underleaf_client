@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/ambientlabscomputing/event_bus_client"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
@@ -42,8 +43,9 @@ type EventClient interface {
 }
 
 type Client struct {
-	eventBus event_bus_client.EventClient
-	channels map[string][]chan event_bus_client.Message
+	eventBus   event_bus_client.EventClient
+	channels   map[string][]chan event_bus_client.Message
+	channelsMu sync.RWMutex // Protects channels map from concurrent access
 }
 
 func (c *Client) Start(ctx context.Context, serverID string) error {
@@ -63,7 +65,9 @@ func (c *Client) Start(ctx context.Context, serverID string) error {
 		}
 		index := selector.ToIndex()
 		handlerChan := make(chan event_bus_client.Message, 100)
+		c.channelsMu.Lock()
 		c.channels[index] = append(c.channels[index], handlerChan)
+		c.channelsMu.Unlock()
 		logger.Debug("pre-registered channel for starting subscription", "index", index)
 	}
 
@@ -111,7 +115,11 @@ func (c *Client) Subscribe(ctx context.Context, selector SelectorFields) (Client
 	)
 
 	// Check if already subscribed (from StartingSubscriptions)
-	if chans, ok := c.channels[index]; ok && len(chans) > 0 {
+	c.channelsMu.RLock()
+	chans, ok := c.channels[index]
+	c.channelsMu.RUnlock()
+	
+	if ok && len(chans) > 0 {
 		logger.Debug("reusing existing subscription channel", "index", index)
 		return ClientSubscription{
 			Selector:    selector,
@@ -136,11 +144,14 @@ func (c *Client) Subscribe(ctx context.Context, selector SelectorFields) (Client
 	}
 
 	handlerChan := make(chan event_bus_client.Message, 100)
+	c.channelsMu.Lock()
 	c.channels[index] = append(c.channels[index], handlerChan)
+	totalChannels := len(c.channels)
+	c.channelsMu.Unlock()
 
 	logger.Debug("subscription registered",
 		"index", index,
-		"total_channels", len(c.channels),
+		"total_channels", totalChannels,
 	)
 	return ClientSubscription{
 		Selector:    selector,
@@ -176,15 +187,21 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 				TraceID:    defref(msg.TraceID),
 			}
 			index := selector.ToIndex()
+			
+			c.channelsMu.RLock()
+			numChannels := len(c.channels)
 			logger.Debug("incoming message",
 				"topic", msg.Topic,
 				"target_id", defref(msg.TargetID),
 				"index", index,
-				"registered_channels", len(c.channels),
+				"registered_channels", numChannels,
 			)
 
 			// Try exact match first
-			if chans, ok := c.channels[index]; ok {
+			chans, ok := c.channels[index]
+			c.channelsMu.RUnlock()
+			
+			if ok {
 				for _, ch := range chans {
 					logger.Debug("message delivered (exact match)", "destination", index)
 					ch <- msg
@@ -195,7 +212,12 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 			// Fallback: try topic-only match (for subscriptions that filter in handler)
 			topicOnlySelector := SelectorFields{Topic: msg.Topic}
 			topicOnlyIndex := topicOnlySelector.ToIndex()
-			if chans, ok := c.channels[topicOnlyIndex]; ok {
+			
+			c.channelsMu.RLock()
+			chans, ok = c.channels[topicOnlyIndex]
+			c.channelsMu.RUnlock()
+			
+			if ok {
 				for _, ch := range chans {
 					logger.Debug("message delivered (topic match)", "destination", topicOnlyIndex)
 					ch <- msg
@@ -214,6 +236,9 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 }
 
 func (c *Client) getChannelIndices() []string {
+	c.channelsMu.RLock()
+	defer c.channelsMu.RUnlock()
+	
 	indices := make([]string, 0, len(c.channels))
 	for k := range c.channels {
 		indices = append(indices, k)
