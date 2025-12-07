@@ -30,6 +30,10 @@ payload:
 
   # Local Server Configuration (for agent mode)
   local:
+    # Organization context
+    organization_id: ""
+    organization_name: ""
+    
     # Unique identifier for this server
     # Obtain with: ufctl local register
     server_id: 00000000-0000-0000-0000-000000000000

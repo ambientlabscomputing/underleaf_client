@@ -193,6 +193,97 @@ var AuthLoginCmd = &cobra.Command{
 		fmt.Println(successStyle.Render("✓ Authentication successful!"))
 		fmt.Println()
 
+		// Fetch user organizations and settings
+		userClient := deps.CPlaneClient.Users
+		logger.Info("Fetching user profile and organizations")
+
+		me, err := userClient.GetMe(ctx)
+		if err != nil {
+			logger.Warn("Failed to fetch user organizations", "error", err)
+			fmt.Println(instructionStyle.Render("Warning: Could not fetch organizations. You can set your org context later with 'ufctl local org switch <org-id>'"))
+			return nil
+		}
+
+		if len(me.Organizations) == 0 {
+			fmt.Println(instructionStyle.Render("No organizations found. Create an organization to get started."))
+			return nil
+		}
+
+		// Fetch user settings to check for default org
+		var defaultOrgID string
+		settings, err := userClient.GetMySettings(ctx)
+		if err == nil && settings.DefaultOrgID != "" {
+			defaultOrgID = settings.DefaultOrgID
+			logger.Info("Found default org in user settings", "default_org_id", defaultOrgID)
+		}
+
+		// If user has a default org, use it if they're a member
+		if defaultOrgID != "" {
+			for _, org := range me.Organizations {
+				if org.ID == defaultOrgID {
+					logger.Info("Using default organization", "org_id", org.ID, "org_name", org.Name)
+					if err := config.Set("local.organization_id", org.ID); err != nil {
+						logger.Error("Failed to save organization ID", "error", err)
+					}
+					if err := config.Set("local.organization_name", org.Name); err != nil {
+						logger.Error("Failed to save organization name", "error", err)
+					}
+					fmt.Println(successStyle.Render("✓ Organization context set to: " + org.Name))
+					return nil
+				}
+			}
+		}
+
+		// If only one org, auto-select it
+		if len(me.Organizations) == 1 {
+			org := me.Organizations[0]
+			logger.Info("Auto-selecting single organization", "org_id", org.ID, "org_name", org.Name)
+			if err := config.Set("local.organization_id", org.ID); err != nil {
+				logger.Error("Failed to save organization ID", "error", err)
+			}
+			if err := config.Set("local.organization_name", org.Name); err != nil {
+				logger.Error("Failed to save organization name", "error", err)
+			}
+			fmt.Println(successStyle.Render("✓ Organization context set to: " + org.Name))
+			return nil
+		}
+
+		// Multiple orgs: present picker
+		fmt.Println()
+		fmt.Println(titleStyle.Render("🏢 Select Organization"))
+		fmt.Println()
+		fmt.Println(instructionStyle.Render("Use arrow keys to navigate, Enter to select, Ctrl+C to skip"))
+		fmt.Println()
+
+		orgPicker := NewOrgPicker(me.Organizations)
+		pickerProgram := tea.NewProgram(orgPicker)
+
+		pickerFinalModel, pickerErr := pickerProgram.Run()
+		if pickerErr != nil {
+			logger.Error("Failed to run org picker", "error", pickerErr)
+			fmt.Println(instructionStyle.Render("\nYou can set your org context later with 'ufctl local org switch <org-id>'"))
+			return nil
+		}
+
+		pickerResult := pickerFinalModel.(orgPickerModel)
+		if pickerResult.cancelled || pickerResult.selectedOrg == nil {
+			fmt.Println(instructionStyle.Render("\nOrganization selection skipped. Use 'ufctl local org switch <org-id>' to set your org context."))
+			return nil
+		}
+
+		// Save selected org
+		logger.Info("User selected organization", "org_id", pickerResult.selectedOrg.ID, "org_name", pickerResult.selectedOrg.Name)
+		if err := config.Set("local.organization_id", pickerResult.selectedOrg.ID); err != nil {
+			return fmt.Errorf("failed to save organization ID: %w", err)
+		}
+		if err := config.Set("local.organization_name", pickerResult.selectedOrg.Name); err != nil {
+			return fmt.Errorf("failed to save organization name: %w", err)
+		}
+
+		fmt.Println()
+		fmt.Println(successStyle.Render("✓ Organization context set to: " + pickerResult.selectedOrg.Name))
+		fmt.Println()
+
 		return nil
 	},
 }
@@ -210,6 +301,74 @@ func NewAuthSpinner() authSpinnerModel {
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// Org picker model
+type orgPickerModel struct {
+	orgs        []controlplane.OrgMembership
+	cursor      int
+	selectedOrg *controlplane.OrgMembership
+	cancelled   bool
+}
+
+func NewOrgPicker(orgs []controlplane.OrgMembership) orgPickerModel {
+	return orgPickerModel{
+		orgs:   orgs,
+		cursor: 0,
+	}
+}
+
+func (m orgPickerModel) Init() tea.Cmd {
+	return nil
+}
+
+func (m orgPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.cancelled = true
+			return m, tea.Quit
+
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+
+		case "down", "j":
+			if m.cursor < len(m.orgs)-1 {
+				m.cursor++
+			}
+
+		case "enter":
+			m.selectedOrg = &m.orgs[m.cursor]
+			return m, tea.Quit
+		}
+	}
+
+	return m, nil
+}
+
+func (m orgPickerModel) View() string {
+	if m.cancelled {
+		return ""
+	}
+
+	s := ""
+	for i, org := range m.orgs {
+		cursor := " "
+		if m.cursor == i {
+			cursor = "▶"
+			s += fmt.Sprintf("%s %s\n",
+				currentOrgStyle.Render(cursor),
+				orgNameStyle.Render(org.Name+" ("+org.Role+")"))
+		} else {
+			s += fmt.Sprintf("%s %s\n", cursor, org.Name+" ("+org.Role+")")
+		}
+		s += fmt.Sprintf("  %s\n\n", orgIDStyle.Render("ID: "+org.ID))
+	}
+
+	return s
+}
 
 type authSuccessMsg struct {
 	token *controlplane.TokenResponse

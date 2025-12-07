@@ -16,4 +16,5 @@ func init() {
 	LocalCmd.AddCommand(RegisterCmd)
 	LocalCmd.AddCommand(ConfigCmd)
 	LocalCmd.AddCommand(AgentCmd)
+	LocalCmd.AddCommand(OrgCmd)
 }

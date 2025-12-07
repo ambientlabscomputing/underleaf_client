@@ -41,6 +41,13 @@ func (c *APIClient) GET(path string, response interface{}) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -85,6 +92,13 @@ func (c *APIClient) GETWithParams(path string, params url.Values, response inter
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -127,6 +141,13 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -172,6 +193,13 @@ func (c *APIClient) PUT(path string, payload interface{}, response interface{}) 
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -200,6 +228,13 @@ func (c *APIClient) DELETE(path string, response interface{}) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -241,6 +276,13 @@ func (c *APIClient) PATCH(path string, payload interface{}, response interface{}
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err

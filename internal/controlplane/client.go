@@ -13,6 +13,7 @@ type CPlaneClient struct {
 	Config     CPlaneConfigClient
 	Commands   CPlaneCommandClient
 	Auth       *CPlaneAuthClient
+	Users      *CPlaneUserClient
 	config     *config_manager.ConfigClient
 	httpClient *http.Client
 	apiClient  *APIClient
@@ -28,6 +29,7 @@ func NewCPlaneClient(config *config_manager.ConfigClient, h *http.Client) *CPlan
 		Config:     NewCPlaneConfigClient(apiClient),
 		Commands:   NewCommandClient(apiClient),
 		Auth:       NewAuthClient(apiClient),
+		Users:      NewUserClient(apiClient),
 	}
 }
 
