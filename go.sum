@@ -2,6 +2,8 @@ github.com/ambientlabscomputing/event_bus_client v1.0.2 h1:0mqFym1uGrKGH2ZxHC5++
 github.com/ambientlabscomputing/event_bus_client v1.0.2/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
 github.com/ambientlabscomputing/event_bus_client v1.0.3 h1:jE97zHlJtPjJ2xv8B2vHtrRBYqeNR4N7Frzyngh1l+0=
 github.com/ambientlabscomputing/event_bus_client v1.0.3/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
+github.com/ambientlabscomputing/event_bus_client v1.1.0 h1:U6px5/sZ1cQgwrVQiEcBDn5qMiGR8XP4PtTL/AvQcAA=
+github.com/ambientlabscomputing/event_bus_client v1.1.0/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=

@@ -32,8 +32,15 @@ build-agent:
 	@go build $(LDFLAGS) -o $(BINARY_AGENT) ./cmd/underleaf_agent
 	@echo "✓ Built $(BINARY_AGENT)"
 
-## install: Install binaries to $GOPATH/bin
+## install: Install binaries to /usr/local/bin/
 install:
+	@echo "Installing binaries to /usr/local/bin/..."
+	@cp $(BINARY_CLI) /usr/local/bin/$(BINARY_CLI)
+	@cp $(BINARY_AGENT) /usr/local/bin/$(BINARY_AGENT)
+	@echo "✓ Installed to /usr/local/bin/"
+
+## install-gopath: Install binaries to $GOPATH/bin
+install-gopath:
 	@echo "Installing binaries..."
 	@go install $(LDFLAGS) ./cmd/ufctl
 	@go install $(LDFLAGS) ./cmd/underleaf_agent

@@ -11,6 +11,8 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
 )
 
 // Dependencies holds all agent dependencies
@@ -147,6 +149,12 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Watch for config updates to refresh command settings
 	go watchConfigForCommandSettings(ctx, snapshotManager, commandHandler)
+
+	// Publish hostname and IP address to control plane
+	if err := publishNetworkInfo(ctx, cplaneClient.Servers, serverID.(string)); err != nil {
+		slog.Warn("failed to publish network info", "error", err)
+		// Don't fail agent startup if network info publish fails
+	}
 
 	// Initialize and start metrics collector
 	metricsCollector := NewMetricsCollector(serverID.(string), cplaneClient.Servers, DefaultMetricsInterval)
@@ -335,4 +343,38 @@ func extractCommandSettingsFromSnapshot(snapshot *config_manager.ConfigSnapshot)
 	}
 
 	return settings
+}
+
+// publishNetworkInfo detects and publishes the hostname and IPv4 address to the control plane
+func publishNetworkInfo(ctx context.Context, serverClient controlplane.CPlaneServerClient, serverID string) error {
+	// Detect network information
+	netInfo, err := utils.GetNetworkInfo()
+	if err != nil {
+		return fmt.Errorf("failed to detect network info: %w", err)
+	}
+
+	slog.Info("detected network information",
+		"hostname", netInfo.Hostname,
+		"ipv4", netInfo.IPv4,
+		"interface", netInfo.Interface,
+	)
+
+	// Prepare update request
+	updateReq := types.UpdateServerRequest{
+		Hostname:  netInfo.Hostname,
+		IPAddress: netInfo.IPv4,
+	}
+
+	// Send update to control plane
+	if _, err := serverClient.UpdateServer(ctx, serverID, updateReq); err != nil {
+		return fmt.Errorf("failed to update server network info: %w", err)
+	}
+
+	slog.Info("successfully published network info to control plane",
+		"server_id", serverID,
+		"hostname", netInfo.Hostname,
+		"ipv4", netInfo.IPv4,
+	)
+
+	return nil
 }
