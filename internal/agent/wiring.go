@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/ambientlabscomputing/event_bus_client"
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
@@ -22,6 +23,7 @@ type Dependencies struct {
 	Server           *Server
 	CommandHandler   *exec.CommandHandler
 	MetricsCollector *MetricsCollector
+	BusClient        *bus.Client // Event bus client for cleanup on shutdown
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -63,7 +65,31 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	slog.Info("initializing agent with config", "server_id", serverID, "has_token", true)
 
 	// Initialize control plane client for config fetching and command results
-	httpClient := http.DefaultClient
+	// Configure HTTP client with mTLS transport if certificate is available
+	var httpClient *http.Client
+	certPath, hasCert := getConfigValue(configClient, "mtls.certificate_path")
+	keyPath, hasKey := getConfigValue(configClient, "mtls.private_key_path")
+
+	if hasCert && hasKey && certPath != "" && keyPath != "" {
+		// Create mTLS transport with certificate
+		transport, err := controlplane.NewMTLSTransport(
+			http.DefaultTransport,
+			keyPath.(string),
+			certPath.(string),
+		)
+		if err != nil {
+			// Certificate loading failed, fall back to JWT auth
+			slog.Warn("failed to load mTLS certificate, using JWT auth", "error", err)
+			httpClient = http.DefaultClient
+		} else {
+			slog.Info("mTLS transport enabled for agent")
+			httpClient = &http.Client{Transport: transport}
+		}
+	} else {
+		// No certificate available, use default HTTP client (JWT auth)
+		httpClient = http.DefaultClient
+	}
+
 	cplaneClient := controlplane.NewCPlaneClient(&configClient, httpClient)
 	cpConfigAdapter := config_manager.NewControlPlaneConfigAdapter(cplaneClient.Config)
 
@@ -79,28 +105,59 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 		slog.Info("initializing event bus client", "endpoint", endpoint, "server_id", serverID)
 
-		ebClient := event_bus_client.NewEventClient(event_bus_client.EventClientOpts{
+		// Prepare event bus client options
+		ebOpts := event_bus_client.EventClientOpts{
 			Endpoint:       endpoint.(string),
 			CommitInterval: commitInterval.(string),
-			AuthToken:      token.(string),
 			GroupID:        serverID.(string),
-		})
+		}
 
-		// Enable verbose mode to debug WebSocket communication
-		ebClient.SetVerbose(true)
+		// Use mTLS if certificate is available, otherwise use JWT token
+		if hasCert && hasKey && certPath != "" && keyPath != "" {
+			slog.Info("configuring event bus client with mTLS authentication")
+			ebOpts.CertPath = certPath.(string)
+			ebOpts.KeyPath = keyPath.(string)
+		} else {
+			slog.Info("configuring event bus client with JWT authentication")
+			ebOpts.AuthToken = token.(string)
+		}
 
-		var err error
-		busClient, err = bus.NewClient(ebClient)
+		ebClient, err := event_bus_client.NewEventClient(ebOpts)
 		if err != nil {
 			slog.Warn("failed to create event bus client", "error", err)
 		} else {
-			slog.Info("starting event bus client")
-			if err := busClient.Start(ctx, serverID.(string)); err != nil {
-				slog.Warn("failed to start event bus client", "error", err)
-				busClient = nil
+			// Enable verbose mode to debug WebSocket communication
+			ebClient.SetVerbose(true)
+
+			var busErr error
+			busClient, busErr = bus.NewClient(ebClient)
+			if busErr != nil {
+				slog.Warn("failed to create bus client wrapper", "error", busErr)
 			} else {
-				slog.Info("event bus client started successfully")
-				eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
+				slog.Info("starting event bus client with 15s timeout")
+
+				// Use background context for event bus - it should live for entire agent process
+				// Not tied to the Start command context which may be cancelled
+				busCtx := context.Background()
+
+				connectDone := make(chan error, 1)
+				go func() {
+					connectDone <- busClient.Start(busCtx, serverID.(string))
+				}()
+
+				select {
+				case err := <-connectDone:
+					if err != nil {
+						slog.Warn("failed to start event bus client", "error", err)
+						busClient = nil
+					} else {
+						slog.Info("event bus client started successfully")
+						eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
+					}
+				case <-time.After(15 * time.Second):
+					slog.Warn("event bus connection timed out after 15s, continuing without event bus")
+					busClient = nil
+				}
 			}
 		}
 	} else {
@@ -173,6 +230,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		Server:           server,
 		CommandHandler:   commandHandler,
 		MetricsCollector: metricsCollector,
+		BusClient:        busClient, // Store bus client for cleanup
 	}, nil
 }
 

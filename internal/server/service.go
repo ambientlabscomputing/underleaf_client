@@ -71,6 +71,28 @@ func (s *ServerService) ListServersWithParams(ctx context.Context, params types.
 }
 
 func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
+	// Check if we already have a server_id in config (idempotent registration)
+	existingIDRaw, hasID := s.config.Get("local.server_id")
+	if hasID && existingIDRaw != nil {
+		// Type assert to string
+		existingID, ok := existingIDRaw.(string)
+		if ok && existingID != "" {
+			// Verify the existing server still exists on the backend
+			existingServer, err := s.GetServer(ctx, existingID)
+			if err == nil && existingServer.ID != "" {
+				// Server exists and is valid, reuse it
+				// No need to update name - the server already exists
+				// Just ensure config has the correct name
+				if err := s.config.Set("local.server_name", existingServer.Name); err != nil {
+					return fmt.Errorf("failed to save server name: %w", err)
+				}
+				return nil // Registration already complete (idempotent)
+			}
+			// If server doesn't exist on backend, continue with new registration
+		}
+	}
+
+	// Create new server registration
 	serverIF, err := s.cplane.Servers.RegisterServer(ctx, name, ServerPlatform{
 		OS:   runtime.GOOS,
 		Arch: runtime.GOARCH,

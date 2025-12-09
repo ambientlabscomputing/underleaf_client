@@ -50,6 +50,12 @@ Examples:
 			return nil
 		}
 
+		// Get local server ID for highlighting
+		localServerID := ""
+		if val, ok := deps.ConfigClient.Get("local.server_id"); ok {
+			localServerID = val.(string)
+		}
+
 		// Build table with new columns
 		table := ui.NewTableBuilder().
 			WithTitle("Edge Servers").
@@ -76,7 +82,13 @@ Examples:
 				memUsage = fmt.Sprintf("%.1f%%", server.Metrics.MemoryUsage)
 			}
 
-			table.AddRow(server.ID, server.Name, statusDisplay, location, platform, cpuUsage, memUsage)
+			// Highlight this machine's server
+			serverID := server.ID
+			if serverID == localServerID {
+				serverID = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Render(serverID + " (this)")
+			}
+
+			table.AddRow(serverID, server.Name, statusDisplay, location, platform, cpuUsage, memUsage)
 		}
 
 		deps.Printer.Print(table.Render())

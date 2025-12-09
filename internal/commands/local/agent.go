@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
+	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -69,6 +70,11 @@ Examples:
 		if mode == agent.ModeDev {
 			printer.PrintInfo(fmt.Sprintf("Starting agent in development mode on port %d...", port))
 			printer.PrintInfo("Press Ctrl+C to stop")
+			// Save port to config before starting (in case of immediate shutdown)
+			config := config_manager.GetConfig(cmd.Context())
+			if err := config.Set("agent.port", port); err != nil {
+				printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
+			}
 			// In dev mode, this blocks until shutdown
 			return launcher.Start(ctx)
 		} else {
@@ -82,6 +88,12 @@ Examples:
 				printer.PrintInfo("- Check if it's in PATH: which underleaf_agent")
 				printer.PrintInfo("- Or use development mode: ufctl local agent start --dev")
 				return err
+			}
+
+			// Save the port to config manager so status commands can find it
+			config := config_manager.GetConfig(cmd.Context())
+			if err := config.Set("agent.port", port); err != nil {
+				printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
 			}
 
 			status := launcher.GetStatus()
@@ -139,6 +151,12 @@ var agentRestartCmd = &cobra.Command{
 			return fmt.Errorf("failed to restart agent: %w", err)
 		}
 
+		// Save the port to config manager so status commands can find it
+		config := config_manager.GetConfig(cmd.Context())
+		if err := config.Set("agent.port", port); err != nil {
+			printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
+		}
+
 		status := launcher.GetStatus()
 		printer.PrintSuccess(fmt.Sprintf("Agent restarted successfully (PID: %d)", status.PID))
 		return nil
@@ -151,7 +169,18 @@ var agentStatusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printer := ui.GetPrinter(cmd.Context())
 
-		launcher := agent.NewLauncher(agent.LauncherConfig{})
+		// Try to get port from config first
+		config := config_manager.GetConfig(cmd.Context())
+		port := 8081 // default
+		if portVal, ok := config.Get("agent.port"); ok {
+			if portInt, ok := portVal.(int); ok {
+				port = portInt
+			}
+		}
+
+		launcher := agent.NewLauncher(agent.LauncherConfig{
+			Port: port,
+		})
 		status := launcher.GetStatus()
 
 		if !status.Running {

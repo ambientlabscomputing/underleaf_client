@@ -115,19 +115,21 @@ func NewCLIConfigClient() *CLIConfigClient {
 	v.AutomaticEnv()
 
 	// for CLI, start a new empty config if no config file found
-	_ = v.ReadInConfig() // ignore error and start with empty config
-	
-	// Set build-time defaults if not already configured
-	if !v.IsSet("api.base_url") {
+	err := v.ReadInConfig()
+	if err != nil {
+		// Set build-time defaults if not already configured
 		v.Set("api.base_url", defaults.APIBaseURL)
-	}
-	if !v.IsSet("event_bus.endpoint") {
 		v.Set("event_bus.endpoint", defaults.EventBusEndpoint)
+
+		// Create the config file
+		if err := v.SafeWriteConfigAs("./config.yaml"); err != nil {
+			slog.Debug("failed to write config file", "error", err)
+		}
 	}
-	
-	if err := v.WriteConfigAs("./config.yaml"); err != nil {
-		slog.Error("failed to write config file")
-	}
+
+	// Explicitly set the config file so WriteConfig() knows where to write
+	v.SetConfigFile("./config.yaml")
+
 	return &CLIConfigClient{
 		viper: v,
 	}

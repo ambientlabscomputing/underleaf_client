@@ -100,8 +100,13 @@ func (l *Launcher) startDev(ctx context.Context) error {
 		return fmt.Errorf("failed to wire agent: %w", err)
 	}
 
-	// Stop config manager on exit
+	// Stop components on exit
 	defer func() {
+		if deps.BusClient != nil {
+			if err := deps.BusClient.Stop(); err != nil {
+				logger.Error("failed to stop bus client", "err", err)
+			}
+		}
 		if deps.ConfigManager != nil {
 			deps.ConfigManager.Stop(ctx)
 		}
@@ -144,38 +149,50 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
+	// Start a goroutine to reap the child process when it exits
+	// This prevents zombie processes from accumulating
+	go func() {
+		_ = cmd.Wait()
+	}()
+
 	// Don't write PID here - the spawned process will write its own PID
 	// when it calls startDev(). This avoids a race condition where we write
 	// the PID before the process finishes initializing, causing it to think
 	// another instance is already running.
 
-	// Wait for the process to write its PID file and start successfully
-	maxWait := 5 * time.Second
-	checkInterval := 200 * time.Millisecond
+	// Wait for the agent to become healthy via health check endpoint
+	maxWait := 10 * time.Second
+	checkInterval := 500 * time.Millisecond
 	elapsed := time.Duration(0)
+
+	client := NewClient(l.port)
 
 	for elapsed < maxWait {
 		time.Sleep(checkInterval)
 		elapsed += checkInterval
 
-		if l.IsRunning() {
-			// PID file exists and process is running
-			logger.Info("daemon started successfully", "pid", l.getPID())
+		// Try health check first - more reliable than PID file
+		healthy, err := client.GetHealth()
+		if err == nil && healthy {
+			// Agent is responding to health checks
+			logger.Info("daemon started successfully (health check passed)", "port", l.port)
+			// Try to get PID for status display
+			if l.IsRunning() {
+				logger.Info("daemon PID recorded", "pid", l.getPID())
+			}
 			return nil
+		}
+
+		// Fallback: check if PID file was written and process exists
+		if l.IsRunning() {
+			logger.Debug("PID file found, waiting for health check", "pid", l.getPID(), "elapsed", elapsed)
 		}
 	}
 
-	// If we reach here, either PID file wasn't created or process isn't running
-	// Check one more time after the timeout
-	if l.IsRunning() {
-		logger.Info("daemon started successfully (after timeout)", "pid", l.getPID())
-		return nil
-	}
-
-	// Process failed to start or write PID file
-	logger.Error("timeout waiting for agent to write PID file", "logFile", l.logFile)
+	// Process failed to start or respond to health checks
+	logger.Error("timeout waiting for agent health check", "port", l.port, "logFile", l.logFile)
 	cmd.Process.Kill()
-	return fmt.Errorf("agent failed to start within %v, check logs at: %s", maxWait, l.logFile)
+	return fmt.Errorf("agent failed to respond to health checks within %v, check logs at: %s", maxWait, l.logFile)
 }
 
 // findAgentBinary locates the underleaf_agent binary

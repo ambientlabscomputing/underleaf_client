@@ -17,4 +17,6 @@ func init() {
 	LocalCmd.AddCommand(ConfigCmd)
 	LocalCmd.AddCommand(AgentCmd)
 	LocalCmd.AddCommand(OrgCmd)
+	LocalCmd.AddCommand(GenerateCSRCmd)
+	LocalCmd.AddCommand(SubmitCSRCmd)
 }

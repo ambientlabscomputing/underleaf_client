@@ -1,9 +1,9 @@
-github.com/ambientlabscomputing/event_bus_client v1.0.2 h1:0mqFym1uGrKGH2ZxHC5++oZYqCxskJ7VCdppUEc8F8s=
-github.com/ambientlabscomputing/event_bus_client v1.0.2/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
-github.com/ambientlabscomputing/event_bus_client v1.0.3 h1:jE97zHlJtPjJ2xv8B2vHtrRBYqeNR4N7Frzyngh1l+0=
-github.com/ambientlabscomputing/event_bus_client v1.0.3/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
-github.com/ambientlabscomputing/event_bus_client v1.1.0 h1:U6px5/sZ1cQgwrVQiEcBDn5qMiGR8XP4PtTL/AvQcAA=
-github.com/ambientlabscomputing/event_bus_client v1.1.0/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
+github.com/ambientlabscomputing/event_bus_client v1.2.2 h1:O7zvIqCdqjoOA6fE3C0d59fVrOS8/sdHhOOStFs9gRs=
+github.com/ambientlabscomputing/event_bus_client v1.2.2/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
+github.com/ambientlabscomputing/event_bus_client v1.2.3 h1:qS6ButY9xgDpFa5tJ8F3UDOuqqVNsE0IN8PWYgHr51I=
+github.com/ambientlabscomputing/event_bus_client v1.2.3/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
+github.com/ambientlabscomputing/event_bus_client v1.2.4 h1:WY+dhkY9uXlP94agB5BD4MvgYHvsgkDB1Jzcp2SsHA0=
+github.com/ambientlabscomputing/event_bus_client v1.2.4/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
@@ -128,6 +128,8 @@ github.com/shirou/gopsutil/v3 v3.24.5 h1:i0t8kL+kQTvpAYToeuiVk3TgDeKOFioZO3Ztz/i
 github.com/shirou/gopsutil/v3 v3.24.5/go.mod h1:bsoOS1aStSs9ErQ1WWfxllSeS1K5D+U30r2NfcubMVk=
 github.com/shoenig/go-m1cpu v0.1.6 h1:nxdKQNcEB6vzgA2E2bvzKIYRuNj7XNJ4S/aRSwKzFtM=
 github.com/shoenig/go-m1cpu v0.1.6/go.mod h1:1JJMcUBvfNwpq05QDQVAnx3gUHr9IYF7GNg9SUEw2VQ=
+github.com/shoenig/test v0.6.4 h1:kVTaSd7WLz5WZ2IaoM0RSzRsUD+m8wRR+5qvntpn4LU=
+github.com/shoenig/test v0.6.4/go.mod h1:byHiCGXqrVaflBLAMq/srcZIHynQPQgeyvkvXnjqq0k=
 github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 h1:+jumHNA0Wrelhe64i8F6HNlS8pkoyMv5sreGx2Ry5Rw=
 github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8/go.mod h1:3n1Cwaq1E1/1lhQhtRK2ts/ZwZEhjcQeJQ1RuC6Q/8U=
 github.com/spf13/afero v1.15.0 h1:b/YBCLWAJdFWJTN9cLhiXXcD7mzKn9Dm86dNnfyQw1I=

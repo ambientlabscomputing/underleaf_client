@@ -31,8 +31,32 @@ func getConfigValue(config config_manager.ConfigClient, key string) (interface{}
 func NewDependencyManager(ctx context.Context) *DependencyManager {
 	printer := ui.GetPrinter(ctx)
 	configClient := config_manager.NewConfigClient(config_manager.ConfigClientTypeCLI)
-	h := http.DefaultClient
-	cPlane := controlplane.NewCPlaneClient(&configClient, h)
+
+	// Configure HTTP client with mTLS transport if certificate is available
+	var httpClient *http.Client
+	certPath, hasCert := getConfigValue(configClient, "mtls.certificate_path")
+	keyPath, hasKey := getConfigValue(configClient, "mtls.private_key_path")
+
+	if hasCert && hasKey && certPath != "" && keyPath != "" {
+		// Create mTLS transport with certificate
+		transport, err := controlplane.NewMTLSTransport(
+			http.DefaultTransport,
+			keyPath.(string),
+			certPath.(string),
+		)
+		if err != nil {
+			// Certificate loading failed, fall back to JWT auth
+			printer.PrintWarning("Failed to load mTLS certificate: " + err.Error())
+			httpClient = http.DefaultClient
+		} else {
+			httpClient = &http.Client{Transport: transport}
+		}
+	} else {
+		// No certificate available, use default HTTP client (JWT auth)
+		httpClient = http.DefaultClient
+	}
+
+	cPlane := controlplane.NewCPlaneClient(&configClient, httpClient)
 
 	// Event bus disabled for CLI to avoid race conditions in event_bus_client library
 	// The CLI only makes REST API calls and doesn't need real-time event subscriptions

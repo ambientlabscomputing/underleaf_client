@@ -246,6 +246,14 @@ func (c *Client) getChannelIndices() []string {
 	return indices
 }
 
+// Stop gracefully shuts down the bus client
+func (c *Client) Stop() error {
+	if closer, ok := c.eventBus.(interface{ Close() error }); ok {
+		return closer.Close()
+	}
+	return nil
+}
+
 // defref dereferences a string pointer, returning empty string if nil
 func defref(s *string) string {
 	if s != nil {
