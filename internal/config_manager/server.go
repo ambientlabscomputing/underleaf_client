@@ -155,6 +155,42 @@ func (c *SnapshotConfigClient) Set(key string, value interface{}) error {
 	return c.store.SaveLocalMeta(meta)
 }
 
+// Delete removes a value from local metadata (snapshot is read-only)
+func (c *SnapshotConfigClient) Delete(key string) error {
+	meta, err := c.store.LoadLocalMeta()
+	if err != nil {
+		return fmt.Errorf("failed to load local metadata: %w", err)
+	}
+
+	// Only allow deleting local metadata
+	if len(key) > 6 && key[:6] == "local." {
+		key = key[6:]
+	}
+
+	// Clear appropriate field
+	switch key {
+	case "server_id":
+		meta.ServerID = ""
+	case "server_name":
+		meta.ServerName = ""
+	case "auth.token":
+		meta.AuthToken = ""
+	case "api.base_url":
+		meta.APIBaseURL = ""
+	case "event_bus.endpoint":
+		meta.EventBus.Endpoint = ""
+	case "event_bus.commit_interval":
+		meta.EventBus.CommitInterval = ""
+	default:
+		// Delete from extra
+		if meta.Extra != nil {
+			delete(meta.Extra, key)
+		}
+	}
+
+	return c.store.SaveLocalMeta(meta)
+}
+
 // Config returns the full configuration (snapshot + local metadata merged)
 func (c *SnapshotConfigClient) Config() Configuration {
 	data, err := c.store.LoadSnapshotWithMeta()

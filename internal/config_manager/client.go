@@ -24,6 +24,7 @@ type Configuration struct {
 type ConfigClient interface {
 	Get(key string) (interface{}, bool)
 	Set(key string, value interface{}) error
+	Delete(key string) error
 	Config() Configuration
 	ConfigClientInfo() map[string]interface{}
 }
@@ -161,6 +162,26 @@ func (c *CLIConfigClient) Set(key string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// Delete removes a configuration value by key
+func (c *CLIConfigClient) Delete(key string) error {
+	// Get all settings
+	allSettings := c.viper.AllSettings()
+	
+	// Delete the key from the map
+	delete(allSettings, key)
+	
+	// Create new viper instance with updated settings
+	v := viper.New()
+	for k, val := range allSettings {
+		v.Set(k, val)
+	}
+	
+	// Write the updated config
+	c.viper = v
+	c.viper.SetConfigFile("./config.yaml")
+	return c.viper.WriteConfigAs("./config.yaml")
 }
 
 // Config returns the full configuration

@@ -13,6 +13,10 @@ import (
 var (
 	editConfig       bool
 	editorWithEditor string
+	showPath         bool
+	setValue         string
+	deleteKey        string
+	deleteFile       bool
 )
 
 // ConfigCmd represents the config command
@@ -30,6 +34,56 @@ var ConfigCmd = &cobra.Command{
 		if !ok || configPath == "" || configPath == "in-memory (no config file)" {
 			deps.Printer.PrintError("No config file found")
 			return fmt.Errorf("no config file found")
+		}
+
+		// Handle --path flag
+		if showPath {
+			fmt.Println(configPath)
+			return nil
+		}
+
+		// Handle --delete-file flag
+		if deleteFile {
+			if err := os.Remove(configPath); err != nil {
+				deps.Printer.PrintError(fmt.Sprintf("Failed to delete config file: %v", err))
+				return err
+			}
+			deps.Printer.PrintSuccess(fmt.Sprintf("Config file deleted: %s", configPath))
+			return nil
+		}
+
+		// Handle --delete flag
+		if deleteKey != "" {
+			if err := deps.ConfigClient.Delete(deleteKey); err != nil {
+				deps.Printer.PrintError(fmt.Sprintf("Failed to delete key '%s': %v", deleteKey, err))
+				return err
+			}
+			deps.Printer.PrintSuccess(fmt.Sprintf("Deleted key: %s", deleteKey))
+			return nil
+		}
+
+		// Handle --set flag
+		if setValue != "" {
+			// Parse KEY=VALUE
+			var key, value string
+			for i, ch := range setValue {
+				if ch == '=' {
+					key = setValue[:i]
+					value = setValue[i+1:]
+					break
+				}
+			}
+			if key == "" {
+				deps.Printer.PrintError("Invalid format. Use --set KEY=VALUE")
+				return fmt.Errorf("invalid set format")
+			}
+
+			if err := deps.ConfigClient.Set(key, value); err != nil {
+				deps.Printer.PrintError(fmt.Sprintf("Failed to set '%s': %v", key, err))
+				return err
+			}
+			deps.Printer.PrintSuccess(fmt.Sprintf("Set %s = %s", key, value))
+			return nil
 		}
 
 		// If edit flag is set, open in editor
@@ -131,4 +185,8 @@ var ConfigCmd = &cobra.Command{
 func init() {
 	ConfigCmd.Flags().BoolVarP(&editConfig, "edit", "e", false, "Edit the config file")
 	ConfigCmd.Flags().StringVar(&editorWithEditor, "with-editor", "vim", "Text editor to use (vim, vi, nano)")
+	ConfigCmd.Flags().BoolVar(&showPath, "path", false, "Print the config file path")
+	ConfigCmd.Flags().StringVar(&setValue, "set", "", "Set a config value (format: KEY=VALUE)")
+	ConfigCmd.Flags().StringVar(&deleteKey, "delete", "", "Delete a config key")
+	ConfigCmd.Flags().BoolVar(&deleteFile, "delete-file", false, "Delete the entire config file")
 }

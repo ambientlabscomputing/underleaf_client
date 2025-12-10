@@ -38,7 +38,7 @@ func NewDependencyManager(ctx context.Context) *DependencyManager {
 	keyPath, hasKey := getConfigValue(configClient, "mtls.private_key_path")
 
 	if hasCert && hasKey && certPath != "" && keyPath != "" {
-		// Create mTLS transport with certificate
+		// Try mTLS first - prefer certificate auth over JWT
 		transport, err := controlplane.NewMTLSTransport(
 			http.DefaultTransport,
 			keyPath.(string),
@@ -46,13 +46,14 @@ func NewDependencyManager(ctx context.Context) *DependencyManager {
 		)
 		if err != nil {
 			// Certificate loading failed, fall back to JWT auth
-			printer.PrintWarning("Failed to load mTLS certificate: " + err.Error())
+			printer.PrintWarning("Failed to load mTLS certificate, falling back to JWT: " + err.Error())
 			httpClient = http.DefaultClient
 		} else {
+			// Successfully using mTLS certificate authentication
 			httpClient = &http.Client{Transport: transport}
 		}
 	} else {
-		// No certificate available, use default HTTP client (JWT auth)
+		// No certificate available, use JWT authentication
 		httpClient = http.DefaultClient
 	}
 
