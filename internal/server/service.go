@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
@@ -23,6 +24,8 @@ type Service interface {
 	UpdateServerMetrics(ctx context.Context, serverID string, metrics types.MetricsUpdateRequest) error
 	GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error)
 	GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error)
+	FindExistingServer(ctx context.Context, nameOrID string) (*Server, error)
+	DownloadServerConfig(ctx context.Context, server *Server) error
 }
 type ServerService struct {
 	cplane   *controlplane.CPlaneClient
@@ -144,6 +147,77 @@ func (s *ServerService) GetMetricsHistory(ctx context.Context, serverID string, 
 
 func (s *ServerService) GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error) {
 	return s.cplane.Servers.GetServerActivity(ctx, serverID, params)
+}
+
+// FindExistingServer searches for a server by name or ID and verifies it hasn't checked in within the last 5 minutes
+func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string) (*Server, error) {
+	// First try to get by ID
+	server, err := s.GetServer(ctx, nameOrID)
+	if err == nil {
+		// Found by ID, now check if it hasn't checked in within 5 minutes
+		if server.LastCheckIn != nil && server.LastCheckIn.Valid {
+			timeSinceCheckIn := time.Since(server.LastCheckIn.Time)
+			if timeSinceCheckIn < 5*time.Minute {
+				return nil, fmt.Errorf("server '%s' checked in %v ago (within last 5 minutes), cannot claim", server.Name, timeSinceCheckIn.Round(time.Second))
+			}
+		}
+		return &server, nil
+	}
+
+	// Not found by ID, search by name
+	servers, err := s.ListServersWithParams(ctx, types.ListServersParams{
+		Search: nameOrID,
+		Limit:  100, // Get enough results to find matches
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for server: %w", err)
+	}
+
+	// Find exact name match
+	var matchedServer *Server
+	for _, srv := range servers {
+		if srv.Name == nameOrID {
+			// Check if it hasn't checked in within 5 minutes
+			if srv.LastCheckIn != nil && srv.LastCheckIn.Valid {
+				timeSinceCheckIn := time.Since(srv.LastCheckIn.Time)
+				if timeSinceCheckIn < 5*time.Minute {
+					return nil, fmt.Errorf("server '%s' checked in %v ago (within last 5 minutes), cannot claim", srv.Name, timeSinceCheckIn.Round(time.Second))
+				}
+			}
+			matchedServer = &srv
+			break
+		}
+	}
+
+	if matchedServer == nil {
+		return nil, fmt.Errorf("no server found with name or ID '%s'", nameOrID)
+	}
+
+	return matchedServer, nil
+}
+
+// DownloadServerConfig downloads an existing server's configuration to the local config
+func (s *ServerService) DownloadServerConfig(ctx context.Context, server *Server) error {
+	if server == nil {
+		return fmt.Errorf("server cannot be nil")
+	}
+
+	// Save server metadata to local config
+	if err := s.config.Set("local.server_id", server.ID); err != nil {
+		return fmt.Errorf("failed to save server ID: %w", err)
+	}
+	if err := s.config.Set("local.server_name", server.Name); err != nil {
+		return fmt.Errorf("failed to save server name: %w", err)
+	}
+
+	// Optionally save other metadata if available
+	if server.Location != "" {
+		if err := s.config.Set("local.location", server.Location); err != nil {
+			return fmt.Errorf("failed to save server location: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // convertInterface converts an interface{} (typically map[string]interface{}) to a typed struct

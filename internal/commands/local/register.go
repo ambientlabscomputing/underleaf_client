@@ -16,11 +16,105 @@ var RegisterCmd = &cobra.Command{
 
 This command is idempotent - if a server is already registered in the local config,
 it will verify the registration is still valid on the backend and reuse it.
-This makes it safe to run repeatedly and is the foundation for mTLS certificate generation.`,
+This makes it safe to run repeatedly and is the foundation for mTLS certificate generation.
+
+Use the --existing flag to claim an existing server registration that hasn't checked in 
+for at least 5 minutes, instead of creating a new server.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
 
+		// Get the --existing flag
+		useExisting, _ := cmd.Flags().GetBool("existing")
+
+		// If using --existing flag, handle the existing server flow
+		if useExisting {
+			deps.Printer.PrintInfo("Looking up existing server...")
+
+			// Prompt for server name or ID to lookup
+			nameOrID, err := ui.PromptInput("Enter server name or ID to claim:", "")
+			if err != nil {
+				deps.Printer.PrintError("Failed to get input: " + err.Error())
+				return err
+			}
+
+			if nameOrID == "" {
+				deps.Printer.PrintWarning("Registration cancelled - no server name or ID provided")
+				return nil
+			}
+
+			// Find the existing server (validates it hasn't checked in within 5 minutes)
+			server, err := deps.ServerSvc.FindExistingServer(ctx, nameOrID)
+			if err != nil {
+				deps.Printer.PrintError("Failed to find server: " + err.Error())
+				return err
+			}
+
+			// Confirm before claiming
+			deps.Printer.PrintInfo("\nFound server:")
+			deps.Printer.PrintInfo("  ID: " + server.ID)
+			deps.Printer.PrintInfo("  Name: " + server.Name)
+			if server.LastCheckIn != nil && server.LastCheckIn.Valid {
+				deps.Printer.PrintInfo("  Last Check-In: " + server.LastCheckIn.Time.Format("2006-01-02 15:04:05"))
+			} else {
+				deps.Printer.PrintInfo("  Last Check-In: Never")
+			}
+
+			confirm, err := ui.PromptInput("\nClaim this server? (yes/no):", "no")
+			if err != nil {
+				deps.Printer.PrintError("Failed to get confirmation: " + err.Error())
+				return err
+			}
+
+			if confirm != "yes" && confirm != "y" {
+				deps.Printer.PrintWarning("Registration cancelled")
+				return nil
+			}
+
+			// Download the server configuration
+			if err := deps.ServerSvc.DownloadServerConfig(ctx, server); err != nil {
+				deps.Printer.PrintError("Failed to download server configuration: " + err.Error())
+				return err
+			}
+
+			deps.Printer.PrintSuccess("Successfully claimed existing server '" + server.Name + "'!")
+
+			// Setup mTLS certificate after claiming
+			serverIDRaw, _ := deps.ConfigClient.Get("local.server_id")
+			orgIDRaw, _ := deps.ConfigClient.Get("local.organization_id")
+			orgNameRaw, _ := deps.ConfigClient.Get("local.organization_name")
+
+			serverID := ""
+			orgID := ""
+			orgName := "Underleaf"
+
+			if serverIDRaw != nil {
+				if id, ok := serverIDRaw.(string); ok {
+					serverID = id
+				}
+			}
+			if orgIDRaw != nil {
+				if id, ok := orgIDRaw.(string); ok {
+					orgID = id
+				}
+			}
+			if orgNameRaw != nil {
+				if name, ok := orgNameRaw.(string); ok {
+					orgName = name
+				}
+			}
+
+			// Setup mTLS certificate
+			if err := SetupMTLSCertificate(ctx, &deps.Printer, deps.ConfigClient, serverID, orgID, orgName); err != nil {
+				deps.Printer.PrintWarning("Failed to setup mTLS certificate: " + err.Error())
+				deps.Printer.PrintInfo("You can manually setup mTLS later with: ufctl local generate-csr && ufctl local submit-csr")
+			}
+
+			deps.Printer.PrintSuccess("\n✓ Server claimed successfully! Your edge server is ready to use.")
+			return nil
+		}
+
+		// Standard registration flow (creating a new server)
 		// Check if already registered
 		existingID, hasID := deps.ConfigClient.Get("local.server_id")
 		existingName, hasName := deps.ConfigClient.Get("local.server_name")
@@ -94,4 +188,8 @@ This makes it safe to run repeatedly and is the foundation for mTLS certificate 
 
 		return nil
 	},
+}
+
+func init() {
+	RegisterCmd.Flags().Bool("existing", false, "Claim an existing server registration instead of creating a new one")
 }
