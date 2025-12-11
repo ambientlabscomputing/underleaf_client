@@ -217,13 +217,6 @@ func (m *UpdateManager) CheckAndDownload(desiredVersion string) error {
 		slog.Warn("failed to save state", "error", err)
 	}
 
-	// Check if already at desired version
-	if version.Version == desiredVersion && m.currentState.ReleaseSHA != "" {
-		slog.Info("already at desired version", "version", desiredVersion)
-		m.updateStatus(UpdateStatusIdle, "")
-		return nil
-	}
-
 	// Fetch release info
 	release, err := m.checker.FetchRelease(m.ctx, desiredVersion)
 	if err != nil {
@@ -249,10 +242,10 @@ func (m *UpdateManager) CheckAndDownload(desiredVersion string) error {
 		return fmt.Errorf("failed to download binaries: %w", err)
 	}
 
-	// Update state
+	// Update state - mark as pending, but don't update ReleaseSHA until installation succeeds
 	m.stateMu.Lock()
 	m.currentState.Status = UpdateStatusPending
-	m.currentState.ReleaseSHA = release.SHA256
+	m.currentState.PendingSHA = release.SHA256
 	m.currentState.ErrorMessage = ""
 	m.currentState.UpdatedAt = time.Now()
 	m.stateMu.Unlock()
@@ -276,7 +269,7 @@ func (m *UpdateManager) downloadBinaries(release *ReleaseInfo) error {
 	}
 
 	slog.Info("downloading agent", "asset", agentAsset.Name, "size", agentAsset.Size)
-	agentPath, err := m.downloader.Download(agentAsset, release.SHA256)
+	agentPath, err := m.downloader.Download(agentAsset, agentAsset.SHA256)
 	if err != nil {
 		return fmt.Errorf("failed to download agent: %w", err)
 	}
@@ -292,7 +285,7 @@ func (m *UpdateManager) downloadBinaries(release *ReleaseInfo) error {
 	}
 
 	slog.Info("downloading ufctl", "asset", ufctlAsset.Name, "size", ufctlAsset.Size)
-	ufctlPath, err := m.downloader.Download(ufctlAsset, release.SHA256)
+	ufctlPath, err := m.downloader.Download(ufctlAsset, ufctlAsset.SHA256)
 	if err != nil {
 		return fmt.Errorf("failed to download ufctl: %w", err)
 	}
@@ -322,12 +315,14 @@ func (m *UpdateManager) ApplyUpdate() error {
 		return fmt.Errorf("failed to apply update: %w", err)
 	}
 
-	// Update succeeded
+	// Update succeeded - now update the ReleaseSHA to reflect the installed version
 	m.stateMu.Lock()
 	m.currentState.Status = UpdateStatusIdle
 	m.currentState.CurrentVersion = m.currentState.DesiredVersion
+	m.currentState.ReleaseSHA = m.currentState.PendingSHA // Promote pending SHA to current
 	m.currentState.PendingAgent = ""
 	m.currentState.PendingUfctl = ""
+	m.currentState.PendingSHA = ""
 	m.currentState.ErrorMessage = ""
 	m.currentState.UpdatedAt = time.Now()
 	m.stateMu.Unlock()

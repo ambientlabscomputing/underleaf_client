@@ -38,8 +38,19 @@ Compares current version against the desired version from server configuration.`
 		printer.Print(fmt.Sprintf("Desired version: %s", desiredVersion))
 
 		// Initialize update manager
-		basePath := filepath.Join(os.Getenv("HOME"), ".underleaf", "updates")
-		store := updater.NewStore(basePath)
+		// Try agent path first (where the agent stores its state)
+		agentBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+		store := updater.NewStore(agentBasePath)
+
+		// Load current state to get stored SHA
+		state, stateErr := store.LoadState()
+		if stateErr != nil {
+			// Fall back to CLI path if agent state doesn't exist
+			cliBasePath := filepath.Join(os.Getenv("HOME"), ".underleaf", "updates")
+			store = updater.NewStore(cliBasePath)
+			state, stateErr = store.LoadState()
+		}
+
 		if err := store.EnsureDirectories(); err != nil {
 			return fmt.Errorf("failed to initialize update storage: %w", err)
 		}
@@ -54,10 +65,22 @@ Compares current version against the desired version from server configuration.`
 		printer.Print(fmt.Sprintf("Published: %s", release.PublishedAt.Format("2006-01-02")))
 		printer.Print(fmt.Sprintf("SHA256: %s", release.SHA256))
 
-		if release.Version == version.Version {
+		// Compare SHA to detect new builds
+		currentSHA := ""
+		if stateErr == nil && state != nil {
+			currentSHA = state.ReleaseSHA
+		}
+
+		if release.SHA256 == currentSHA && release.Version == version.Version {
 			printer.PrintSuccess("You are running the latest version")
 		} else {
-			printer.Print(fmt.Sprintf("\nUpdate available: %s → %s", version.Version, release.Version))
+			if release.Version != version.Version {
+				printer.Print(fmt.Sprintf("\nVersion update available: %s → %s", version.Version, release.Version))
+			} else {
+				printer.Print(fmt.Sprintf("\nNew build available (SHA changed)"))
+				printer.Print(fmt.Sprintf("Current SHA: %s", currentSHA[:16]+"..."))
+				printer.Print(fmt.Sprintf("Latest SHA:  %s", release.SHA256[:16]+"..."))
+			}
 			printer.Print("Run 'ufctl update apply' to install the update")
 		}
 
@@ -86,9 +109,9 @@ Creates backups of current binaries before applying updates.`,
 		printer.Print(fmt.Sprintf("Current version: %s", version.Version))
 		printer.Print(fmt.Sprintf("Updating to: %s", desiredVersion))
 
-		// Initialize update components
-		basePath := filepath.Join(os.Getenv("HOME"), ".underleaf", "updates")
-		store := updater.NewStore(basePath)
+		// Initialize update components - use agent path for state
+		agentBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+		store := updater.NewStore(agentBasePath)
 		if err := store.EnsureDirectories(); err != nil {
 			return fmt.Errorf("failed to initialize update storage: %w", err)
 		}

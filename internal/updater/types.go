@@ -20,11 +20,12 @@ const (
 type UpdateState struct {
 	CurrentVersion string       `json:"current_version"` // Running version
 	DesiredVersion string       `json:"desired_version"` // Version from server config
-	ReleaseSHA     string       `json:"release_sha"`     // SHA256 of the release
+	ReleaseSHA     string       `json:"release_sha"`     // SHA256 of currently installed release
 	Status         UpdateStatus `json:"status"`          // Current status
 	LastCheck      time.Time    `json:"last_check"`      // Last update check time
 	PendingAgent   string       `json:"pending_agent"`   // Path to downloaded agent binary
 	PendingUfctl   string       `json:"pending_ufctl"`   // Path to downloaded ufctl binary
+	PendingSHA     string       `json:"pending_sha"`     // SHA256 of pending release
 	BackupAgent    string       `json:"backup_agent"`    // Path to agent backup
 	BackupUfctl    string       `json:"backup_ufctl"`    // Path to ufctl backup
 	ErrorMessage   string       `json:"error_message"`   // Last error if any
