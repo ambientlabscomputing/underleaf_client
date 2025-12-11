@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -301,4 +302,23 @@ func (c *APIClient) PATCH(path string, payload interface{}, response interface{}
 	}
 
 	return nil
+}
+
+// GetServerConfig fetches the current configuration for a server from the control plane
+// Implements the ControlPlaneConfigClient interface for config_manager
+func (c *APIClient) GetServerConfig(ctx context.Context, serverID string) (map[string]interface{}, int, error) {
+	type ServerResponse struct {
+		ID            string `json:"id"`
+		Configuration struct {
+			Version int                    `json:"version"`
+			Payload map[string]interface{} `json:"payload"`
+		} `json:"configuration"`
+	}
+
+	var resp ServerResponse
+	if err := c.GET("/servers/servers/"+serverID, &resp); err != nil {
+		return nil, 0, fmt.Errorf("failed to get server config: %w", err)
+	}
+
+	return resp.Configuration.Payload, resp.Configuration.Version, nil
 }

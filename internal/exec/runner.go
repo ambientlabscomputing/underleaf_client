@@ -189,18 +189,24 @@ func (r *LocalRunner) validateCommand(command string, args []string) error {
 	}
 
 	// Check blacklist first (highest priority)
-	for _, pattern := range r.settings.Blacklist {
-		if strings.Contains(fullCommand, pattern) {
-			return fmt.Errorf("%s: matches blacklist pattern '%s'", ErrCommandBlocked.Message, pattern)
+	// If blacklist is set, whitelist must be empty (mutual exclusivity)
+	if len(r.settings.Blacklist) > 0 {
+		for _, pattern := range r.settings.Blacklist {
+			if strings.Contains(fullCommand, pattern) {
+				return fmt.Errorf("%s: matches blacklist pattern '%s'", ErrCommandBlocked.Message, pattern)
+			}
 		}
+		// Blacklist is set but command not blocked, allow it
+		return nil
 	}
 
-	// If whitelist is empty, allow all non-blacklisted commands
+	// Check whitelist (only if blacklist is empty)
+	// If whitelist is empty, allow all commands
 	if len(r.settings.Whitelist) == 0 {
 		return nil
 	}
 
-	// Check whitelist
+	// Whitelist is set, check if command matches
 	for _, pattern := range r.settings.Whitelist {
 		if strings.HasPrefix(command, pattern) {
 			return nil
