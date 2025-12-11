@@ -4,10 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 	"github.com/spf13/viper"
 )
+
+// GetConfigPath returns the full path to the config file
+func GetConfigPath(isAgent bool) string {
+	basePath := GetBasePath(isAgent)
+	return filepath.Join(basePath, "config.yaml")
+}
 
 const (
 	ConfigClientTypeCLI   = "cli"
@@ -102,7 +110,8 @@ func GetConfig(ctx context.Context) ConfigClient {
 
 // CLIConfigClient is simple and meant for temporary or CLI use cases
 type CLIConfigClient struct {
-	viper *viper.Viper
+	viper      *viper.Viper
+	configPath string // Canonical path to config file
 }
 
 // NewCLIConfigClient creates a new CLIConfigClient instance
@@ -115,6 +124,8 @@ func NewCLIConfigClient() *CLIConfigClient {
 	v.AddConfigPath("$HOME/.underleaf")
 	v.AutomaticEnv()
 
+	var configPath string
+
 	// for CLI, start a new empty config if no config file found
 	err := v.ReadInConfig()
 	if err != nil {
@@ -122,17 +133,58 @@ func NewCLIConfigClient() *CLIConfigClient {
 		v.Set("api.base_url", defaults.APIBaseURL)
 		v.Set("event_bus.endpoint", defaults.EventBusEndpoint)
 
-		// Create the config file
-		if err := v.SafeWriteConfigAs("./config.yaml"); err != nil {
+		// Determine canonical config path from existing config or create in ~/.underleaf
+		if existingPath := v.ConfigFileUsed(); existingPath != "" {
+			configPath = existingPath
+		} else {
+			// Check if config exists in ~/.underleaf
+			homeConfigPath := GetConfigPath(false) // false = not agent
+			if _, err := os.Stat(homeConfigPath); err == nil {
+				configPath = homeConfigPath
+			} else {
+				// Create in ~/.underleaf as canonical location
+				configPath = homeConfigPath
+				if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+					slog.Warn("failed to create config directory, using current dir", "error", err)
+					configPath = "./config.yaml"
+				}
+			}
+		}
+
+		// Store the canonical path in the config itself
+		v.Set("local.config_path", configPath)
+
+		// Create the config file at canonical location
+		if err := v.SafeWriteConfigAs(configPath); err != nil {
 			slog.Debug("failed to write config file", "error", err)
+			configPath = "./config.yaml" // Fallback
+		}
+	} else {
+		// Config exists, get its path
+		configPath = v.ConfigFileUsed()
+
+		// Check if canonical path is stored in config
+		if storedPath, ok := v.Get("local.config_path").(string); ok && storedPath != "" {
+			// Verify the stored path matches current path
+			if storedPath != configPath {
+				slog.Warn("config path mismatch, using stored canonical path",
+					"stored", storedPath,
+					"current", configPath)
+				configPath = storedPath
+			}
+		} else {
+			// Store canonical path for future use
+			v.Set("local.config_path", configPath)
+			v.WriteConfig()
 		}
 	}
 
 	// Explicitly set the config file so WriteConfig() knows where to write
-	v.SetConfigFile("./config.yaml")
+	v.SetConfigFile(configPath)
 
 	return &CLIConfigClient{
-		viper: v,
+		viper:      v,
+		configPath: configPath,
 	}
 }
 
@@ -148,17 +200,11 @@ func (c *CLIConfigClient) Get(key string) (interface{}, bool) {
 func (c *CLIConfigClient) Set(key string, value interface{}) error {
 	c.viper.Set(key, value)
 
-	// Try WriteConfig first (writes to existing file)
-	err := c.viper.WriteConfig()
+	// Always write to canonical path
+	err := c.viper.WriteConfigAs(c.configPath)
 	if err != nil {
-		// If WriteConfig fails (e.g., no config file set), try SafeWriteConfig
-		slog.Debug("WriteConfig failed, trying SafeWriteConfig", "error", err)
-		err = c.viper.SafeWriteConfigAs("./config.yaml")
-		if err != nil {
-			// If SafeWriteConfig also fails (file exists), use WriteConfigAs to overwrite
-			slog.Debug("SafeWriteConfig failed, using WriteConfigAs", "error", err)
-			return c.viper.WriteConfigAs("./config.yaml")
-		}
+		slog.Debug("failed to write config", "path", c.configPath, "error", err)
+		return err
 	}
 
 	return nil
@@ -168,20 +214,20 @@ func (c *CLIConfigClient) Set(key string, value interface{}) error {
 func (c *CLIConfigClient) Delete(key string) error {
 	// Get all settings
 	allSettings := c.viper.AllSettings()
-	
+
 	// Delete the key from the map
 	delete(allSettings, key)
-	
+
 	// Create new viper instance with updated settings
 	v := viper.New()
 	for k, val := range allSettings {
 		v.Set(k, val)
 	}
-	
-	// Write the updated config
+
+	// Write the updated config to canonical path
 	c.viper = v
-	c.viper.SetConfigFile("./config.yaml")
-	return c.viper.WriteConfigAs("./config.yaml")
+	c.viper.SetConfigFile(c.configPath)
+	return c.viper.WriteConfigAs(c.configPath)
 }
 
 // Config returns the full configuration

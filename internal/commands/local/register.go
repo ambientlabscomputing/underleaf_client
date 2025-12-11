@@ -1,7 +1,13 @@
 package local
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
+	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -79,6 +85,12 @@ for at least 5 minutes, instead of creating a new server.`,
 
 			deps.Printer.PrintSuccess("Successfully claimed existing server '" + server.Name + "'!")
 
+			// Download and save config snapshot
+			if err := downloadAndSaveConfigSnapshot(ctx, &deps.Printer, server.ID); err != nil {
+				deps.Printer.PrintWarning("Failed to download config snapshot: " + err.Error())
+				deps.Printer.PrintInfo("Config will be downloaded when agent starts")
+			}
+
 			// Setup mTLS certificate after claiming
 			serverIDRaw, _ := deps.ConfigClient.Get("local.server_id")
 			orgIDRaw, _ := deps.ConfigClient.Get("local.organization_id")
@@ -153,8 +165,18 @@ for at least 5 minutes, instead of creating a new server.`,
 
 		deps.Printer.PrintSuccess("Edge server '" + name + "' registered successfully!")
 
-		// Automatically setup mTLS certificate after registration
+		// Download and save config snapshot
 		serverIDRaw, _ := deps.ConfigClient.Get("local.server_id")
+		if serverIDRaw != nil {
+			if serverID, ok := serverIDRaw.(string); ok && serverID != "" {
+				if err := downloadAndSaveConfigSnapshot(ctx, &deps.Printer, serverID); err != nil {
+					deps.Printer.PrintWarning("Failed to download config snapshot: " + err.Error())
+					deps.Printer.PrintInfo("Config will be downloaded when agent starts")
+				}
+			}
+		}
+
+		// Automatically setup mTLS certificate after registration
 		orgIDRaw, _ := deps.ConfigClient.Get("local.organization_id")
 		orgNameRaw, _ := deps.ConfigClient.Get("local.organization_name")
 
@@ -192,4 +214,35 @@ for at least 5 minutes, instead of creating a new server.`,
 
 func init() {
 	RegisterCmd.Flags().Bool("existing", false, "Claim an existing server registration instead of creating a new one")
+}
+
+// downloadAndSaveConfigSnapshot fetches the server config from control plane and saves it locally
+func downloadAndSaveConfigSnapshot(ctx context.Context, printer *ui.Printer, serverID string) error {
+	printer.PrintInfo("Downloading server configuration...")
+
+	// Initialize dependencies
+	deps := utils.NewDependencyManager(ctx)
+
+	// Get server config from control plane
+	config, version, err := deps.CPlaneClient.Config.GetServerConfig(ctx, serverID)
+	if err != nil {
+		return err
+	}
+
+	// Create config store (use home directory for CLI)
+	basePath := filepath.Join(os.Getenv("HOME"), ".underleaf")
+	store := config_manager.NewStore(basePath, false) // false = CLI mode
+
+	// Create and save snapshot
+	snapshot := config_manager.NewConfigSnapshot(serverID, version, config)
+	if err := snapshot.Validate(); err != nil {
+		return err
+	}
+
+	if err := store.SaveSnapshot(snapshot); err != nil {
+		return err
+	}
+
+	printer.PrintSuccess(fmt.Sprintf("Server configuration downloaded (version %d)", version))
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/ambientlabscomputing/event_bus_client"
@@ -13,6 +14,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
 )
 
@@ -23,7 +25,9 @@ type Dependencies struct {
 	Server           *Server
 	CommandHandler   *exec.CommandHandler
 	MetricsCollector *MetricsCollector
-	BusClient        *bus.Client // Event bus client for cleanup on shutdown
+	BusClient        *bus.Client            // Event bus client for cleanup on shutdown
+	UpdateManager    *updater.UpdateManager // Update manager for auto-updates
+	CommandDrainer   *CommandDrainer        // Command drainer for graceful updates
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -194,10 +198,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Create snapshot config client
 	snapshotClient := config_manager.NewSnapshotConfigClientWithManager(snapshotManager, store)
 
+	// Initialize command drainer for graceful updates
+	drainer := NewCommandDrainer()
+
 	// Initialize command execution system
 	commandSettings := getCommandSettingsFromConfig(snapshotClient)
 	runner := exec.NewLocalRunner(serverID.(string), commandSettings)
 	commandHandler := exec.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
+	commandHandler.SetDrainer(drainer)
 
 	// Subscribe to command events if event bus is available
 	if busClient != nil {
@@ -222,6 +230,25 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	server.SetDependencies(snapshotManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
 
+	// Initialize update manager
+	updateBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+	updateStore := updater.NewStore(updateBasePath)
+	updateInstaller := updater.NewInstaller(updateStore, nil, drainer) // Restarter will be set later
+	updateManager := updater.NewUpdateManager(updater.UpdateManagerConfig{
+		Store:     updateStore,
+		Installer: updateInstaller,
+	})
+
+	// Start update manager
+	if err := updateManager.Start(ctx); err != nil {
+		slog.Warn("failed to start update manager", "error", err)
+		// Don't fail agent startup if update manager fails
+	} else {
+		slog.Info("update manager started successfully")
+		// Watch for software_version changes in config
+		go watchConfigForSoftwareUpdates(ctx, snapshotManager, updateManager)
+	}
+
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
@@ -231,6 +258,8 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CommandHandler:   commandHandler,
 		MetricsCollector: metricsCollector,
 		BusClient:        busClient, // Store bus client for cleanup
+		UpdateManager:    updateManager,
+		CommandDrainer:   drainer,
 	}, nil
 }
 
@@ -435,4 +464,54 @@ func publishNetworkInfo(ctx context.Context, serverClient controlplane.CPlaneSer
 	)
 
 	return nil
+}
+
+// watchConfigForSoftwareUpdates monitors the config manager for software_version changes
+// and triggers the update manager to check and download new versions.
+func watchConfigForSoftwareUpdates(ctx context.Context, snapshotManager *config_manager.SnapshotConfigManager, updateManager *updater.UpdateManager) {
+	snapshotChan := snapshotManager.Watch()
+	versionChan := make(chan string, 10)
+
+	// Wire the version channel to the update manager
+	go updateManager.WatchConfigVersion(versionChan)
+
+	// Give the watcher goroutine time to start before sending initial version
+	time.Sleep(100 * time.Millisecond)
+
+	// Load initial snapshot from disk to set the desired version at startup
+	if snapshot, err := snapshotManager.GetSnapshot(); err == nil && snapshot != nil && snapshot.Payload != nil {
+		if versionRaw, ok := snapshot.Payload["software_version"]; ok {
+			if version, ok := versionRaw.(string); ok && version != "" {
+				slog.Info("loaded initial software_version from snapshot",
+					"version", version,
+					"config_version", snapshot.Version,
+				)
+				versionChan <- version
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("stopping software update watcher")
+			close(versionChan)
+			return
+		case snapshot := <-snapshotChan:
+			if snapshot == nil || snapshot.Payload == nil {
+				continue
+			}
+
+			// Extract software_version from config
+			if versionRaw, ok := snapshot.Payload["software_version"]; ok {
+				if version, ok := versionRaw.(string); ok && version != "" {
+					slog.Debug("detected software_version in config",
+						"version", version,
+						"config_version", snapshot.Version,
+					)
+					versionChan <- version
+				}
+			}
+		}
+	}
 }

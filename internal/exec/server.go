@@ -6,11 +6,19 @@ import (
 	"log/slog"
 )
 
+// CommandDrainer tracks in-progress commands
+type CommandDrainer interface {
+	Start(jobID string)
+	Complete(jobID string)
+	Count() int
+}
+
 // CommandHandler handles incoming command execution requests from the event bus
 type CommandHandler struct {
 	runner       Runner
 	resultSender ResultSender
 	serverID     string
+	drainer      CommandDrainer
 }
 
 // ResultSender interface for sending command results back to control plane
@@ -25,6 +33,11 @@ func NewCommandHandler(runner Runner, resultSender ResultSender, serverID string
 		resultSender: resultSender,
 		serverID:     serverID,
 	}
+}
+
+// SetDrainer sets the command drainer for tracking in-flight commands
+func (h *CommandHandler) SetDrainer(drainer CommandDrainer) {
+	h.drainer = drainer
 }
 
 // HandleCommandEvent processes a command execution event from the event bus
@@ -53,6 +66,12 @@ func (h *CommandHandler) HandleCommandEvent(ctx context.Context, payload []byte)
 		"command", req.Command,
 		"server_id", req.ServerID,
 	)
+
+	// Track command execution if drainer is available
+	if h.drainer != nil && req.TraceID != "" {
+		h.drainer.Start(req.TraceID)
+		defer h.drainer.Complete(req.TraceID)
+	}
 
 	// Execute the command locally
 	result := h.runner.Execute(req)
