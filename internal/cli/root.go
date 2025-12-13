@@ -8,6 +8,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/templates"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/update"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
@@ -48,6 +49,7 @@ func init() {
 	rootCmd.AddCommand(local.LocalCmd)
 	rootCmd.AddCommand(servers.ServersCmd)
 	rootCmd.AddCommand(jobs.JobsCmd)
+	rootCmd.AddCommand(templates.TemplatesCmd)
 	rootCmd.AddCommand(update.UpdateCmd)
 }
 
