@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,8 +87,12 @@ func (m *UpdateManager) Start(ctx context.Context) error {
 
 	// Bootstrap: if ReleaseSHA is empty, fetch it for the current version
 	if m.currentState.ReleaseSHA == "" && version.Version != "" && version.Version != "0.0.0" {
-		slog.Info("bootstrapping update state, fetching SHA for current version", "version", version.Version)
-		if release, err := m.checker.FetchRelease(ctx, version.Version); err == nil && release.SHA256 != "" {
+		// Normalize version by stripping git commit SHA (e.g., "dev-637ed25" -> "dev")
+		releaseVersion := normalizeVersionForRelease(version.Version)
+		slog.Info("bootstrapping update state, fetching SHA for current version",
+			"version", version.Version, "release_version", releaseVersion)
+
+		if release, err := m.checker.FetchRelease(ctx, releaseVersion); err == nil && release.SHA256 != "" {
 			m.stateMu.Lock()
 			m.currentState.ReleaseSHA = release.SHA256
 			m.currentState.CurrentVersion = version.Version
@@ -390,4 +395,34 @@ func (m *UpdateManager) updateStatus(status UpdateStatus, errorMsg string) {
 	if err := m.store.SaveState(m.currentState); err != nil {
 		slog.Warn("failed to save state", "error", err)
 	}
+}
+
+// normalizeVersionForRelease strips git commit SHA from version strings
+// Examples: "dev-637ed25" -> "dev", "v1.2.3-abc1234" -> "v1.2.3"
+func normalizeVersionForRelease(version string) string {
+	// Check if version contains a dash followed by what looks like a git SHA
+	// (7+ hex characters)
+	parts := strings.Split(version, "-")
+	if len(parts) < 2 {
+		return version
+	}
+
+	// Check if the last part looks like a git SHA (hex chars, typically 7-40 chars)
+	lastPart := parts[len(parts)-1]
+	if len(lastPart) >= 7 && isHexString(lastPart) {
+		// Remove the SHA part, rejoin the rest
+		return strings.Join(parts[:len(parts)-1], "-")
+	}
+
+	return version
+}
+
+// isHexString checks if a string contains only hexadecimal characters
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
