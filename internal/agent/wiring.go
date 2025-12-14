@@ -221,8 +221,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		// Don't fail agent startup if network info publish fails
 	}
 
-	// Initialize and start metrics collector
-	metricsCollector := NewMetricsCollector(serverID.(string), cplaneClient.Servers, DefaultMetricsInterval)
+	// Initialize and start metrics collector with Docker support
+	metricsCollector := NewMetricsCollector(
+		serverID.(string),
+		cplaneClient.Servers,
+		snapshotManager,
+		DefaultMetricsInterval,
+		DefaultDockerMetricsInterval,
+	)
 	metricsCollector.Start(ctx)
 
 	// Initialize server

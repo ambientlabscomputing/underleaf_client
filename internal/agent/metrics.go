@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/types"
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -18,29 +19,48 @@ const (
 
 	// MinMetricsInterval is the minimum allowed interval
 	MinMetricsInterval = 30 * time.Second
+
+	// DefaultDockerMetricsInterval is the default interval for collecting and sending Docker data
+	DefaultDockerMetricsInterval = 60 * time.Second
 )
 
 // MetricsCollector collects system metrics and sends them to the control plane
 type MetricsCollector struct {
-	serverID string
-	cplane   controlplane.CPlaneServerClient
-	interval time.Duration
-	stopCh   chan struct{}
-	doneCh   chan struct{}
+	serverID        string
+	cplane          controlplane.CPlaneServerClient
+	configManager   config_manager.ConfigManager
+	dockerCollector *DockerCollector
+	interval        time.Duration
+	dockerInterval  time.Duration
+	stopCh          chan struct{}
+	doneCh          chan struct{}
 }
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, interval time.Duration) *MetricsCollector {
+func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, configManager config_manager.ConfigManager, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
 	if interval < MinMetricsInterval {
 		interval = DefaultMetricsInterval
 	}
+	if dockerInterval == 0 {
+		dockerInterval = DefaultDockerMetricsInterval
+	}
+
+	// Try to create Docker collector - if it fails, we'll log a warning but continue
+	dockerCollector, err := NewDockerCollector()
+	if err != nil {
+		slog.Warn("failed to initialize Docker collector, Docker data collection will be disabled", "error", err)
+		dockerCollector = nil
+	}
 
 	return &MetricsCollector{
-		serverID: serverID,
-		cplane:   cplane,
-		interval: interval,
-		stopCh:   make(chan struct{}),
-		doneCh:   make(chan struct{}),
+		serverID:        serverID,
+		cplane:          cplane,
+		configManager:   configManager,
+		dockerCollector: dockerCollector,
+		interval:        interval,
+		dockerInterval:  dockerInterval,
+		stopCh:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 }
 
@@ -58,7 +78,7 @@ func (m *MetricsCollector) Start(ctx context.Context) {
 	} else {
 		slog.Debug("CPU stats initialized successfully")
 	}
-	
+
 	go m.run(ctx)
 }
 
@@ -66,6 +86,14 @@ func (m *MetricsCollector) Start(ctx context.Context) {
 func (m *MetricsCollector) Stop() {
 	close(m.stopCh)
 	<-m.doneCh
+
+	// Close Docker collector if it exists
+	if m.dockerCollector != nil {
+		if err := m.dockerCollector.Close(); err != nil {
+			slog.Warn("failed to close Docker collector", "error", err)
+		}
+	}
+
 	slog.Info("metrics collector stopped")
 }
 
@@ -74,14 +102,20 @@ func (m *MetricsCollector) run(ctx context.Context) {
 
 	// Collect and send metrics immediately on start
 	m.collectAndSend(ctx)
+	m.collectAndSendDocker(ctx)
 
-	ticker := time.NewTicker(m.interval)
-	defer ticker.Stop()
+	metricsTicker := time.NewTicker(m.interval)
+	defer metricsTicker.Stop()
+
+	dockerTicker := time.NewTicker(m.dockerInterval)
+	defer dockerTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-metricsTicker.C:
 			m.collectAndSend(ctx)
+		case <-dockerTicker.C:
+			m.collectAndSendDocker(ctx)
 		case <-m.stopCh:
 			return
 		case <-ctx.Done():
@@ -111,7 +145,7 @@ func (m *MetricsCollector) collectAndSend(ctx context.Context) {
 
 func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
 	slog.Debug("metrics collection starting", "step", "begin")
-	
+
 	// Collect CPU usage - use 0.01 if failed or returned 0 to pass API validation
 	slog.Debug("collecting CPU metrics", "step", "cpu_start", "interval", 0)
 	cpuUsage := 0.01 // Default fallback value
@@ -161,6 +195,61 @@ func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
 
 func (m *MetricsCollector) send(ctx context.Context, metrics *types.MetricsUpdateRequest) error {
 	return m.cplane.UpdateServerMetrics(ctx, m.serverID, *metrics)
+}
+
+func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
+	// Check if Docker integration is enabled in config
+	snapshot, err := m.configManager.GetSnapshot()
+	if err != nil {
+		slog.Warn("failed to get config snapshot for Docker check", "error", err)
+		return
+	}
+
+	// Extract docker_integration_enabled from payload
+	dockerEnabled := false
+	if snapshot.Payload != nil {
+		if val, ok := snapshot.Payload["docker_integration_enabled"]; ok {
+			if enabled, ok := val.(bool); ok {
+				dockerEnabled = enabled
+			}
+		}
+	}
+
+	// If Docker integration is not enabled, skip collection
+	if !dockerEnabled {
+		slog.Debug("Docker integration disabled in config, skipping Docker data collection")
+		return
+	}
+
+	// If Docker collector is not available, log warning and skip
+	if m.dockerCollector == nil {
+		slog.Debug("Docker collector not available, skipping Docker data collection")
+		return
+	}
+
+	// Collect Docker data
+	dockerData, err := m.dockerCollector.Collect(ctx)
+	if err != nil {
+		slog.Error("failed to collect Docker data", "error", err)
+		return
+	}
+
+	// Send Docker data to control plane
+	req := types.DockerDataUpdateRequest{
+		DockerData: dockerData,
+	}
+
+	if err := m.cplane.UpdateServerDockerData(ctx, m.serverID, req); err != nil {
+		slog.Error("failed to send Docker data", "error", err)
+		return
+	}
+
+	slog.Debug("Docker data sent successfully",
+		"containers", len(dockerData.Containers),
+		"images", len(dockerData.Images),
+		"volumes", len(dockerData.Volumes),
+		"networks", len(dockerData.Networks),
+		"services", len(dockerData.Services))
 }
 
 // CollectOnce collects metrics once without sending (useful for testing)

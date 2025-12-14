@@ -98,6 +98,14 @@ func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string,
 	return nil
 }
 
+func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID string, dockerData types.DockerDataUpdateRequest) error {
+	var response interface{}
+	if err := c.api.PATCH(fmt.Sprintf("/servers/%s", serverID), dockerData, &response); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error) {
 	queryParams := url.Values{}
 	if period != "" {
