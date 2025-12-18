@@ -12,8 +12,9 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
 )
@@ -138,30 +139,23 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			if busErr != nil {
 				slog.Warn("failed to create bus client wrapper", "error", busErr)
 			} else {
-				slog.Info("starting event bus client with 15s timeout")
+				slog.Info("starting event bus client in background")
 
 				// Use background context for event bus - it should live for entire agent process
 				// Not tied to the Start command context which may be cancelled
 				busCtx := context.Background()
 
-				connectDone := make(chan error, 1)
+				// Start event bus client in background - don't block agent startup
 				go func() {
-					connectDone <- busClient.Start(busCtx, serverID.(string))
-				}()
-
-				select {
-				case err := <-connectDone:
-					if err != nil {
+					if err := busClient.Start(busCtx, serverID.(string)); err != nil {
 						slog.Warn("failed to start event bus client", "error", err)
-						busClient = nil
 					} else {
 						slog.Info("event bus client started successfully")
-						eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
 					}
-				case <-time.After(15 * time.Second):
-					slog.Warn("event bus connection timed out after 15s, continuing without event bus")
-					busClient = nil
-				}
+				}()
+
+				// Set up event bus adapter immediately - it will work once connection is established
+				eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
 			}
 		}
 	} else {
@@ -207,9 +201,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	commandHandler := exec.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
 	commandHandler.SetDrainer(drainer)
 
+	// Initialize deployment handler
+	deploymentHandler := deployment.NewDeploymentHandler(serverID.(string), cplaneClient.Deployments)
+	deploymentHandler.SetDrainer(drainer)
+
 	// Subscribe to command events if event bus is available
 	if busClient != nil {
 		go subscribeToCommandEvents(ctx, busClient, commandHandler, serverID.(string))
+		go subscribeToDeploymentEvents(ctx, busClient, deploymentHandler, serverID.(string))
 	}
 
 	// Watch for config updates to refresh command settings
@@ -352,11 +351,12 @@ func getCommandSettingsFromConfig(config config_manager.ConfigClient) exec.Comma
 func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handler *exec.CommandHandler, serverID string) {
 	slog.Info("subscribing to command events", "server_id", serverID)
 
-	// Subscribe to command run requests - topic only, filter by server_id in handler
-	// Note: server_id is in message content, not in message metadata (TargetID)
+	// Subscribe to command run requests with TargetType and TargetID filters
+	// Server API publishes with TargetType="server" and TargetID=serverID
 	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
-		Topic: bus.CommandsRunRequest,
-		// Don't filter by TargetID here - it's in the message payload, not metadata
+		Topic:      bus.CommandsRunRequest,
+		TargetType: "server",
+		TargetID:   serverID,
 	})
 	if err != nil {
 		slog.Error("failed to subscribe to command events", "error", err)
@@ -453,7 +453,7 @@ func publishNetworkInfo(ctx context.Context, serverClient controlplane.CPlaneSer
 	)
 
 	// Prepare update request
-	updateReq := types.UpdateServerRequest{
+	updateReq := servertypes.UpdateServerRequest{
 		Hostname:  netInfo.Hostname,
 		IPAddress: netInfo.IPv4,
 	}
@@ -518,6 +518,32 @@ func watchConfigForSoftwareUpdates(ctx context.Context, snapshotManager *config_
 					versionChan <- version
 				}
 			}
+		}
+	}
+}
+
+// subscribeToDeploymentEvents subscribes to deployment events from the event bus
+func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, handler *deployment.DeploymentHandler, serverID string) {
+	slog.Info("subscribing to deployment events", "server_id", serverID)
+
+	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
+		Topic:      bus.DeploymentsApplyRequest,
+		TargetType: "server",
+		TargetID:   serverID,
+	})
+	if err != nil {
+		slog.Error("failed to subscribe to deployment events", "error", err)
+		return
+	}
+
+	for {
+		select {
+		case msg := <-subscription.HandlerChan:
+			slog.Debug("received deployment event", "topic", msg.Topic)
+			handler.HandleDeploymentEvent(ctx, []byte(msg.Content))
+		case <-ctx.Done():
+			slog.Info("stopping deployment event subscription")
+			return
 		}
 	}
 }

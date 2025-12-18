@@ -6,15 +6,16 @@ import (
 
 // CommandRequest represents a command to be executed on the server
 // This is received via the event bus from the control plane
+// NOTE: Field names must match ServerCommand from server_api for JSON compatibility
 type CommandRequest struct {
-	ServerID   string            `json:"server_id"`   // Target server ID (for filtering)
-	TraceID    string            `json:"trace_id"`    // Unique job ID for tracking
-	Command    string            `json:"command"`     // The command to execute
-	Args       []string          `json:"args"`        // Command arguments
-	Env        map[string]string `json:"env"`         // Environment variables to set
-	WorkingDir string            `json:"working_dir"` // Working directory (optional)
-	Timeout    int               `json:"timeout"`     // Timeout in seconds (0 = use default)
-	User       string            `json:"user"`        // User to run as (optional, requires privilege)
+	ServerID   string            `json:"server_id"` // Target server ID (for filtering)
+	TraceID    string            `json:"trace_id"`  // Unique job ID for tracking
+	Command    string            `json:"command"`   // The command to execute
+	Args       []string          `json:"args"`      // Command arguments
+	Env        map[string]string `json:"env_vars"`  // Environment variables (matches server_api's env_vars)
+	WorkingDir string            `json:"work_dir"`  // Working directory (matches server_api's work_dir)
+	Timeout    int               `json:"timeout"`   // Timeout in seconds (0 = use default)
+	User       string            `json:"user"`      // User to run as (optional, requires privilege)
 }
 
 // CommandResult represents the result of a command execution

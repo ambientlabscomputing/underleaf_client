@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/deploy"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
@@ -48,6 +49,7 @@ func init() {
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.LocalCmd)
 	rootCmd.AddCommand(servers.ServersCmd)
+	rootCmd.AddCommand(deploy.DeployCmd)
 	rootCmd.AddCommand(jobs.JobsCmd)
 	rootCmd.AddCommand(templates.TemplatesCmd)
 	rootCmd.AddCommand(update.UpdateCmd)

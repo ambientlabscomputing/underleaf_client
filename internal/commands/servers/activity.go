@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -34,7 +34,7 @@ Examples:
 		limit, _ := cmd.Flags().GetInt("limit")
 		offset, _ := cmd.Flags().GetInt("offset")
 
-		params := types.GetActivityParams{
+		params := servertypes.GetActivityParams{
 			Type:   activityType,
 			Limit:  limit,
 			Offset: offset,

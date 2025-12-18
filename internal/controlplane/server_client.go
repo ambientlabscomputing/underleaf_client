@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
 
 type ServerClient struct {
@@ -43,10 +43,10 @@ func (c *ServerClient) GetServer(ctx context.Context, serverID string) (interfac
 }
 
 func (c *ServerClient) ListServers(ctx context.Context) ([]interface{}, error) {
-	return c.ListServersWithParams(ctx, types.ListServersParams{})
+	return c.ListServersWithParams(ctx, servertypes.ListServersParams{})
 }
 
-func (c *ServerClient) ListServersWithParams(ctx context.Context, params types.ListServersParams) ([]interface{}, error) {
+func (c *ServerClient) ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]interface{}, error) {
 	queryParams := url.Values{}
 	if params.Status != "" {
 		queryParams.Set("status", params.Status)
@@ -74,7 +74,7 @@ func (c *ServerClient) ListServersWithParams(ctx context.Context, params types.L
 	return response.Results, nil
 }
 
-func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, updates types.UpdateServerRequest) (interface{}, error) {
+func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (interface{}, error) {
 	var response interface{}
 	if err := c.api.PATCH("/servers/"+serverID, updates, &response); err != nil {
 		return nil, err
@@ -82,15 +82,15 @@ func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, update
 	return response, nil
 }
 
-func (c *ServerClient) GetServerMetrics(ctx context.Context, serverID string) (*types.ServerMetrics, error) {
-	var response types.ServerMetrics
+func (c *ServerClient) GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error) {
+	var response servertypes.ServerMetrics
 	if err := c.api.GET(fmt.Sprintf("/servers/%s/metrics", serverID), &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
 }
 
-func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string, metrics types.MetricsUpdateRequest) error {
+func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string, metrics servertypes.MetricsUpdateRequest) error {
 	var response interface{}
 	if err := c.api.PUT(fmt.Sprintf("/servers/%s/metrics", serverID), metrics, &response); err != nil {
 		return err
@@ -98,7 +98,7 @@ func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string,
 	return nil
 }
 
-func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID string, dockerData types.DockerDataUpdateRequest) error {
+func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID string, dockerData servertypes.DockerDataUpdateRequest) error {
 	var response interface{}
 	if err := c.api.PATCH(fmt.Sprintf("/servers/%s", serverID), dockerData, &response); err != nil {
 		return err
@@ -106,7 +106,7 @@ func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID stri
 	return nil
 }
 
-func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error) {
+func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*servertypes.MetricsHistoryResponse, error) {
 	queryParams := url.Values{}
 	if period != "" {
 		queryParams.Set("period", period)
@@ -115,14 +115,14 @@ func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, p
 		queryParams.Set("resolution", resolution)
 	}
 
-	var response types.MetricsHistoryResponse
+	var response servertypes.MetricsHistoryResponse
 	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/metrics/history", serverID), queryParams, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
 }
 
-func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error) {
+func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error) {
 	queryParams := url.Values{}
 	if params.Type != "" {
 		queryParams.Set("type", params.Type)
@@ -140,7 +140,7 @@ func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, p
 		queryParams.Set("offset", strconv.Itoa(params.Offset))
 	}
 
-	var response types.ActivityResponse
+	var response servertypes.ActivityResponse
 	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/activity", serverID), queryParams, &response); err != nil {
 		return nil, err
 	}

@@ -1,0 +1,69 @@
+{
+  "plan_id": "b4476584-6db9-4d0d-ac1b-6f4d92991933",
+  "deployment_id": "deploy-001",
+  "version": 2,
+  "started_at": "2025-12-14T19:01:01.901534-07:00",
+  "completed_at": "2025-12-14T19:01:12.433001-07:00",
+  "success": false,
+  "partial_state": true,
+  "error": "Operation failed: Create container mywebapp_api - failed to pull image: Error response from daemon: pull access denied for myorg/myapp-api, repository does not exist or may require 'docker login': denied: requested access to the resource is denied",
+  "results": [
+    {
+      "operation_id": "bd6c7a0b-5d45-44b4-b453-d6647892030d",
+      "resource_id": {
+        "deployment_id": "deploy-001",
+        "type": "network",
+        "name": "mywebapp_app_network"
+      },
+      "resource_name": "mywebapp_app_network",
+      "type": "create",
+      "success": true,
+      "started_at": "2025-12-14T19:01:01.901565-07:00",
+      "completed_at": "2025-12-14T19:01:01.945897-07:00",
+      "duration": 44331292
+    },
+    {
+      "operation_id": "4b716ca6-8d62-42d3-8106-c5f34be4ded0",
+      "resource_id": {
+        "deployment_id": "deploy-001",
+        "type": "volume",
+        "name": "mywebapp_db_data"
+      },
+      "resource_name": "mywebapp_db_data",
+      "type": "create",
+      "success": true,
+      "started_at": "2025-12-14T19:01:01.945919-07:00",
+      "completed_at": "2025-12-14T19:01:01.951942-07:00",
+      "duration": 6022916
+    },
+    {
+      "operation_id": "2e57814f-81d5-40df-96b8-9665e583addb",
+      "resource_id": {
+        "deployment_id": "deploy-001",
+        "type": "container",
+        "name": "mywebapp_database"
+      },
+      "resource_name": "mywebapp_database",
+      "type": "create",
+      "success": true,
+      "started_at": "2025-12-14T19:01:01.951952-07:00",
+      "completed_at": "2025-12-14T19:01:11.530344-07:00",
+      "duration": 9578333500
+    },
+    {
+      "operation_id": "1a4ea7fe-ca02-4483-9f6e-0b7691fb4ea2",
+      "resource_id": {
+        "deployment_id": "deploy-001",
+        "type": "container",
+        "name": "mywebapp_api"
+      },
+      "resource_name": "mywebapp_api",
+      "type": "create",
+      "success": false,
+      "error": "failed to pull image: Error response from daemon: pull access denied for myorg/myapp-api, repository does not exist or may require 'docker login': denied: requested access to the resource is denied",
+      "started_at": "2025-12-14T19:01:11.530817-07:00",
+      "completed_at": "2025-12-14T19:01:12.43299-07:00",
+      "duration": 902168292
+    }
+  ]
+}

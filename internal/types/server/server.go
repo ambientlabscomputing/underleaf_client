@@ -1,4 +1,4 @@
-package server
+package servertypes
 
 import (
 	"encoding/json"
@@ -203,4 +203,20 @@ type MetricsUpdateRequest struct {
 	CPUUsage    float64 `json:"cpu_usage"`
 	MemoryUsage float64 `json:"memory_usage"`
 	DiskUsage   float64 `json:"disk_usage"`
+}
+
+// DockerData represents Docker information for a server
+type DockerData struct {
+	Containers int `json:"containers"`
+	Images     int `json:"images"`
+	Volumes    int `json:"volumes"`
+	Networks   int `json:"networks"`
+}
+
+// DockerDataUpdateRequest represents the request to update server Docker data
+type DockerDataUpdateRequest struct {
+	Containers int `json:"containers,omitempty"`
+	Images     int `json:"images,omitempty"`
+	Volumes    int `json:"volumes,omitempty"`
+	Networks   int `json:"networks,omitempty"`
 }

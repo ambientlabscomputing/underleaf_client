@@ -10,22 +10,22 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
 
 type Service interface {
-	GetServer(ctx context.Context, serverID string) (Server, error)
-	ListServers(ctx context.Context) ([]Server, error)
-	ListServersWithParams(ctx context.Context, params types.ListServersParams) ([]Server, error)
+	GetServer(ctx context.Context, serverID string) (servertypes.Server, error)
+	ListServers(ctx context.Context) ([]servertypes.Server, error)
+	ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]servertypes.Server, error)
 	RegisterServer(ctx context.Context, name string) error
-	GetLocal(ctx context.Context) (*Server, error)
-	UpdateServer(ctx context.Context, serverID string, updates types.UpdateServerRequest) (Server, error)
-	GetServerMetrics(ctx context.Context, serverID string) (*types.ServerMetrics, error)
-	UpdateServerMetrics(ctx context.Context, serverID string, metrics types.MetricsUpdateRequest) error
-	GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error)
-	GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error)
-	FindExistingServer(ctx context.Context, nameOrID string) (*Server, error)
-	DownloadServerConfig(ctx context.Context, server *Server) error
+	GetLocal(ctx context.Context) (*servertypes.Server, error)
+	UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (servertypes.Server, error)
+	GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error)
+	UpdateServerMetrics(ctx context.Context, serverID string, metrics servertypes.MetricsUpdateRequest) error
+	GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*servertypes.MetricsHistoryResponse, error)
+	GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error)
+	FindExistingServer(ctx context.Context, nameOrID string) (*servertypes.Server, error)
+	DownloadServerConfig(ctx context.Context, server *servertypes.Server) error
 }
 type ServerService struct {
 	cplane   *controlplane.CPlaneClient
@@ -41,30 +41,30 @@ func NewServerService(cplaneClient *controlplane.CPlaneClient, configClient conf
 	}
 }
 
-func (s *ServerService) GetServer(ctx context.Context, serverID string) (Server, error) {
+func (s *ServerService) GetServer(ctx context.Context, serverID string) (servertypes.Server, error) {
 	serverIF, err := s.cplane.Servers.GetServer(ctx, serverID)
 	if err != nil {
-		return Server{}, err
+		return servertypes.Server{}, err
 	}
 
-	var server Server
+	var server servertypes.Server
 	if err := convertInterface(serverIF, &server); err != nil {
-		return Server{}, fmt.Errorf("failed to convert server data: %w", err)
+		return servertypes.Server{}, fmt.Errorf("failed to convert server data: %w", err)
 	}
 	return server, nil
 }
 
-func (s *ServerService) ListServers(ctx context.Context) ([]Server, error) {
-	return s.ListServersWithParams(ctx, types.ListServersParams{})
+func (s *ServerService) ListServers(ctx context.Context) ([]servertypes.Server, error) {
+	return s.ListServersWithParams(ctx, servertypes.ListServersParams{})
 }
 
-func (s *ServerService) ListServersWithParams(ctx context.Context, params types.ListServersParams) ([]Server, error) {
+func (s *ServerService) ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]servertypes.Server, error) {
 	serversIF, err := s.cplane.Servers.ListServersWithParams(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	servers := make([]Server, len(serversIF))
+	servers := make([]servertypes.Server, len(serversIF))
 	for i, serverIF := range serversIF {
 		if err := convertInterface(serverIF, &servers[i]); err != nil {
 			return nil, fmt.Errorf("failed to convert server %d: %w", i, err)
@@ -83,7 +83,7 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 			// Verify the existing server still exists on the backend
 			existingServer, err := s.GetServer(ctx, existingID)
 			if err == nil && existingServer.ID != "" {
-				// Server exists and is valid, reuse it
+				// servertypes.Server exists and is valid, reuse it
 				// No need to update name - the server already exists
 				// Just ensure config has the correct name
 				if err := s.config.Set("local.server_name", existingServer.Name); err != nil {
@@ -96,7 +96,7 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 	}
 
 	// Create new server registration
-	serverIF, err := s.cplane.Servers.RegisterServer(ctx, name, ServerPlatform{
+	serverIF, err := s.cplane.Servers.RegisterServer(ctx, name, servertypes.ServerPlatform{
 		OS:   runtime.GOOS,
 		Arch: runtime.GOARCH,
 	})
@@ -104,7 +104,7 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 		return err
 	}
 
-	var server Server
+	var server servertypes.Server
 	if err := convertInterface(serverIF, &server); err != nil {
 		return fmt.Errorf("failed to convert registered server: %w", err)
 	}
@@ -120,37 +120,37 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 	return nil
 }
 
-func (s *ServerService) UpdateServer(ctx context.Context, serverID string, updates types.UpdateServerRequest) (Server, error) {
+func (s *ServerService) UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (servertypes.Server, error) {
 	serverIF, err := s.cplane.Servers.UpdateServer(ctx, serverID, updates)
 	if err != nil {
-		return Server{}, err
+		return servertypes.Server{}, err
 	}
 
-	var server Server
+	var server servertypes.Server
 	if err := convertInterface(serverIF, &server); err != nil {
-		return Server{}, fmt.Errorf("failed to convert server data: %w", err)
+		return servertypes.Server{}, fmt.Errorf("failed to convert server data: %w", err)
 	}
 	return server, nil
 }
 
-func (s *ServerService) GetServerMetrics(ctx context.Context, serverID string) (*types.ServerMetrics, error) {
+func (s *ServerService) GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error) {
 	return s.cplane.Servers.GetServerMetrics(ctx, serverID)
 }
 
-func (s *ServerService) UpdateServerMetrics(ctx context.Context, serverID string, metrics types.MetricsUpdateRequest) error {
+func (s *ServerService) UpdateServerMetrics(ctx context.Context, serverID string, metrics servertypes.MetricsUpdateRequest) error {
 	return s.cplane.Servers.UpdateServerMetrics(ctx, serverID, metrics)
 }
 
-func (s *ServerService) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*types.MetricsHistoryResponse, error) {
+func (s *ServerService) GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*servertypes.MetricsHistoryResponse, error) {
 	return s.cplane.Servers.GetMetricsHistory(ctx, serverID, period, resolution)
 }
 
-func (s *ServerService) GetServerActivity(ctx context.Context, serverID string, params types.GetActivityParams) (*types.ActivityResponse, error) {
+func (s *ServerService) GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error) {
 	return s.cplane.Servers.GetServerActivity(ctx, serverID, params)
 }
 
 // FindExistingServer searches for a server by name or ID and verifies it hasn't checked in within the last 5 minutes
-func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string) (*Server, error) {
+func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string) (*servertypes.Server, error) {
 	// First try to get by ID
 	server, err := s.GetServer(ctx, nameOrID)
 	if err == nil {
@@ -165,7 +165,7 @@ func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string)
 	}
 
 	// Not found by ID, search by name
-	servers, err := s.ListServersWithParams(ctx, types.ListServersParams{
+	servers, err := s.ListServersWithParams(ctx, servertypes.ListServersParams{
 		Search: nameOrID,
 		Limit:  100, // Get enough results to find matches
 	})
@@ -174,7 +174,7 @@ func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string)
 	}
 
 	// Find exact name match
-	var matchedServer *Server
+	var matchedServer *servertypes.Server
 	for _, srv := range servers {
 		if srv.Name == nameOrID {
 			// Check if it hasn't checked in within 5 minutes
@@ -197,7 +197,7 @@ func (s *ServerService) FindExistingServer(ctx context.Context, nameOrID string)
 }
 
 // DownloadServerConfig downloads an existing server's configuration to the local config
-func (s *ServerService) DownloadServerConfig(ctx context.Context, server *Server) error {
+func (s *ServerService) DownloadServerConfig(ctx context.Context, server *servertypes.Server) error {
 	if server == nil {
 		return fmt.Errorf("server cannot be nil")
 	}

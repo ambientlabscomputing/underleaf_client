@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
@@ -36,7 +36,7 @@ Examples:
 			return fmt.Errorf("no update fields provided")
 		}
 
-		updates := types.UpdateServerRequest{
+		updates := servertypes.UpdateServerRequest{
 			Location:  location,
 			IPAddress: ipAddress,
 			Hostname:  hostname,

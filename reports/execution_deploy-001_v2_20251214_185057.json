@@ -1,0 +1,27 @@
+{
+  "plan_id": "b011e758-ef7b-4653-8d99-447eb5c652a7",
+  "deployment_id": "deploy-001",
+  "version": 2,
+  "started_at": "2025-12-14T18:50:57.534707-07:00",
+  "completed_at": "2025-12-14T18:51:01.864858-07:00",
+  "success": false,
+  "partial_state": true,
+  "error": "Operation failed: Create container mywebapp_web - failed to start container: Error response from daemon: failed to set up container networking: network mywebapp_app_network not found",
+  "results": [
+    {
+      "operation_id": "8f2a82e0-c480-4ab4-87e5-baadaa47dd77",
+      "resource_id": {
+        "deployment_id": "deploy-001",
+        "type": "container",
+        "name": "mywebapp_web"
+      },
+      "resource_name": "mywebapp_web",
+      "type": "create",
+      "success": false,
+      "error": "failed to start container: Error response from daemon: failed to set up container networking: network mywebapp_app_network not found",
+      "started_at": "2025-12-14T18:50:57.534715-07:00",
+      "completed_at": "2025-12-14T18:51:01.864849-07:00",
+      "duration": 4330107500
+    }
+  ]
+}

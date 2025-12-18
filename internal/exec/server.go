@@ -52,15 +52,7 @@ func (h *CommandHandler) HandleCommandEvent(ctx context.Context, payload []byte)
 		return
 	}
 
-	// Filter: only process commands targeted at this server
-	if req.ServerID != "" && req.ServerID != h.serverID {
-		slog.Debug("ignoring command for different server",
-			"target_server", req.ServerID,
-			"this_server", h.serverID,
-		)
-		return
-	}
-
+	// No need to check server ID - subscription filtering ensures we only receive our commands
 	slog.Info("processing command request",
 		"trace_id", req.TraceID,
 		"command", req.Command,

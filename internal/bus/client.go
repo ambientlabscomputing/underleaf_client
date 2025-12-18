@@ -118,7 +118,7 @@ func (c *Client) Subscribe(ctx context.Context, selector SelectorFields) (Client
 	c.channelsMu.RLock()
 	chans, ok := c.channels[index]
 	c.channelsMu.RUnlock()
-	
+
 	if ok && len(chans) > 0 {
 		logger.Debug("reusing existing subscription channel", "index", index)
 		return ClientSubscription{
@@ -187,7 +187,7 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 				TraceID:    defref(msg.TraceID),
 			}
 			index := selector.ToIndex()
-			
+
 			c.channelsMu.RLock()
 			numChannels := len(c.channels)
 			logger.Debug("incoming message",
@@ -200,7 +200,7 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 			// Try exact match first
 			chans, ok := c.channels[index]
 			c.channelsMu.RUnlock()
-			
+
 			if ok {
 				for _, ch := range chans {
 					logger.Debug("message delivered (exact match)", "destination", index)
@@ -209,14 +209,36 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 				continue
 			}
 
+			// Try partial match without TraceID (subscriptions shouldn't care about job-specific trace IDs)
+			partialSelector := SelectorFields{
+				Topic:      msg.Topic,
+				TargetType: defref(msg.TargetType),
+				TargetID:   defref(msg.TargetID),
+				OrgID:      defref(msg.OrgID),
+				// Explicitly omit TraceID
+			}
+			partialIndex := partialSelector.ToIndex()
+
+			c.channelsMu.RLock()
+			chans, ok = c.channels[partialIndex]
+			c.channelsMu.RUnlock()
+
+			if ok {
+				for _, ch := range chans {
+					logger.Debug("message delivered (partial match without trace)", "destination", partialIndex)
+					ch <- msg
+				}
+				continue
+			}
+
 			// Fallback: try topic-only match (for subscriptions that filter in handler)
 			topicOnlySelector := SelectorFields{Topic: msg.Topic}
 			topicOnlyIndex := topicOnlySelector.ToIndex()
-			
+
 			c.channelsMu.RLock()
 			chans, ok = c.channels[topicOnlyIndex]
 			c.channelsMu.RUnlock()
-			
+
 			if ok {
 				for _, ch := range chans {
 					logger.Debug("message delivered (topic match)", "destination", topicOnlyIndex)
@@ -238,7 +260,7 @@ func (c *Client) handleIncomingMessages(ctx context.Context) {
 func (c *Client) getChannelIndices() []string {
 	c.channelsMu.RLock()
 	defer c.channelsMu.RUnlock()
-	
+
 	indices := make([]string, 0, len(c.channels))
 	for k := range c.channels {
 		indices = append(indices, k)

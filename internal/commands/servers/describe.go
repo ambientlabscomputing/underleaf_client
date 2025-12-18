@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/server"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -40,7 +40,7 @@ Examples:
 	},
 }
 
-func showServerDetails(printer ui.Printer, srv server.Server) {
+func showServerDetails(printer ui.Printer, srv servertypes.Server) {
 	boldStyle := lipgloss.NewStyle().Bold(true)
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	labelStyle := lipgloss.NewStyle().Width(20)

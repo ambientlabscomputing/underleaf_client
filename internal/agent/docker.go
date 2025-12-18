@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/api/types/network"
@@ -31,7 +31,7 @@ func NewDockerCollector() (*DockerCollector, error) {
 }
 
 // Collect gathers all Docker data from the local daemon
-func (d *DockerCollector) Collect(ctx context.Context) (*types.DockerData, error) {
+func (d *DockerCollector) Collect(ctx context.Context) (*servertypes.DockerData, error) {
 	slog.Debug("Docker data collection starting")
 
 	// Collect containers
@@ -77,12 +77,11 @@ func (d *DockerCollector) Collect(ctx context.Context) (*types.DockerData, error
 		"networks", len(networks),
 		"services", len(services))
 
-	return &types.DockerData{
-		Containers: containers,
-		Images:     images,
-		Volumes:    volumes,
-		Networks:   networks,
-		Services:   services,
+	return &servertypes.DockerData{
+		Containers: len(containers),
+		Images:     len(images),
+		Volumes:    len(volumes),
+		Networks:   len(networks),
 	}, nil
 }
 

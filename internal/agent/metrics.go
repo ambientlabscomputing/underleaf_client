@@ -7,7 +7,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
-	"github.com/ambientlabscomputing/underleaf_client/internal/types"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -143,7 +143,7 @@ func (m *MetricsCollector) collectAndSend(ctx context.Context) {
 	)
 }
 
-func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
+func (m *MetricsCollector) collect() (*servertypes.MetricsUpdateRequest, error) {
 	slog.Debug("metrics collection starting", "step", "begin")
 
 	// Collect CPU usage - use 0.01 if failed or returned 0 to pass API validation
@@ -186,14 +186,14 @@ func (m *MetricsCollector) collect() (*types.MetricsUpdateRequest, error) {
 		"memory", memUsage,
 		"disk", diskUsage)
 
-	return &types.MetricsUpdateRequest{
+	return &servertypes.MetricsUpdateRequest{
 		CPUUsage:    cpuUsage,
 		MemoryUsage: memUsage,
 		DiskUsage:   diskUsage,
 	}, nil
 }
 
-func (m *MetricsCollector) send(ctx context.Context, metrics *types.MetricsUpdateRequest) error {
+func (m *MetricsCollector) send(ctx context.Context, metrics *servertypes.MetricsUpdateRequest) error {
 	return m.cplane.UpdateServerMetrics(ctx, m.serverID, *metrics)
 }
 
@@ -235,8 +235,11 @@ func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 	}
 
 	// Send Docker data to control plane
-	req := types.DockerDataUpdateRequest{
-		DockerData: dockerData,
+	req := servertypes.DockerDataUpdateRequest{
+		Containers: dockerData.Containers,
+		Images:     dockerData.Images,
+		Volumes:    dockerData.Volumes,
+		Networks:   dockerData.Networks,
 	}
 
 	if err := m.cplane.UpdateServerDockerData(ctx, m.serverID, req); err != nil {
@@ -245,14 +248,13 @@ func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 	}
 
 	slog.Debug("Docker data sent successfully",
-		"containers", len(dockerData.Containers),
-		"images", len(dockerData.Images),
-		"volumes", len(dockerData.Volumes),
-		"networks", len(dockerData.Networks),
-		"services", len(dockerData.Services))
+		"containers", dockerData.Containers,
+		"images", dockerData.Images,
+		"volumes", dockerData.Volumes,
+		"networks", dockerData.Networks)
 }
 
 // CollectOnce collects metrics once without sending (useful for testing)
-func (m *MetricsCollector) CollectOnce() (*types.MetricsUpdateRequest, error) {
+func (m *MetricsCollector) CollectOnce() (*servertypes.MetricsUpdateRequest, error) {
 	return m.collect()
 }
