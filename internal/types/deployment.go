@@ -200,10 +200,10 @@ type PlanOptions struct {
 
 // LastAppliedSnapshot represents a snapshot of the last successfully applied state
 type LastAppliedSnapshot struct {
-	DeploymentID string                     `json:"deployment_id"`
-	Version      int                        `json:"version"`
-	Resources    map[ResourceID]interface{} `json:"resources"` // Config for each resource
-	AppliedAt    time.Time                  `json:"applied_at"`
+	DeploymentID string                 `json:"deployment_id"`
+	Version      int                    `json:"version"`
+	Resources    map[string]interface{} `json:"resources"` // Config for each resource, keyed by ResourceID.String()
+	AppliedAt    time.Time              `json:"applied_at"`
 }
 
 // ObservedResource represents a resource as observed in Docker

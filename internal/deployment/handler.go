@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/compiler"
@@ -199,10 +201,23 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 		return result
 	}
 
-	// Step 3: Load last applied state (keyed by deployment version)
-	// For now, we'll assume no last applied state - first apply
-	var lastApplied *types.LastAppliedSnapshot
-	// TODO: Integrate with persistent state storage keyed by backend deployment version
+	// Step 3: Load last applied state
+	slog.Info("loading last applied state", "deployment_id", deployment.ID)
+	// Use home directory on macOS/Linux for development, /var/lib/underleaf for production
+	stateDir := "/var/lib/underleaf/deployments"
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		stateDir = filepath.Join(homeDir, ".underleaf", "deployments")
+	}
+	lastAppliedStore := state.NewFileLastAppliedStore(stateDir)
+	lastApplied, err := lastAppliedStore.GetLatest(deployment.ID)
+	if err != nil {
+		// No previous state found - this is the first deployment
+		slog.Debug("no previous deployment state found, treating as first deployment",
+			"deployment_id", deployment.ID,
+			"error", err,
+		)
+		lastApplied = nil
+	}
 
 	// Step 4: Reconcile (three-way diff)
 	slog.Info("reconciling deployment state", "deployment_id", deployment.ID)
@@ -312,6 +327,30 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 		"operation_count":  len(execResult.Results),
 		"duration_seconds": execResult.CompletedAt.Sub(execResult.StartedAt).Seconds(),
 	})
+
+	// Step 7: Save last applied state for future reconciliation
+	slog.Info("saving last applied state", "deployment_id", deployment.ID, "version", deployment.Version)
+	snapshot := &types.LastAppliedSnapshot{
+		DeploymentID: deployment.ID,
+		Version:      deployment.Version,
+		AppliedAt:    time.Now(),
+		Resources:    make(map[string]interface{}),
+	}
+
+	// Store the configuration of each resource that was successfully applied
+	for resID, node := range graph.Nodes {
+		snapshot.Resources[resID.String()] = node.Config
+	}
+
+	if err := lastAppliedStore.Save(snapshot); err != nil {
+		slog.Error("failed to save last applied state",
+			"deployment_id", deployment.ID,
+			"version", deployment.Version,
+			"error", err,
+		)
+		// Don't fail the deployment just because state save failed
+		// The deployment itself was successful
+	}
 
 	return result
 }

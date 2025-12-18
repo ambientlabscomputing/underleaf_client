@@ -63,9 +63,22 @@ func (p *Planner) GeneratePlan(
 	for _, op := range deletes {
 		deletesMap[op.ResourceID] = op
 	}
+
+	// First add deletes that are in the graph's deletion order
+	addedDeletes := make(map[types.ResourceID]bool)
 	for _, resID := range graph.DeletionOrder {
 		if op, exists := deletesMap[resID]; exists {
 			orderedOps = append(orderedOps, op)
+			addedDeletes[resID] = true
+		}
+	}
+
+	// Then add any remaining deletes (resources removed from desired state)
+	// These aren't in the graph anymore, so we add them at the start
+	for resID, op := range deletesMap {
+		if !addedDeletes[resID] {
+			// Add at beginning since these must be deleted first
+			orderedOps = append([]types.Operation{op}, orderedOps...)
 		}
 	}
 

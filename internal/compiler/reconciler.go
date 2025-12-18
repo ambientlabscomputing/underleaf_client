@@ -57,7 +57,7 @@ func (r *Reconciler) reconcileResource(
 	obs := observed.Get(resID)
 	var lastConfig interface{}
 	if lastApplied != nil {
-		lastConfig = lastApplied.Resources[resID]
+		lastConfig = lastApplied.Resources[resID.String()]
 	}
 
 	// Case 1: Not in observed, not in last applied → CREATE
@@ -185,7 +185,7 @@ func (r *Reconciler) addPruneOperations(
 
 		if !seenResources[resID] {
 			// Not in desired state
-			if lastApplied != nil && lastApplied.Resources[resID] != nil {
+			if lastApplied != nil && lastApplied.Resources[resID.String()] != nil {
 				// We created it, now it's unwanted → DELETE
 				results.Operations = append(results.Operations, types.Operation{
 					ResourceID:     resID,
@@ -218,7 +218,7 @@ func (r *Reconciler) addPruneOperations(
 		}
 
 		if !seenResources[resID] {
-			if lastApplied != nil && lastApplied.Resources[resID] != nil {
+			if lastApplied != nil && lastApplied.Resources[resID.String()] != nil {
 				results.Operations = append(results.Operations, types.Operation{
 					ResourceID:     resID,
 					ResourceType:   resID.Type,
@@ -249,7 +249,7 @@ func (r *Reconciler) addPruneOperations(
 		}
 
 		if !seenResources[resID] {
-			if lastApplied != nil && lastApplied.Resources[resID] != nil {
+			if lastApplied != nil && lastApplied.Resources[resID.String()] != nil {
 				results.Operations = append(results.Operations, types.Operation{
 					ResourceID:     resID,
 					ResourceType:   resID.Type,

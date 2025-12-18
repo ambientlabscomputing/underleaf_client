@@ -269,11 +269,11 @@ func getOperationIcon(opType types.OperationType) string {
 
 // createSnapshot converts a compiled graph to a last-applied snapshot
 func createSnapshot(deployment *types.AppDeployment, graph *types.CompiledGraph, result *types.ExecutionResult) *types.LastAppliedSnapshot {
-	resources := make(map[types.ResourceID]interface{})
+	resources := make(map[string]interface{})
 
 	// Extract configs from graph nodes
 	for id, node := range graph.Nodes {
-		resources[id] = node.Config
+		resources[id.String()] = node.Config
 	}
 
 	return &types.LastAppliedSnapshot{
