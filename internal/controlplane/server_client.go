@@ -100,7 +100,10 @@ func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string,
 
 func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID string, dockerData servertypes.DockerDataUpdateRequest) error {
 	var response interface{}
-	if err := c.api.PATCH(fmt.Sprintf("/servers/%s", serverID), dockerData, &response); err != nil {
+	payload := map[string]servertypes.DockerDataUpdateRequest{
+		"docker_data": dockerData,
+	}
+	if err := c.api.PATCH(fmt.Sprintf("/servers/%s", serverID), payload, &response); err != nil {
 		return err
 	}
 	return nil
