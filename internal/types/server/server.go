@@ -207,16 +207,18 @@ type MetricsUpdateRequest struct {
 
 // DockerData represents Docker information for a server
 type DockerData struct {
-	Containers int `json:"containers"`
-	Images     int `json:"images"`
-	Volumes    int `json:"volumes"`
-	Networks   int `json:"networks"`
+	Containers []interface{} `json:"containers"`
+	Images     []interface{} `json:"images"`
+	Volumes    []interface{} `json:"volumes"`
+	Networks   []interface{} `json:"networks"`
+	Services   []interface{} `json:"services,omitempty"`
 }
 
 // DockerDataUpdateRequest represents the request to update server Docker data
 type DockerDataUpdateRequest struct {
-	Containers int `json:"containers,omitempty"`
-	Images     int `json:"images,omitempty"`
-	Volumes    int `json:"volumes,omitempty"`
-	Networks   int `json:"networks,omitempty"`
+	Containers []interface{} `json:"containers,omitempty"`
+	Images     []interface{} `json:"images,omitempty"`
+	Volumes    []interface{} `json:"volumes,omitempty"`
+	Networks   []interface{} `json:"networks,omitempty"`
+	Services   []interface{} `json:"services,omitempty"`
 }

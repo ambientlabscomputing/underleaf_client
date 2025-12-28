@@ -77,11 +77,38 @@ func (d *DockerCollector) Collect(ctx context.Context) (*servertypes.DockerData,
 		"networks", len(networks),
 		"services", len(services))
 
+	// Convert to []interface{} for API compatibility
+	containerInterfaces := make([]interface{}, len(containers))
+	for i, c := range containers {
+		containerInterfaces[i] = c
+	}
+
+	imageInterfaces := make([]interface{}, len(images))
+	for i, img := range images {
+		imageInterfaces[i] = img
+	}
+
+	volumeInterfaces := make([]interface{}, len(volumes))
+	for i, v := range volumes {
+		volumeInterfaces[i] = v
+	}
+
+	networkInterfaces := make([]interface{}, len(networks))
+	for i, n := range networks {
+		networkInterfaces[i] = n
+	}
+
+	serviceInterfaces := make([]interface{}, len(services))
+	for i, s := range services {
+		serviceInterfaces[i] = s
+	}
+
 	return &servertypes.DockerData{
-		Containers: len(containers),
-		Images:     len(images),
-		Volumes:    len(volumes),
-		Networks:   len(networks),
+		Containers: containerInterfaces,
+		Images:     imageInterfaces,
+		Volumes:    volumeInterfaces,
+		Networks:   networkInterfaces,
+		Services:   serviceInterfaces,
 	}, nil
 }
 

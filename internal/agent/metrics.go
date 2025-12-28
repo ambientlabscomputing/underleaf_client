@@ -240,6 +240,7 @@ func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 		Images:     dockerData.Images,
 		Volumes:    dockerData.Volumes,
 		Networks:   dockerData.Networks,
+		Services:   dockerData.Services,
 	}
 
 	if err := m.cplane.UpdateServerDockerData(ctx, m.serverID, req); err != nil {
@@ -248,10 +249,10 @@ func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 	}
 
 	slog.Debug("Docker data sent successfully",
-		"containers", dockerData.Containers,
-		"images", dockerData.Images,
-		"volumes", dockerData.Volumes,
-		"networks", dockerData.Networks)
+		"containers", len(dockerData.Containers),
+		"images", len(dockerData.Images),
+		"volumes", len(dockerData.Volumes),
+		"networks", len(dockerData.Networks))
 }
 
 // CollectOnce collects metrics once without sending (useful for testing)
