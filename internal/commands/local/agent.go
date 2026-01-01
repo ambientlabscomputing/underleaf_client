@@ -24,6 +24,8 @@ var agentStartCmd = &cobra.Command{
 	Short: "Start the agent daemon",
 	Long: `Start the Underleaf agent daemon.
 
+💡 TIP: For initial setup, use 'ufctl start' instead, which handles registration + mTLS + agent start.
+
 In daemon mode (-d), requires the 'underleaf_agent' binary to be in PATH or the same directory as ufctl.
 In development mode (--dev), runs the agent in the current process (foreground).
 
@@ -39,6 +41,13 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		printer := ui.GetPrinter(cmd.Context())
+
+		// Show tip for new users
+		existingID, hasID := config_manager.GetConfig(cmd.Context()).Get("local.server_id")
+		if !hasID || existingID == nil {
+			printer.PrintInfo("💡 TIP: If you haven't registered yet, use 'ufctl start' for complete setup")
+			fmt.Println()
+		}
 
 		// Get flags
 		dev, _ := cmd.Flags().GetBool("dev")

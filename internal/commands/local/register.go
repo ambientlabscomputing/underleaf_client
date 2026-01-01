@@ -15,10 +15,14 @@ import (
 // RegisterCmd represents the register command
 // `ufctl local register` prompts the user for a name and registers a new edge server
 // This command is idempotent - running it multiple times will reuse the existing registration
+// DEPRECATED: Use 'ufctl start' for simplified onboarding
 var RegisterCmd = &cobra.Command{
-	Use:   "register",
-	Short: "Register a new Underleaf edge server",
+	Use:        "register",
+	Short:      "Register a new Underleaf edge server",
+	Deprecated: "Use 'ufctl start' for a simplified all-in-one setup experience",
 	Long: `Registers a new Underleaf edge server with the control plane.
+
+⚠️  DEPRECATED: This command is deprecated. Use 'ufctl start' for simplified onboarding.
 
 This command is idempotent - if a server is already registered in the local config,
 it will verify the registration is still valid on the backend and reuse it.
@@ -29,6 +33,11 @@ for at least 5 minutes, instead of creating a new server.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
+
+		// Show deprecation warning
+		deps.Printer.PrintWarning("⚠️  This command is deprecated. Use 'ufctl start' for a simplified all-in-one setup.")
+		deps.Printer.PrintInfo("   'ufctl start' combines: register + mTLS setup + agent start")
+		fmt.Println()
 
 		// Get the --existing flag
 		useExisting, _ := cmd.Flags().GetBool("existing")

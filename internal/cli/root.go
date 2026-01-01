@@ -48,6 +48,7 @@ local servers and the control plane.`,
 func init() {
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.LocalCmd)
+	rootCmd.AddCommand(local.StartCmd) // Shortcut for ufctl start (same as ufctl local start)
 	rootCmd.AddCommand(servers.ServersCmd)
 	rootCmd.AddCommand(deploy.DeployCmd)
 	rootCmd.AddCommand(jobs.JobsCmd)
