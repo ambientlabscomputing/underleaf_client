@@ -148,7 +148,7 @@ Creates backups of current binaries before applying updates.`,
 
 		printer.PrintSuccess(fmt.Sprintf("Successfully updated to %s", state.DesiredVersion))
 		printer.Print("\nNote: The agent will need to be restarted separately to apply its update.")
-		printer.Print("Run: ufctl local restart")
+		printer.Print("Run: ufctl restart")
 
 		logger.Info("update applied successfully", "version", state.DesiredVersion)
 		return nil
@@ -228,7 +228,7 @@ var snapshotCmd = &cobra.Command{
 
 		if snapshot == nil {
 			printer.PrintWarning("No config snapshot found")
-			printer.Print("Run 'ufctl local register' to download server configuration")
+			printer.Print("Run 'ufctl register' to download server configuration")
 			return nil
 		}
 

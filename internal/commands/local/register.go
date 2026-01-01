@@ -13,7 +13,7 @@ import (
 )
 
 // RegisterCmd represents the register command
-// `ufctl local register` prompts the user for a name and registers a new edge server
+// `ufctl register` prompts the user for a name and registers a new edge server
 // This command is idempotent - running it multiple times will reuse the existing registration
 // DEPRECATED: Use 'ufctl start' for simplified onboarding
 var RegisterCmd = &cobra.Command{
@@ -128,7 +128,7 @@ for at least 5 minutes, instead of creating a new server.`,
 			// Setup mTLS certificate
 			if err := SetupMTLSCertificate(ctx, &deps.Printer, deps.ConfigClient, serverID, orgID, orgName); err != nil {
 				deps.Printer.PrintWarning("Failed to setup mTLS certificate: " + err.Error())
-				deps.Printer.PrintInfo("You can manually setup mTLS later with: ufctl local generate-csr && ufctl local submit-csr")
+				deps.Printer.PrintInfo("You can manually setup mTLS later with: ufctl csr generate && ufctl csr submit")
 			}
 
 			deps.Printer.PrintSuccess("\n✓ Server claimed successfully! Your edge server is ready to use.")
@@ -212,7 +212,7 @@ for at least 5 minutes, instead of creating a new server.`,
 		// Setup mTLS certificate (generates key, CSR, and gets it signed)
 		if err := SetupMTLSCertificate(ctx, &deps.Printer, deps.ConfigClient, serverID, orgID, orgName); err != nil {
 			deps.Printer.PrintWarning("Failed to setup mTLS certificate: " + err.Error())
-			deps.Printer.PrintInfo("You can manually setup mTLS later with: ufctl local generate-csr && ufctl local submit-csr")
+			deps.Printer.PrintInfo("You can manually setup mTLS later with: ufctl csr generate && ufctl csr submit")
 		}
 
 		deps.Printer.PrintSuccess("\n✓ Registration complete! Your edge server is ready to use.")

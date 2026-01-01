@@ -54,7 +54,7 @@ Download pre-built binaries from the [Releases](https://github.com/ambientlabsco
 
 Production releases are tagged with version numbers (e.g., `v1.0.0`) and connect to **underleafapp.com** endpoints.
 
-> 💡 **Note**: To use agent daemon mode (`ufctl local agent start -d`), you need to install both `ufctl` and `underleaf_agent` binaries.
+> 💡 **Note**: To use agent daemon mode (`ufctl agent start -d`), you need to install both `ufctl` and `underleaf_agent` binaries.
 
 **Linux (AMD64)**
 ```bash
@@ -270,7 +270,7 @@ Invoke-WebRequest -Uri "https://github.com/ambientlabscomputing/underleaf_client
 
 ```bash
 # Check ufctl version and configuration
-ufctl local auth status
+ufctl auth status
 
 # Verify underleaf_agent is installed (required for daemon mode)
 which underleaf_agent
@@ -315,13 +315,13 @@ version: 0.0.0
 
 ```bash
 # Authenticate using OAuth2 device code flow
-ufctl local auth login
+ufctl auth login
 
 # Check authentication status
-ufctl local auth status
+ufctl auth status
 
 # Register as a server (for running agent)
-ufctl local register
+ufctl register
 ```
 
 ### 3. Run Commands
@@ -360,19 +360,19 @@ ufctl jobs status <job-id> --output
 
 ```bash
 # Start agent in development mode (foreground)
-ufctl local agent start --dev
+ufctl agent start --dev
 
 # Start agent in daemon mode (background - requires underleaf_agent binary)
-ufctl local agent start -d
+ufctl agent start -d
 
 # Stop agent
-ufctl local agent stop
+ufctl agent stop
 
 # Check agent status
-ufctl local agent status
+ufctl agent status
 
 # View agent logs
-ufctl local agent logs
+ufctl agent logs
 ```
 
 ## Architecture
@@ -436,17 +436,17 @@ ufctl jobs status <job-id> --output        # Show full stdout/stderr
 ### Local
 
 ```bash
-ufctl local auth login                     # Authenticate with OAuth2 device flow
-ufctl local auth logout                    # Clear authentication token
-ufctl local auth status                    # Check authentication status
-ufctl local register                       # Register this machine as a server
-ufctl local config                         # View current configuration
-ufctl local config --edit                  # Edit configuration file
-ufctl local agent start [-d] [-p PORT]     # Start local agent
-ufctl local agent stop                     # Stop local agent
-ufctl local agent restart                  # Restart local agent
-ufctl local agent status                   # Check agent status
-ufctl local agent logs                     # View agent logs
+ufctl auth login                     # Authenticate with OAuth2 device flow
+ufctl auth logout                    # Clear authentication token
+ufctl auth status                    # Check authentication status
+ufctl register                       # Register this machine as a server
+ufctl config                         # View current configuration
+ufctl config --edit                  # Edit configuration file
+ufctl agent start [-d] [-p PORT]     # Start local agent
+ufctl agent stop                     # Stop local agent
+ufctl agent restart                  # Restart local agent
+ufctl agent status                   # Check agent status
+ufctl agent logs                     # View agent logs
 ```
 
 ## Configuration
@@ -564,7 +564,7 @@ make build-cli \
 **Check Build Configuration**
 ```bash
 # View embedded defaults
-./ufctl local config view
+./ufctl config view
 
 # The output shows which environment the binary was built for
 ```
@@ -608,16 +608,16 @@ ufctl jobs status $JOB_ID --output
 
 ```bash
 # Start agent in foreground (for development)
-ufctl local agent start
+ufctl agent start
 
 # Start agent in background
-ufctl local agent start -d
+ufctl agent start -d
 
 # Check if agent is running
-ufctl local agent status
+ufctl agent status
 
 # Stop background agent
-ufctl local agent stop
+ufctl agent stop
 
 # View agent logs
 tail -f /var/log/underleaf_agent/agent.log
@@ -648,29 +648,29 @@ The system uses an event bus for real-time communication:
 
 ```bash
 # Check agent is running
-ufctl local agent status
+ufctl agent status
 
 # View agent logs
-ufctl local agent logs
+ufctl agent logs
 
 # Check event bus connection
 # Look for "event bus client started" in logs
 
 # Verify configuration
-ufctl local config
+ufctl config
 ```
 
 ### Authentication Issues
 
 ```bash
 # Check authentication status
-ufctl local auth status
+ufctl auth status
 
 # Re-authenticate using OAuth2 device flow
-ufctl local auth login
+ufctl auth login
 
 # Logout and clear token
-ufctl local auth logout
+ufctl auth logout
 
 # Check token expiry (JWT tokens typically expire after 24 hours)
 ```

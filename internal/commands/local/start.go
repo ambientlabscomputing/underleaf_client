@@ -32,12 +32,12 @@ var StartCmd = &cobra.Command{
 	Long: `One-command setup: Registers your server, sets up mTLS certificates, and starts the agent daemon.
 
 This is the recommended way to get started with Underleaf. It combines:
-  1. Server registration (ufctl local register)
-  2. mTLS certificate setup (ufctl local generate-csr && ufctl local submit-csr)
-  3. Agent daemon start (ufctl local agent start -d)
+  1. Server registration
+  2. mTLS certificate setup (ufctl csr generate && ufctl csr submit)
+  3. Agent daemon start (ufctl agent start -d)
 
 Prerequisites:
-  - You must be authenticated (run 'ufctl local auth login' first)
+  - You must be authenticated (run 'ufctl auth login' first)
   - The 'underleaf_agent' binary must be available
 
 Examples:
@@ -197,7 +197,7 @@ Examples:
 		}
 
 		fmt.Println("Other useful commands:")
-		fmt.Println(startInstructionStyle.Render("  ufctl local agent status"))
+		fmt.Println(startInstructionStyle.Render("  ufctl agent status"))
 		fmt.Println(startInstructionStyle.Render("  ufctl jobs list"))
 		fmt.Println()
 

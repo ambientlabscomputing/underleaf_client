@@ -44,7 +44,7 @@ func checkLocalStatus(printer ui.Printer) error {
 
 	if !launcher.IsRunning() {
 		printer.PrintWarning("Local agent is not running")
-		printer.Print("  Start with: ufctl local agent start")
+		printer.Print("  Start with: ufctl agent start")
 		return nil
 	}
 

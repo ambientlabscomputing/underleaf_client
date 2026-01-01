@@ -28,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ufctl servers exec` - Execute commands on servers
   - `ufctl jobs list` - List jobs
   - `ufctl jobs status` - View detailed job status
-  - `ufctl local run` - Run agent locally
-  - `ufctl local init` - Initialize configuration
+  - `ufctl run` - Run agent locally
+  - `ufctl init` - Initialize configuration
 
 - **Agent**:
   - Subscribe to event bus for command execution requests

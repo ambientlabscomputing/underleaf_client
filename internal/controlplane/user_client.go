@@ -78,7 +78,7 @@ func (c *CPlaneUserClient) GetMe(ctx context.Context) (*GetMeResponse, error) {
 
 	token, ok := c.apiClient.config.Get("auth.token")
 	if !ok || token == nil {
-		return nil, fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return nil, fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	// The /me endpoint is at /api/v1/users/me
@@ -182,7 +182,7 @@ func (c *CPlaneUserClient) AutoProvisionOrganization(ctx context.Context) (*Orga
 
 	token, ok := c.apiClient.config.Get("auth.token")
 	if !ok || token == nil {
-		return nil, fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return nil, fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	// The /me/auto-provision endpoint is at /api/v1/users/me/auto-provision

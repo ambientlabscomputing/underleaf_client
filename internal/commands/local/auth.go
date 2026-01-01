@@ -231,7 +231,7 @@ var AuthLoginCmd = &cobra.Command{
 			me, err := userClient.GetMe(ctx)
 			if err != nil {
 				logger.Warn("Failed to fetch user organizations", "error", err)
-				fmt.Println(instructionStyle.Render("Warning: Could not fetch organizations. You can set your org context later with 'ufctl local org switch <org-id>'"))
+				fmt.Println(instructionStyle.Render("Warning: Could not fetch organizations. You can set your org context later with 'ufctl org switch <org-id>'"))
 				return nil
 			}
 
@@ -292,13 +292,13 @@ var AuthLoginCmd = &cobra.Command{
 			pickerFinalModel, pickerErr := pickerProgram.Run()
 			if pickerErr != nil {
 				logger.Error("Failed to run org picker", "error", pickerErr)
-				fmt.Println(instructionStyle.Render("\nYou can set your org context later with 'ufctl local org switch <org-id>'"))
+				fmt.Println(instructionStyle.Render("\nYou can set your org context later with 'ufctl org switch <org-id>'"))
 				return nil
 			}
 
 			pickerResult := pickerFinalModel.(orgPickerModel)
 			if pickerResult.cancelled || pickerResult.selectedOrg == nil {
-				fmt.Println(instructionStyle.Render("\nOrganization selection skipped. Use 'ufctl local org switch <org-id>' to set your org context."))
+				fmt.Println(instructionStyle.Render("\nOrganization selection skipped. Use 'ufctl org switch <org-id>' to set your org context."))
 				return nil
 			}
 
@@ -497,7 +497,7 @@ var AuthStatusCmd = &cobra.Command{
 		if !ok || token == nil || token == "" {
 			fmt.Println(errorStyle.Render("✗ Not authenticated"))
 			fmt.Println()
-			fmt.Println(instructionStyle.Render("Run 'ufctl local auth login' to authenticate"))
+			fmt.Println(instructionStyle.Render("Run 'ufctl auth login' to authenticate"))
 			return nil
 		}
 

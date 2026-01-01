@@ -14,7 +14,7 @@ payload:
   # Authentication Configuration
   auth:
     # JWT token from authentication
-    # Obtain with: ufctl local auth
+    # Obtain with: ufctl auth
     token: your-jwt-token-here
     # Example token format: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
 
@@ -35,7 +35,7 @@ payload:
     organization_name: ""
     
     # Unique identifier for this server
-    # Obtain with: ufctl local register
+    # Obtain with: ufctl register
     server_id: 00000000-0000-0000-0000-000000000000
     
     # Optional: Server display name

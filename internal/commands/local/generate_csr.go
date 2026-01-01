@@ -11,12 +11,12 @@ import (
 
 // GenerateCSRCmd generates a Certificate Signing Request for mTLS
 var GenerateCSRCmd = &cobra.Command{
-	Use:   "generate-csr",
+	Use:   "generate",
 	Short: "Generate a Certificate Signing Request (CSR) for mTLS authentication",
 	Long: `Generates a private key and Certificate Signing Request (CSR) for mTLS authentication.
 
 This command:
-1. Checks if the server is registered (requires 'ufctl local register' first)
+1. Checks if the server is registered (requires 'ufctl start' first)
 2. Generates an ECDSA P-256 private key
 3. Creates a CSR with the server ID as the Common Name
 4. Saves the private key and CSR to disk
@@ -30,7 +30,7 @@ The CSR will be sent to the control plane CA for signing in the next step.`,
 		// Verify server is registered
 		serverIDRaw, hasID := deps.ConfigClient.Get("local.server_id")
 		if !hasID || serverIDRaw == nil {
-			deps.Printer.PrintError("Server not registered. Please run 'ufctl local register' first.")
+			deps.Printer.PrintError("Server not registered. Please run 'ufctl start' first.")
 			return fmt.Errorf("server not registered")
 		}
 
@@ -119,7 +119,7 @@ The CSR will be sent to the control plane CA for signing in the next step.`,
 		deps.Printer.PrintSuccess("\n✓ CSR generation complete!")
 		deps.Printer.PrintInfo("\nNext steps:")
 		deps.Printer.PrintInfo("  1. Submit the CSR to the control plane CA for signing:")
-		deps.Printer.PrintInfo("     ufctl local submit-csr")
+		deps.Printer.PrintInfo("     ufctl csr submit")
 		deps.Printer.PrintInfo("  2. The CA will verify your identity and sign the certificate")
 		deps.Printer.PrintInfo("  3. Download the signed certificate and configure mTLS")
 

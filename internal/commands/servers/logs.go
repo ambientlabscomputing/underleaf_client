@@ -58,7 +58,7 @@ func showLocalLogs(deps *utils.DependencyManager, follow bool, lines int) error 
 		if !launcher.IsRunning() {
 			deps.Printer.PrintWarning("Agent is not running and no log file found")
 			deps.Printer.Print(fmt.Sprintf("  Expected log file: %s", logFile))
-			deps.Printer.Print("  Start agent with: ufctl local agent start")
+			deps.Printer.Print("  Start agent with: ufctl agent start")
 			return nil
 		}
 

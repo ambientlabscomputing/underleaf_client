@@ -31,13 +31,13 @@ In development mode (--dev), runs the agent in the current process (foreground).
 
 Examples:
   # Start in foreground (development mode)
-  ufctl local agent start --dev
+  ufctl agent start --dev
 
   # Start as background daemon (requires underleaf_agent binary)
-  ufctl local agent start -d
+  ufctl agent start -d
 
   # Start on custom port
-  ufctl local agent start --dev --port 9090`,
+  ufctl agent start --dev --port 9090`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		printer := ui.GetPrinter(cmd.Context())
@@ -95,7 +95,7 @@ Examples:
 				printer.PrintInfo("\nTroubleshooting:")
 				printer.PrintInfo("- Ensure 'underleaf_agent' binary is installed")
 				printer.PrintInfo("- Check if it's in PATH: which underleaf_agent")
-				printer.PrintInfo("- Or use development mode: ufctl local agent start --dev")
+				printer.PrintInfo("- Or use development mode: ufctl agent start --dev")
 				return err
 			}
 

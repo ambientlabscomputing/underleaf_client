@@ -17,7 +17,7 @@ The config manager ensures each edge device always has a **complete, validated, 
 #### 2. **LocalMetadata** (`types.go`)
 - Local-only configuration not synced from control plane
 - Contains: `ServerID`, `ServerName`, `AuthToken`, `APIBaseURL`, `EventBus` config
-- Mutable, updated by CLI commands (e.g., `ufctl local auth login`)
+- Mutable, updated by CLI commands (e.g., `ufctl auth login`)
 
 #### 3. **Store** (`store.go`)
 - Persistent storage with atomic writes

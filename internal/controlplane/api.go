@@ -33,7 +33,7 @@ func (c *APIClient) GET(path string, response interface{}) error {
 		return fmt.Errorf("api.base_url not configured")
 	}
 	if token == nil {
-		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	slog.Debug("API GET request", "base_url", baseURL, "path", path, "full_url", baseURL.(string)+path)
@@ -79,7 +79,7 @@ func (c *APIClient) GETWithParams(path string, params url.Values, response inter
 		return fmt.Errorf("api.base_url not configured")
 	}
 	if token == nil {
-		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	fullURL := baseURL.(string) + path
@@ -128,7 +128,7 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 		return fmt.Errorf("api.base_url not configured")
 	}
 	if token == nil {
-		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	slog.Debug("APIClient POST", "url", baseURL.(string)+path, "payload", payload)
@@ -181,7 +181,7 @@ func (c *APIClient) PUT(path string, payload interface{}, response interface{}) 
 		return fmt.Errorf("api.base_url not configured")
 	}
 	if token == nil {
-		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -264,7 +264,7 @@ func (c *APIClient) PATCH(path string, payload interface{}, response interface{}
 		return fmt.Errorf("api.base_url not configured")
 	}
 	if token == nil {
-		return fmt.Errorf("auth.token not configured - please run 'ufctl local auth login' first")
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
 	}
 
 	payloadBytes, err := json.Marshal(payload)
