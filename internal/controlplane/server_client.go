@@ -6,16 +6,16 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
 
 type ServerClient struct {
-	config *config_manager.ConfigClient
+	config *policy_manager.ConfigClient
 	api    *APIClient
 }
 
-func NewServerClient(config *config_manager.ConfigClient, api *APIClient) *ServerClient {
+func NewServerClient(config *policy_manager.ConfigClient, api *APIClient) *ServerClient {
 	return &ServerClient{
 		config: config,
 		api:    api,

@@ -1,4 +1,4 @@
-package config_manager
+package policy_manager
 
 import (
 	"context"
@@ -9,16 +9,16 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 )
 
-// SnapshotConfigClient implements ConfigClient using snapshot manager
+// SnapshotPolicyClient implements ConfigClient using snapshot manager
 // Provides unified access to both versioned snapshot and local metadata
-type SnapshotConfigClient struct {
-	manager   *SnapshotConfigManager
+type SnapshotPolicyClient struct {
+	manager   *SnapshotPolicyManager
 	store     *Store
 	isRuntime bool // true if manager is running, false if just reading from disk
 }
 
-// NewSnapshotConfigClient creates a config client backed by snapshot manager
-func NewSnapshotConfigClient(ctx context.Context, serverID string, basePath string, isAgent bool) (*SnapshotConfigClient, error) {
+// NewSnapshotPolicyClient creates a config client backed by snapshot manager
+func NewSnapshotPolicyClient(ctx context.Context, serverID string, basePath string, isAgent bool) (*SnapshotPolicyClient, error) {
 	store := NewStore(basePath, isAgent)
 
 	// Try to load from disk first
@@ -27,15 +27,15 @@ func NewSnapshotConfigClient(ctx context.Context, serverID string, basePath stri
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	return &SnapshotConfigClient{
+	return &SnapshotPolicyClient{
 		store:     store,
 		isRuntime: false, // Not managing runtime sync, just reading
 	}, nil
 }
 
-// NewSnapshotConfigClientWithManager creates a client with an active manager
-func NewSnapshotConfigClientWithManager(manager *SnapshotConfigManager, store *Store) *SnapshotConfigClient {
-	return &SnapshotConfigClient{
+// NewSnapshotPolicyClientWithManager creates a client with an active manager
+func NewSnapshotPolicyClientWithManager(manager *SnapshotPolicyManager, store *Store) *SnapshotPolicyClient {
+	return &SnapshotPolicyClient{
 		manager:   manager,
 		store:     store,
 		isRuntime: true,
@@ -44,7 +44,7 @@ func NewSnapshotConfigClientWithManager(manager *SnapshotConfigManager, store *S
 
 // Get retrieves a value from either snapshot or local metadata
 // Keys starting with "local." are from local metadata, others from snapshot
-func (c *SnapshotConfigClient) Get(key string) (interface{}, bool) {
+func (c *SnapshotPolicyClient) Get(key string) (interface{}, bool) {
 	data, err := c.store.LoadSnapshotWithMeta()
 	if err != nil {
 		return nil, false
@@ -77,7 +77,7 @@ func (c *SnapshotConfigClient) Get(key string) (interface{}, bool) {
 }
 
 // getFromLocalMeta retrieves value from local metadata by key path
-func (c *SnapshotConfigClient) getFromLocalMeta(meta *LocalMetadata, key string) (interface{}, bool) {
+func (c *SnapshotPolicyClient) getFromLocalMeta(meta *LocalMetadata, key string) (interface{}, bool) {
 	switch key {
 	case "server_id":
 		return meta.ServerID, meta.ServerID != ""
@@ -107,7 +107,7 @@ func (c *SnapshotConfigClient) getFromLocalMeta(meta *LocalMetadata, key string)
 }
 
 // Set sets a value in local metadata only (snapshot is read-only, managed by sync)
-func (c *SnapshotConfigClient) Set(key string, value interface{}) error {
+func (c *SnapshotPolicyClient) Set(key string, value interface{}) error {
 	meta, err := c.store.LoadLocalMeta()
 	if err != nil {
 		meta = &LocalMetadata{Extra: make(map[string]interface{})}
@@ -156,7 +156,7 @@ func (c *SnapshotConfigClient) Set(key string, value interface{}) error {
 }
 
 // Delete removes a value from local metadata (snapshot is read-only)
-func (c *SnapshotConfigClient) Delete(key string) error {
+func (c *SnapshotPolicyClient) Delete(key string) error {
 	meta, err := c.store.LoadLocalMeta()
 	if err != nil {
 		return fmt.Errorf("failed to load local metadata: %w", err)
@@ -192,7 +192,7 @@ func (c *SnapshotConfigClient) Delete(key string) error {
 }
 
 // Config returns the full configuration (snapshot + local metadata merged)
-func (c *SnapshotConfigClient) Config() Configuration {
+func (c *SnapshotPolicyClient) Config() Configuration {
 	data, err := c.store.LoadSnapshotWithMeta()
 	if err != nil {
 		return Configuration{
@@ -229,9 +229,9 @@ func (c *SnapshotConfigClient) Config() Configuration {
 }
 
 // ConfigClientInfo returns information about this config client
-func (c *SnapshotConfigClient) ConfigClientInfo() map[string]interface{} {
+func (c *SnapshotPolicyClient) ConfigClientInfo() map[string]interface{} {
 	info := map[string]interface{}{
-		"type":          "SnapshotConfigClient",
+		"type":          "SnapshotPolicyClient",
 		"snapshot_path": c.store.GetSnapshotPath(),
 		"local_path":    c.store.GetLocalPath(),
 		"runtime":       c.isRuntime,

@@ -113,8 +113,8 @@ func (l *Launcher) startDev(ctx context.Context) error {
 				logger.Error("failed to stop bus client", "err", err)
 			}
 		}
-		if deps.ConfigManager != nil {
-			deps.ConfigManager.Stop(ctx)
+		if deps.PolicyManager != nil {
+			deps.PolicyManager.Stop(ctx)
 		}
 	}()
 

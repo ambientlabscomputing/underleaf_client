@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
@@ -39,7 +39,7 @@ Compares current version against the desired version from server configuration.`
 
 		// Initialize update manager
 		// Try agent path first (where the agent stores its state)
-		agentBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+		agentBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
 		store := updater.NewStore(agentBasePath)
 
 		// Load current state to get stored SHA
@@ -110,7 +110,7 @@ Creates backups of current binaries before applying updates.`,
 		printer.Print(fmt.Sprintf("Updating to: %s", desiredVersion))
 
 		// Initialize update components - use agent path for state
-		agentBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+		agentBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
 		store := updater.NewStore(agentBasePath)
 		if err := store.EnsureDirectories(); err != nil {
 			return fmt.Errorf("failed to initialize update storage: %w", err)
@@ -164,7 +164,7 @@ var statusCmd = &cobra.Command{
 		printer := ui.GetPrinter(ctx)
 
 		// Try agent path first (where the agent stores its state)
-		agentBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+		agentBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
 		store := updater.NewStore(agentBasePath)
 
 		state, err := store.LoadState()
@@ -219,7 +219,7 @@ var snapshotCmd = &cobra.Command{
 		printer := ui.GetPrinter(ctx)
 
 		basePath := filepath.Join(os.Getenv("HOME"), ".underleaf")
-		store := config_manager.NewStore(basePath, false)
+		store := policy_manager.NewStore(basePath, false)
 
 		snapshot, err := store.LoadSnapshot()
 		if err != nil {
@@ -253,7 +253,7 @@ var snapshotCmd = &cobra.Command{
 func getDesiredVersion() string {
 	// Load the snapshot from disk (contains server config from control plane)
 	basePath := filepath.Join(os.Getenv("HOME"), ".underleaf")
-	store := config_manager.NewStore(basePath, false) // false = CLI mode
+	store := policy_manager.NewStore(basePath, false) // false = CLI mode
 
 	snapshot, err := store.LoadSnapshot()
 	if err != nil || snapshot == nil {

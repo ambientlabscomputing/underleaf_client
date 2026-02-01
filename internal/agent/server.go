@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	"github.com/gin-gonic/gin"
@@ -17,8 +17,8 @@ type Server struct {
 	port           int
 	router         *gin.Engine
 	server         *http.Server
-	configManager  config_manager.ConfigManager
-	configClient   config_manager.ConfigClient
+	configManager  policy_manager.PolicyManager
+	configClient   policy_manager.ConfigClient
 	commandHandler *exec.CommandHandler
 	raftNode       *raft.Node
 }
@@ -40,7 +40,7 @@ func NewServer(port int) *Server {
 }
 
 // SetDependencies injects dependencies into the server
-func (s *Server) SetDependencies(configManager config_manager.ConfigManager, configClient config_manager.ConfigClient) {
+func (s *Server) SetDependencies(configManager policy_manager.PolicyManager, configClient policy_manager.ConfigClient) {
 	s.configManager = configManager
 	s.configClient = configClient
 }

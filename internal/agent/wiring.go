@@ -10,10 +10,10 @@ import (
 
 	"github.com/ambientlabscomputing/event_bus_client"
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
@@ -22,8 +22,8 @@ import (
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config           config_manager.ConfigClient
-	ConfigManager    config_manager.ConfigManager
+	Config           policy_manager.ConfigClient
+	PolicyManager    policy_manager.PolicyManager
 	Server           *Server
 	CommandHandler   *exec.CommandHandler
 	MetricsCollector *MetricsCollector
@@ -34,7 +34,7 @@ type Dependencies struct {
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
-func getConfigValue(config config_manager.ConfigClient, key string) (interface{}, bool) {
+func getConfigValue(config policy_manager.ConfigClient, key string) (interface{}, bool) {
 	// Try with local. prefix first
 	if val, ok := config.Get("local." + key); ok {
 		return val, true
@@ -46,8 +46,8 @@ func getConfigValue(config config_manager.ConfigClient, key string) (interface{}
 // WireAgent sets up all agent dependencies
 func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize simple config to get credentials
-	simpleConfig := config_manager.NewCLIConfigClient()
-	var configClient config_manager.ConfigClient = simpleConfig
+	simpleConfig := policy_manager.NewCLIConfigClient()
+	var configClient policy_manager.ConfigClient = simpleConfig
 
 	// Get server ID from local metadata (with backward compatibility)
 	serverID, ok := getConfigValue(configClient, "server_id")
@@ -98,10 +98,10 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	cplaneClient := controlplane.NewCPlaneClient(&configClient, httpClient)
-	cpConfigAdapter := config_manager.NewControlPlaneConfigAdapter(cplaneClient.Config)
+	cpConfigAdapter := policy_manager.NewControlPlaneConfigAdapter(cplaneClient.Config)
 
 	// Initialize event bus client for push updates and command events
-	var eventBusAdapter *config_manager.EventBusAdapter
+	var eventBusAdapter *policy_manager.EventBusAdapter
 	var busClient *bus.Client
 	endpoint, hasEndpoint := getConfigValue(configClient, "event_bus.endpoint")
 	if hasEndpoint && endpoint != "" {
@@ -157,7 +157,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 				}()
 
 				// Set up event bus adapter immediately - it will work once connection is established
-				eventBusAdapter = config_manager.NewEventBusAdapter(busClient)
+				eventBusAdapter = policy_manager.NewEventBusAdapter(busClient)
 			}
 		}
 	} else {
@@ -165,8 +165,8 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	// Initialize config store
-	basePath := config_manager.GetBasePath(true) // true = agent
-	store := config_manager.NewStore(basePath, true)
+	basePath := policy_manager.GetBasePath(true) // true = agent
+	store := policy_manager.NewStore(basePath, true)
 
 	// Ensure local metadata is populated from CLI config
 	// This syncs values from config.yaml into the snapshot's localmeta
@@ -175,7 +175,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	// Create snapshot config manager
-	snapshotManager := config_manager.NewSnapshotConfigManager(config_manager.SnapshotConfigManagerConfig{
+	policyManager := policy_manager.NewSnapshotPolicyManager(policy_manager.SnapshotPolicyManagerConfig{
 		Store:             store,
 		ControlPlane:      cpConfigAdapter,
 		EventBus:          eventBusAdapter,
@@ -186,13 +186,13 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Start the config manager
 	slog.Info("starting config manager", "server_id", serverID)
-	if err := snapshotManager.Start(ctx); err != nil {
+	if err := policyManager.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start config manager: %w", err)
 	}
 	slog.Info("config manager started successfully")
 
 	// Create snapshot config client
-	snapshotClient := config_manager.NewSnapshotConfigClientWithManager(snapshotManager, store)
+	snapshotClient := policy_manager.NewSnapshotPolicyClientWithManager(policyManager, store)
 
 	// Initialize command drainer for graceful updates
 	drainer := NewCommandDrainer()
@@ -214,7 +214,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	// Watch for config updates to refresh command settings
-	go watchConfigForCommandSettings(ctx, snapshotManager, commandHandler)
+	go watchConfigForCommandSettings(ctx, policyManager, commandHandler)
 
 	// Publish hostname and IP address to control plane
 	if err := publishNetworkInfo(ctx, cplaneClient.Servers, serverID.(string)); err != nil {
@@ -226,7 +226,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	metricsCollector := NewMetricsCollector(
 		serverID.(string),
 		cplaneClient.Servers,
-		snapshotManager,
+		policyManager,
 		DefaultMetricsInterval,
 		DefaultDockerMetricsInterval,
 	)
@@ -234,7 +234,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Initialize server
 	server := NewServer(port)
-	server.SetDependencies(snapshotManager, snapshotClient)
+	server.SetDependencies(policyManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
 
 	// Initialize Raft node if configured
@@ -254,14 +254,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			server.SetRaftNode(raftNode)
 
 			// Watch for Raft configuration changes
-			go watchConfigForRaftUpdates(ctx, snapshotManager, raftNode)
+			go watchConfigForRaftUpdates(ctx, policyManager, raftNode)
 		}
 	} else {
 		slog.Info("raft cluster not configured, KV quorum disabled")
 	}
 
 	// Initialize update manager
-	updateBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
+	updateBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
 	updateStore := updater.NewStore(updateBasePath)
 	updateInstaller := updater.NewInstaller(updateStore, nil, drainer) // Restarter will be set later
 	updateManager := updater.NewUpdateManager(updater.UpdateManagerConfig{
@@ -276,14 +276,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	} else {
 		slog.Info("update manager started successfully")
 		// Watch for software_version changes in config
-		go watchConfigForSoftwareUpdates(ctx, snapshotManager, updateManager)
+		go watchConfigForSoftwareUpdates(ctx, policyManager, updateManager)
 	}
 
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
 		Config:           snapshotClient,
-		ConfigManager:    snapshotManager,
+		PolicyManager:    policyManager,
 		Server:           server,
 		CommandHandler:   commandHandler,
 		MetricsCollector: metricsCollector,
@@ -295,11 +295,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 }
 
 // ensureLocalMetadata ensures local metadata in snapshot store matches CLI config
-func ensureLocalMetadata(store *config_manager.Store, cliConfig config_manager.ConfigClient, serverID string) error {
+func ensureLocalMetadata(store *policy_manager.Store, cliConfig policy_manager.ConfigClient, serverID string) error {
 	// Load existing metadata or create new
 	meta, err := store.LoadLocalMeta()
 	if err != nil {
-		meta = &config_manager.LocalMetadata{
+		meta = &policy_manager.LocalMetadata{
 			Extra: make(map[string]interface{}),
 		}
 	}
@@ -332,7 +332,7 @@ func ensureLocalMetadata(store *config_manager.Store, cliConfig config_manager.C
 }
 
 // getCommandSettingsFromConfig extracts command settings from config snapshot
-func getCommandSettingsFromConfig(config config_manager.ConfigClient) exec.CommandSettings {
+func getCommandSettingsFromConfig(config policy_manager.ConfigClient) exec.CommandSettings {
 	settings := exec.DefaultCommandSettings()
 
 	// Try to get commands config from payload
@@ -405,7 +405,7 @@ func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handle
 }
 
 // watchConfigForCommandSettings watches for config updates and refreshes command settings
-func watchConfigForCommandSettings(ctx context.Context, manager config_manager.ConfigManager, handler *exec.CommandHandler) {
+func watchConfigForCommandSettings(ctx context.Context, manager policy_manager.PolicyManager, handler *exec.CommandHandler) {
 	watchChan := manager.Watch()
 
 	for {
@@ -427,7 +427,7 @@ func watchConfigForCommandSettings(ctx context.Context, manager config_manager.C
 }
 
 // extractCommandSettingsFromSnapshot extracts command settings from a config snapshot
-func extractCommandSettingsFromSnapshot(snapshot *config_manager.ConfigSnapshot) exec.CommandSettings {
+func extractCommandSettingsFromSnapshot(snapshot *policy_manager.PolicySnapshot) exec.CommandSettings {
 	settings := exec.DefaultCommandSettings()
 
 	if snapshot == nil || snapshot.Payload == nil {
@@ -500,8 +500,8 @@ func publishNetworkInfo(ctx context.Context, serverClient controlplane.CPlaneSer
 
 // watchConfigForSoftwareUpdates monitors the config manager for software_version changes
 // and triggers the update manager to check and download new versions.
-func watchConfigForSoftwareUpdates(ctx context.Context, snapshotManager *config_manager.SnapshotConfigManager, updateManager *updater.UpdateManager) {
-	snapshotChan := snapshotManager.Watch()
+func watchConfigForSoftwareUpdates(ctx context.Context, policyManager *policy_manager.SnapshotPolicyManager, updateManager *updater.UpdateManager) {
+	snapshotChan := policyManager.Watch()
 	versionChan := make(chan string, 10)
 
 	// Wire the version channel to the update manager
@@ -511,7 +511,7 @@ func watchConfigForSoftwareUpdates(ctx context.Context, snapshotManager *config_
 	time.Sleep(100 * time.Millisecond)
 
 	// Load initial snapshot from disk to set the desired version at startup
-	if snapshot, err := snapshotManager.GetSnapshot(); err == nil && snapshot != nil && snapshot.Payload != nil {
+	if snapshot, err := policyManager.GetSnapshot(); err == nil && snapshot != nil && snapshot.Payload != nil {
 		if versionRaw, ok := snapshot.Payload["software_version"]; ok {
 			if version, ok := versionRaw.(string); ok && version != "" {
 				slog.Info("loaded initial software_version from snapshot",
@@ -575,7 +575,7 @@ func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, han
 }
 
 // getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
-func getRaftConfigFromSnapshot(config config_manager.ConfigClient) *raft.NodeConfig {
+func getRaftConfigFromSnapshot(config policy_manager.ConfigClient) *raft.NodeConfig {
 	// Check if raft is enabled
 	if enabled, ok := config.Get("raft.enabled"); !ok || enabled != true {
 		return nil
@@ -657,7 +657,7 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Nod
 }
 
 // watchConfigForRaftUpdates monitors config changes and updates Raft cluster configuration
-func watchConfigForRaftUpdates(ctx context.Context, manager config_manager.ConfigManager, node *raft.Node) {
+func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.PolicyManager, node *raft.Node) {
 	watchChan := manager.Watch()
 
 	for {

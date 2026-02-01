@@ -9,7 +9,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +48,7 @@ Examples:
 
 func showLocalLogs(deps *utils.DependencyManager, follow bool, lines int) error {
 	// Get log file path
-	basePath := config_manager.GetBasePath(true) // agent path
+	basePath := policy_manager.GetBasePath(true) // agent path
 	logFile := filepath.Join(basePath, "agent.log")
 
 	// Check if log file exists

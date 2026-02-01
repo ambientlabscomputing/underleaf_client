@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
@@ -29,11 +29,11 @@ type Service interface {
 }
 type ServerService struct {
 	cplane   *controlplane.CPlaneClient
-	config   config_manager.ConfigClient
+	config   policy_manager.ConfigClient
 	eventBus bus.EventClient
 }
 
-func NewServerService(cplaneClient *controlplane.CPlaneClient, configClient config_manager.ConfigClient, eventBusClient bus.EventClient) *ServerService {
+func NewServerService(cplaneClient *controlplane.CPlaneClient, configClient policy_manager.ConfigClient, eventBusClient bus.EventClient) *ServerService {
 	return &ServerService{
 		cplane:   cplaneClient,
 		config:   configClient,

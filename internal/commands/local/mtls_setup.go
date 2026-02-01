@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
@@ -20,11 +20,11 @@ import (
 // 3. Submit CSR to server API
 // 4. Save signed certificate
 // 5. Update config with certificate paths
-func SetupMTLSCertificate(ctx context.Context, printer *ui.Printer, configClient config_manager.ConfigClient, serverID, orgID, orgName string) error {
+func SetupMTLSCertificate(ctx context.Context, printer *ui.Printer, configClient policy_manager.ConfigClient, serverID, orgID, orgName string) error {
 	printer.PrintInfo("\n=== Setting up mTLS Certificate ===\n")
 
 	// Get cert paths
-	basePath := config_manager.GetBasePath(false)
+	basePath := policy_manager.GetBasePath(false)
 	keyPath, csrPath, certPath := crypto.GetCertPaths(basePath, serverID)
 
 	// Check if certificate already exists

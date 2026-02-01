@@ -1,4 +1,4 @@
-package config_manager
+package policy_manager
 
 import (
 	"context"
@@ -70,7 +70,7 @@ func NewConfigClientWithSnapshot(ctx context.Context, isAgent bool) ConfigClient
 
 	// We have token and server ID, try to use snapshot client
 	basePath := GetBasePath(isAgent)
-	snapshotClient, err := NewSnapshotConfigClient(ctx, serverID.(string), basePath, isAgent)
+	snapshotClient, err := NewSnapshotPolicyClient(ctx, serverID.(string), basePath, isAgent)
 	if err != nil {
 		slog.Warn("failed to create snapshot client, falling back to simple client", "error", err)
 		return cliClient

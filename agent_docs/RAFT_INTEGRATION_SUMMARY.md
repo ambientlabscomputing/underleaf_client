@@ -209,7 +209,9 @@ go build ./cmd/underleaf_agent    # ✅ PASS
 ## Key Design Decisions
 
 1. **Edge-Optimized**: Limited to 3 voters for edge cluster scenarios
-2. **Separation of Concerns**: Raft KV store separate from config_manager (policy store)
+2. **Separation of Concerns**: Raft KV store separate from policy_manager (policy distribution)
+   - `policy_manager`: Control plane policy distribution via snapshots
+   - `raft`: Quorum-based KV storage for runtime coordination
 3. **gRPC Transport**: Modern, efficient peer communication
 4. **BoltDB Storage**: Embedded database for simplicity and reliability
 5. **Maintenance Mode**: Safe topology changes without quorum issues
@@ -246,11 +248,15 @@ google.golang.org/protobuf v1.36.11
 
 ## Next Steps (Optional)
 
-### Task 14: Rename config_manager
-Consider renaming `config_manager` to `policy_manager` or similar to clarify its role:
-- Current: `config_manager` handles control plane policy distribution
-- Raft: Handles quorum-based KV storage for runtime state
-- Clarification helps distinguish the two systems
+### ✅ Task 14: Rename config_manager to policy_manager (COMPLETED)
+Successfully renamed `config_manager` to `policy_manager` to clarify its role:
+- **Before**: `config_manager` - ambiguous naming
+- **After**: `policy_manager` - clearly handles control plane policy distribution
+- **Raft Role**: Runtime state and quorum-based KV storage
+- **Benefits**: 
+  - Clear separation of concerns between policy distribution and runtime state
+  - Better semantic understanding of system architecture
+  - Consistent with "policy snapshot" terminology
 
 ### Future Enhancements
 1. **Watch-based Config Updates**: Use Raft watchers to detect config changes

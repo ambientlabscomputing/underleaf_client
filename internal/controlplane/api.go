@@ -10,15 +10,15 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 )
 
 type APIClient struct {
 	httpClient *http.Client
-	config     config_manager.ConfigClient
+	config     policy_manager.ConfigClient
 }
 
-func NewAPIClient(config config_manager.ConfigClient, h *http.Client) *APIClient {
+func NewAPIClient(config policy_manager.ConfigClient, h *http.Client) *APIClient {
 	return &APIClient{
 		httpClient: h,
 		config:     config,
@@ -305,7 +305,7 @@ func (c *APIClient) PATCH(path string, payload interface{}, response interface{}
 }
 
 // GetServerConfig fetches the current configuration for a server from the control plane
-// Implements the ControlPlaneConfigClient interface for config_manager
+// Implements the ControlPlanePolicyClient interface for config_manager
 func (c *APIClient) GetServerConfig(ctx context.Context, serverID string) (map[string]interface{}, int, error) {
 	type ServerResponse struct {
 		ID            string `json:"id"`
