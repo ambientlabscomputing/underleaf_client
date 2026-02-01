@@ -8,6 +8,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,6 +20,7 @@ type Server struct {
 	configManager  config_manager.ConfigManager
 	configClient   config_manager.ConfigClient
 	commandHandler *exec.CommandHandler
+	raftNode       *raft.Node
 }
 
 // NewServer creates a new agent server
@@ -48,6 +50,11 @@ func (s *Server) SetCommandHandler(handler *exec.CommandHandler) {
 	s.commandHandler = handler
 }
 
+// SetRaftNode injects the Raft node into the server
+func (s *Server) SetRaftNode(node *raft.Node) {
+	s.raftNode = node
+}
+
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
 	// Health check
@@ -62,6 +69,31 @@ func (s *Server) setupRoutes() {
 		api.GET("/commands/settings", s.handleGetCommandSettings)
 		api.GET("/config", s.handleGetConfig)
 		api.PUT("/config", s.handleUpdateConfig)
+
+		// Raft cluster endpoints
+		raft := api.Group("/raft")
+		{
+			raft.GET("/status", s.handleRaftStatus)
+			raft.GET("/stats", s.handleRaftStats)
+			raft.GET("/leader", s.handleRaftLeader)
+
+			// KV operations
+			raft.GET("/kv/:key", s.handleRaftKVGet)
+			raft.PUT("/kv/:key", s.handleRaftKVPut)
+			raft.DELETE("/kv/:key", s.handleRaftKVDelete)
+			raft.GET("/kv", s.handleRaftKVList)
+
+			// Membership management
+			raft.GET("/nodes", s.handleRaftListNodes)
+			raft.POST("/nodes", s.handleRaftAddNode)
+			raft.DELETE("/nodes/:id", s.handleRaftRemoveNode)
+			raft.POST("/nodes/:id/promote", s.handleRaftPromoteNode)
+			raft.POST("/nodes/:id/demote", s.handleRaftDemoteNode)
+
+			// Maintenance mode
+			raft.POST("/maintenance/enable", s.handleRaftEnableMaintenance)
+			raft.POST("/maintenance/disable", s.handleRaftDisableMaintenance)
+		}
 	}
 }
 

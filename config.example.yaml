@@ -52,3 +52,34 @@ payload:
     level: info  # debug, info, warn, error
     format: json # json, text
     output: stdout # stdout, stderr, or file path
+
+  # Optional: Raft Quorum Cluster Configuration
+  # Enable this section to form a KV cluster with other nodes for high availability
+  raft:
+    # Enable/disable Raft cluster participation
+    enabled: false
+    
+    # Unique identifier for this node in the cluster (required if enabled)
+    # Must be unique across all nodes in the cluster
+    node_id: node1
+    
+    # Address and port for Raft peer communication (required if enabled)
+    # Format: host:port or IP:port
+    # This should be accessible by other cluster nodes
+    bind_addr: 0.0.0.0:7946
+    
+    # Directory for Raft data storage (required if enabled)
+    # Stores logs, snapshots, and cluster state
+    data_dir: /var/lib/underleaf/raft
+    
+    # Bootstrap new cluster (optional, default: auto-detect)
+    # Set to true for the first node in a new cluster
+    # Set to false when joining an existing cluster
+    # If omitted, will bootstrap if no peers are specified
+    bootstrap: false
+    
+    # List of peer node addresses to join (optional)
+    # Format: ["node_id@host:port", ...]
+    # Example: ["node2@10.0.1.2:7946", "node3@10.0.1.3:7946"]
+    # Leave empty when bootstrapping the first node
+    bootstrap_peers: []

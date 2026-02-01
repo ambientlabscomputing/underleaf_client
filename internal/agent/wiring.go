@@ -14,6 +14,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
@@ -29,6 +30,7 @@ type Dependencies struct {
 	BusClient        *bus.Client            // Event bus client for cleanup on shutdown
 	UpdateManager    *updater.UpdateManager // Update manager for auto-updates
 	CommandDrainer   *CommandDrainer        // Command drainer for graceful updates
+	RaftNode         *raft.Node             // Raft cluster node for KV quorum
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -235,6 +237,29 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	server.SetDependencies(snapshotManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
 
+	// Initialize Raft node if configured
+	var raftNode *raft.Node
+	if raftConfig := getRaftConfigFromSnapshot(snapshotClient); raftConfig != nil {
+		slog.Info("initializing raft cluster node", "node_id", raftConfig.NodeID)
+
+		var err error
+		raftNode, err = initializeRaftNode(ctx, raftConfig)
+		if err != nil {
+			slog.Warn("failed to initialize raft node", "error", err)
+			// Don't fail agent startup if Raft fails - it's optional
+		} else {
+			slog.Info("raft node initialized successfully", "node_id", raftConfig.NodeID)
+
+			// Wire Raft node into server
+			server.SetRaftNode(raftNode)
+
+			// Watch for Raft configuration changes
+			go watchConfigForRaftUpdates(ctx, snapshotManager, raftNode)
+		}
+	} else {
+		slog.Info("raft cluster not configured, KV quorum disabled")
+	}
+
 	// Initialize update manager
 	updateBasePath := filepath.Join(config_manager.GetBasePath(true), "updates")
 	updateStore := updater.NewStore(updateBasePath)
@@ -265,6 +290,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		BusClient:        busClient, // Store bus client for cleanup
 		UpdateManager:    updateManager,
 		CommandDrainer:   drainer,
+		RaftNode:         raftNode,
 	}, nil
 }
 
@@ -543,6 +569,116 @@ func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, han
 			handler.HandleDeploymentEvent(ctx, []byte(msg.Content))
 		case <-ctx.Done():
 			slog.Info("stopping deployment event subscription")
+			return
+		}
+	}
+}
+
+// getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
+func getRaftConfigFromSnapshot(config config_manager.ConfigClient) *raft.NodeConfig {
+	// Check if raft is enabled
+	if enabled, ok := config.Get("raft.enabled"); !ok || enabled != true {
+		return nil
+	}
+
+	// Extract required Raft configuration
+	nodeID, hasNodeID := config.Get("raft.node_id")
+	bindAddr, hasBindAddr := config.Get("raft.bind_addr")
+	dataDir, hasDataDir := config.Get("raft.data_dir")
+
+	if !hasNodeID || !hasBindAddr || !hasDataDir {
+		slog.Warn("raft enabled but missing required configuration",
+			"has_node_id", hasNodeID,
+			"has_bind_addr", hasBindAddr,
+			"has_data_dir", hasDataDir,
+		)
+		return nil
+	}
+
+	cfg := &raft.NodeConfig{
+		NodeID:   nodeID.(string),
+		BindAddr: bindAddr.(string),
+		DataDir:  dataDir.(string),
+	}
+
+	// Extract optional bootstrap peers
+	if peers, ok := config.Get("raft.bootstrap_peers"); ok {
+		if peersList, ok := peers.([]interface{}); ok {
+			cfg.BootstrapPeers = make([]string, 0, len(peersList))
+			for _, peer := range peersList {
+				if peerStr, ok := peer.(string); ok {
+					cfg.BootstrapPeers = append(cfg.BootstrapPeers, peerStr)
+				}
+			}
+		}
+	}
+
+	// Extract optional bootstrap flag (default: auto-detect based on peers)
+	if bootstrap, ok := config.Get("raft.bootstrap"); ok {
+		if bootstrapBool, ok := bootstrap.(bool); ok {
+			cfg.Bootstrap = bootstrapBool
+		}
+	} else {
+		// Auto-detect: bootstrap if no peers specified
+		cfg.Bootstrap = len(cfg.BootstrapPeers) == 0
+	}
+
+	return cfg
+}
+
+// initializeRaftNode creates and starts a Raft cluster node
+func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Node, error) {
+	// Get logger from context
+	logger := slog.Default()
+
+	// Create Raft node
+	node, err := raft.NewNode(config, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create raft node: %w", err)
+	}
+
+	// Start Raft node
+	if err := node.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start raft node: %w", err)
+	}
+
+	// Wait for leader election (with timeout)
+	slog.Info("waiting for raft leader election", "node_id", config.NodeID)
+
+	if err := node.WaitForLeader(30 * time.Second); err != nil {
+		slog.Warn("raft leader election timeout", "error", err)
+		// Don't fail - node can still participate in cluster
+	} else {
+		leader, _ := node.GetLeader()
+		slog.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
+	}
+
+	return node, nil
+}
+
+// watchConfigForRaftUpdates monitors config changes and updates Raft cluster configuration
+func watchConfigForRaftUpdates(ctx context.Context, manager config_manager.ConfigManager, node *raft.Node) {
+	watchChan := manager.Watch()
+
+	for {
+		select {
+		case snapshot := <-watchChan:
+			if snapshot == nil || snapshot.Payload == nil {
+				continue
+			}
+
+			// Check if Raft is still enabled
+			if enabled, ok := snapshot.Payload["raft"].(map[string]interface{})["enabled"]; !ok || enabled != true {
+				slog.Warn("raft disabled in config update - node will continue running")
+				continue
+			}
+
+			// Note: Dynamic reconfiguration of Raft (adding/removing nodes)
+			// should be done through the cluster management API, not config changes.
+			// This watcher is primarily for detecting if Raft should be disabled.
+
+		case <-ctx.Done():
+			slog.Info("stopping raft config watcher")
 			return
 		}
 	}

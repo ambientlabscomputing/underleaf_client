@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/cluster"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/deploy"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
@@ -58,6 +59,7 @@ func init() {
 	rootCmd.AddCommand(jobs.JobsCmd)
 	rootCmd.AddCommand(templates.TemplatesCmd)
 	rootCmd.AddCommand(update.UpdateCmd)
+	rootCmd.AddCommand(cluster.ClusterCmd)
 }
 
 func Execute(ctx context.Context) error {

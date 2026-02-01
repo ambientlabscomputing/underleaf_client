@@ -99,6 +99,14 @@ deps:
 	@go mod tidy
 	@echo "✓ Dependencies updated"
 
+## proto: Generate protobuf code
+proto:
+	@echo "Generating protobuf code..."
+	@protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		internal/raft/proto/raft.proto
+	@echo "✓ Protobuf code generated"
+
 ## check: Run fmt, vet, and test
 check: fmt vet test
 	@echo "✓ All checks passed"
