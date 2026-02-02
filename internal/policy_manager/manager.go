@@ -1,4 +1,4 @@
-package config_manager
+package policy_manager
 
 import (
 	"context"
@@ -9,31 +9,32 @@ import (
 	"time"
 )
 
-type ConfigManager interface {
+// PolicyManager interface for managing policy snapshots
+type PolicyManager interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	GetSnapshot() (*ConfigSnapshot, error)
+	GetSnapshot() (*PolicySnapshot, error)
 	GetLocalMeta() (*LocalMetadata, error)
-	Watch() <-chan *ConfigSnapshot
+	Watch() <-chan *PolicySnapshot
 }
 
-// SnapshotConfigManager maintains a validated local config snapshot
+// SnapshotPolicyManager maintains a validated local policy snapshot from control plane
 // Syncs via push (event bus) and pull (periodic reconciliation)
-type SnapshotConfigManager struct {
+type SnapshotPolicyManager struct {
 	store             *Store
-	controlPlane      ControlPlaneConfigClient
+	controlPlane      ControlPlanePolicyClient
 	eventBus          EventBusClient
 	serverID          string
 	reconcileInterval time.Duration
 	maxAge            time.Duration
 
 	// Runtime state
-	currentSnapshot *ConfigSnapshot
+	currentSnapshot *PolicySnapshot
 	currentMeta     *LocalMetadata
 	snapshotMu      sync.RWMutex
 
 	// Watch channels
-	watchChans []chan *ConfigSnapshot
+	watchChans []chan *PolicySnapshot
 	watchMu    sync.Mutex
 
 	// Lifecycle
@@ -42,28 +43,28 @@ type SnapshotConfigManager struct {
 	wg     sync.WaitGroup
 }
 
-// ControlPlaneConfigClient interface for fetching config from control plane
-type ControlPlaneConfigClient interface {
+// ControlPlanePolicyClient interface for fetching policy from control plane
+type ControlPlanePolicyClient interface {
 	GetServerConfig(ctx context.Context, serverID string) (map[string]interface{}, int, error)
 }
 
-// EventBusClient interface for receiving config updates
+// EventBusClient interface for receiving policy updates
 type EventBusClient interface {
 	Subscribe(ctx context.Context, topic string, targetID string, handler func(payload []byte)) error
 }
 
-// SnapshotConfigManagerConfig configures the manager
-type SnapshotConfigManagerConfig struct {
+// SnapshotPolicyManagerConfig configures the manager
+type SnapshotPolicyManagerConfig struct {
 	Store             *Store
-	ControlPlane      ControlPlaneConfigClient
+	ControlPlane      ControlPlanePolicyClient
 	EventBus          EventBusClient
 	ServerID          string
 	ReconcileInterval time.Duration
 	MaxAge            time.Duration
 }
 
-// NewSnapshotConfigManager creates a new snapshot-based config manager
-func NewSnapshotConfigManager(config SnapshotConfigManagerConfig) *SnapshotConfigManager {
+// NewSnapshotPolicyManager creates a new snapshot-based policy manager
+func NewSnapshotPolicyManager(config SnapshotPolicyManagerConfig) *SnapshotPolicyManager {
 	if config.ReconcileInterval == 0 {
 		config.ReconcileInterval = 5 * time.Minute
 	}
@@ -71,19 +72,19 @@ func NewSnapshotConfigManager(config SnapshotConfigManagerConfig) *SnapshotConfi
 		config.MaxAge = 24 * time.Hour
 	}
 
-	return &SnapshotConfigManager{
+	return &SnapshotPolicyManager{
 		store:             config.Store,
 		controlPlane:      config.ControlPlane,
 		eventBus:          config.EventBus,
 		serverID:          config.ServerID,
 		reconcileInterval: config.ReconcileInterval,
 		maxAge:            config.MaxAge,
-		watchChans:        make([]chan *ConfigSnapshot, 0),
+		watchChans:        make([]chan *PolicySnapshot, 0),
 	}
 }
 
 // Start begins the config sync lifecycle
-func (m *SnapshotConfigManager) Start(ctx context.Context) error {
+func (m *SnapshotPolicyManager) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
 	// Load existing snapshot from disk
@@ -111,7 +112,7 @@ func (m *SnapshotConfigManager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops the config manager
-func (m *SnapshotConfigManager) Stop(ctx context.Context) error {
+func (m *SnapshotPolicyManager) Stop(ctx context.Context) error {
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -130,7 +131,7 @@ func (m *SnapshotConfigManager) Stop(ctx context.Context) error {
 }
 
 // GetSnapshot returns the current config snapshot
-func (m *SnapshotConfigManager) GetSnapshot() (*ConfigSnapshot, error) {
+func (m *SnapshotPolicyManager) GetSnapshot() (*PolicySnapshot, error) {
 	m.snapshotMu.RLock()
 	defer m.snapshotMu.RUnlock()
 
@@ -152,7 +153,7 @@ func (m *SnapshotConfigManager) GetSnapshot() (*ConfigSnapshot, error) {
 }
 
 // GetLocalMeta returns the local metadata
-func (m *SnapshotConfigManager) GetLocalMeta() (*LocalMetadata, error) {
+func (m *SnapshotPolicyManager) GetLocalMeta() (*LocalMetadata, error) {
 	m.snapshotMu.RLock()
 	defer m.snapshotMu.RUnlock()
 
@@ -165,17 +166,17 @@ func (m *SnapshotConfigManager) GetLocalMeta() (*LocalMetadata, error) {
 }
 
 // Watch returns a channel that receives snapshot updates
-func (m *SnapshotConfigManager) Watch() <-chan *ConfigSnapshot {
+func (m *SnapshotPolicyManager) Watch() <-chan *PolicySnapshot {
 	m.watchMu.Lock()
 	defer m.watchMu.Unlock()
 
-	ch := make(chan *ConfigSnapshot, 10)
+	ch := make(chan *PolicySnapshot, 10)
 	m.watchChans = append(m.watchChans, ch)
 	return ch
 }
 
 // listenForUpdates subscribes to event bus for push updates
-func (m *SnapshotConfigManager) listenForUpdates() {
+func (m *SnapshotPolicyManager) listenForUpdates() {
 	defer m.wg.Done()
 
 	if m.eventBus == nil {
@@ -214,7 +215,7 @@ func (m *SnapshotConfigManager) listenForUpdates() {
 }
 
 // periodicReconcile performs periodic pull-based sync
-func (m *SnapshotConfigManager) periodicReconcile() {
+func (m *SnapshotPolicyManager) periodicReconcile() {
 	defer m.wg.Done()
 
 	ticker := time.NewTicker(m.reconcileInterval)
@@ -233,7 +234,7 @@ func (m *SnapshotConfigManager) periodicReconcile() {
 }
 
 // reconcile fetches latest config from control plane
-func (m *SnapshotConfigManager) reconcile() error {
+func (m *SnapshotPolicyManager) reconcile() error {
 	if m.controlPlane == nil {
 		return fmt.Errorf("no control plane client configured")
 	}
@@ -249,9 +250,9 @@ func (m *SnapshotConfigManager) reconcile() error {
 }
 
 // updateSnapshot validates and stores a new snapshot
-func (m *SnapshotConfigManager) updateSnapshot(version int, payload map[string]interface{}) error {
+func (m *SnapshotPolicyManager) updateSnapshot(version int, payload map[string]interface{}) error {
 	// Create new snapshot
-	snapshot := NewConfigSnapshot(m.serverID, version, payload)
+	snapshot := NewPolicySnapshot(m.serverID, version, payload)
 
 	// Validate
 	if err := snapshot.Validate(); err != nil {
@@ -286,7 +287,7 @@ func (m *SnapshotConfigManager) updateSnapshot(version int, payload map[string]i
 }
 
 // loadFromDisk loads snapshot and metadata from disk
-func (m *SnapshotConfigManager) loadFromDisk() error {
+func (m *SnapshotPolicyManager) loadFromDisk() error {
 	snapshot, err := m.store.LoadSnapshot()
 	if err != nil {
 		return err
@@ -313,7 +314,7 @@ func (m *SnapshotConfigManager) loadFromDisk() error {
 }
 
 // notifyWatchers sends updates to all watch channels
-func (m *SnapshotConfigManager) notifyWatchers(snapshot *ConfigSnapshot) {
+func (m *SnapshotPolicyManager) notifyWatchers(snapshot *PolicySnapshot) {
 	m.watchMu.Lock()
 	defer m.watchMu.Unlock()
 

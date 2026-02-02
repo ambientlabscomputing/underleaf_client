@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
@@ -16,12 +16,12 @@ type CPlaneClient struct {
 	Deployments CPlaneDeploymentClient
 	Auth        *CPlaneAuthClient
 	Users       *CPlaneUserClient
-	config      *config_manager.ConfigClient
+	config      *policy_manager.ConfigClient
 	httpClient  *http.Client
 	apiClient   *APIClient
 }
 
-func NewCPlaneClient(config *config_manager.ConfigClient, h *http.Client) *CPlaneClient {
+func NewCPlaneClient(config *policy_manager.ConfigClient, h *http.Client) *CPlaneClient {
 	apiClient := NewAPIClient(*config, h)
 	return &CPlaneClient{
 		config:      config,
@@ -49,7 +49,7 @@ type CPlaneServerClient interface {
 	GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error)
 }
 
-func NewCPlaneServerClient(config *config_manager.ConfigClient, a *APIClient) CPlaneServerClient {
+func NewCPlaneServerClient(config *policy_manager.ConfigClient, a *APIClient) CPlaneServerClient {
 	return NewServerClient(config, a)
 }
 

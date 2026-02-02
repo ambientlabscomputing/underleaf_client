@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +43,7 @@ be used for mTLS authentication.`,
 		}
 
 		// Get certificate paths
-		basePath := config_manager.GetBasePath(false)
+		basePath := policy_manager.GetBasePath(false)
 		_, csrPath, certPath := crypto.GetCertPaths(basePath, serverID)
 
 		// Check if CSR exists

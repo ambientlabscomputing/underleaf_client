@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -240,10 +240,10 @@ func downloadAndSaveConfigSnapshot(ctx context.Context, printer *ui.Printer, ser
 
 	// Create config store (use home directory for CLI)
 	basePath := filepath.Join(os.Getenv("HOME"), ".underleaf")
-	store := config_manager.NewStore(basePath, false) // false = CLI mode
+	store := policy_manager.NewStore(basePath, false) // false = CLI mode
 
 	// Create and save snapshot
-	snapshot := config_manager.NewConfigSnapshot(serverID, version, config)
+	snapshot := policy_manager.NewPolicySnapshot(serverID, version, config)
 	if err := snapshot.Validate(); err != nil {
 		return err
 	}

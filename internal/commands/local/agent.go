@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -43,7 +43,7 @@ Examples:
 		printer := ui.GetPrinter(cmd.Context())
 
 		// Show tip for new users
-		existingID, hasID := config_manager.GetConfig(cmd.Context()).Get("local.server_id")
+		existingID, hasID := policy_manager.GetConfig(cmd.Context()).Get("local.server_id")
 		if !hasID || existingID == nil {
 			printer.PrintInfo("💡 TIP: If you haven't registered yet, use 'ufctl start' for complete setup")
 			fmt.Println()
@@ -80,7 +80,7 @@ Examples:
 			printer.PrintInfo(fmt.Sprintf("Starting agent in development mode on port %d...", port))
 			printer.PrintInfo("Press Ctrl+C to stop")
 			// Save port to config before starting (in case of immediate shutdown)
-			config := config_manager.GetConfig(cmd.Context())
+			config := policy_manager.GetConfig(cmd.Context())
 			if err := config.Set("agent.port", port); err != nil {
 				printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
 			}
@@ -100,7 +100,7 @@ Examples:
 			}
 
 			// Save the port to config manager so status commands can find it
-			config := config_manager.GetConfig(cmd.Context())
+			config := policy_manager.GetConfig(cmd.Context())
 			if err := config.Set("agent.port", port); err != nil {
 				printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
 			}
@@ -161,7 +161,7 @@ var agentRestartCmd = &cobra.Command{
 		}
 
 		// Save the port to config manager so status commands can find it
-		config := config_manager.GetConfig(cmd.Context())
+		config := policy_manager.GetConfig(cmd.Context())
 		if err := config.Set("agent.port", port); err != nil {
 			printer.PrintWarning(fmt.Sprintf("Failed to save port to config: %v", err))
 		}
@@ -179,7 +179,7 @@ var agentStatusCmd = &cobra.Command{
 		printer := ui.GetPrinter(cmd.Context())
 
 		// Try to get port from config first
-		config := config_manager.GetConfig(cmd.Context())
+		config := policy_manager.GetConfig(cmd.Context())
 		port := 8081 // default
 		if portVal, ok := config.Get("agent.port"); ok {
 			if portInt, ok := portVal.(int); ok {

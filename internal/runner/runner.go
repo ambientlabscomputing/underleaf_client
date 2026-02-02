@@ -23,7 +23,7 @@ type Runner struct {
 
 // NewRunner creates a new runner instance
 func NewRunner(reportPath string) (*Runner, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
@@ -153,7 +153,7 @@ func (r *Runner) executeNetworkOperation(ctx context.Context, op types.Operation
 		}
 
 		// Disconnect all containers
-		if networkResource.Network.Containers != nil && len(networkResource.Network.Containers) > 0 {
+		if len(networkResource.Network.Containers) > 0 {
 			for containerID := range networkResource.Network.Containers {
 				_, err := r.dockerClient.NetworkDisconnect(ctx, op.ResourceName, client.NetworkDisconnectOptions{
 					Container: containerID,

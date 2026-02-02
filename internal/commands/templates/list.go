@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -114,10 +113,4 @@ func init() {
 	ListCmd.Flags().IntP("limit", "l", 20, "Number of templates to show")
 	ListCmd.Flags().StringP("name", "n", "", "Filter by name (partial match)")
 	TemplatesCmd.AddCommand(ListCmd)
-}
-
-// Helper to pretty print JSON for debugging
-func prettyJSON(v interface{}) string {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	return string(b)
 }

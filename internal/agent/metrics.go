@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -28,7 +28,7 @@ const (
 type MetricsCollector struct {
 	serverID        string
 	cplane          controlplane.CPlaneServerClient
-	configManager   config_manager.ConfigManager
+	policyManager   policy_manager.PolicyManager
 	dockerCollector *DockerCollector
 	interval        time.Duration
 	dockerInterval  time.Duration
@@ -37,7 +37,7 @@ type MetricsCollector struct {
 }
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, configManager config_manager.ConfigManager, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
+func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, policyManager policy_manager.PolicyManager, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
 	if interval < MinMetricsInterval {
 		interval = DefaultMetricsInterval
 	}
@@ -55,7 +55,7 @@ func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient
 	return &MetricsCollector{
 		serverID:        serverID,
 		cplane:          cplane,
-		configManager:   configManager,
+		policyManager:   policyManager,
 		dockerCollector: dockerCollector,
 		interval:        interval,
 		dockerInterval:  dockerInterval,
@@ -199,7 +199,7 @@ func (m *MetricsCollector) send(ctx context.Context, metrics *servertypes.Metric
 
 func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 	// Check if Docker integration is enabled in config
-	snapshot, err := m.configManager.GetSnapshot()
+	snapshot, err := m.policyManager.GetSnapshot()
 	if err != nil {
 		slog.Warn("failed to get config snapshot for Docker check", "error", err)
 		return

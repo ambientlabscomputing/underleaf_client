@@ -102,13 +102,19 @@ func (l *Launcher) startDev(ctx context.Context) error {
 
 	// Stop components on exit
 	defer func() {
+		if deps.RaftNode != nil {
+			logger.Info("stopping raft node")
+			if err := deps.RaftNode.Stop(); err != nil {
+				logger.Error("failed to stop raft node", "err", err)
+			}
+		}
 		if deps.BusClient != nil {
 			if err := deps.BusClient.Stop(); err != nil {
 				logger.Error("failed to stop bus client", "err", err)
 			}
 		}
-		if deps.ConfigManager != nil {
-			deps.ConfigManager.Stop(ctx)
+		if deps.PolicyManager != nil {
+			deps.PolicyManager.Stop(ctx)
 		}
 	}()
 

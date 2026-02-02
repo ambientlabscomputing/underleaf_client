@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 )
 
 // NullableTime is a time.Time that can be null or empty string in JSON
@@ -75,7 +75,7 @@ type Configuration struct {
 	Payload ConfigurationPayload
 }
 
-func (c Configuration) FromConfigManagerConfig(cfg config_manager.Configuration) Configuration {
+func (c Configuration) FromPolicyManagerConfig(cfg policy_manager.Configuration) Configuration {
 	pBytes, err := json.Marshal(cfg.Payload)
 	if err != nil {
 		slog.Error("failed to marshal configuration payload", "error", err)

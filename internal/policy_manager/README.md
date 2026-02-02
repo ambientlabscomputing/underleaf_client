@@ -1,15 +1,17 @@
-# Config Manager - Snapshotted Configuration System
+# Policy Manager - Snapshotted Policy Distribution System
 
 ## Overview
 
-The config manager ensures each edge device always has a **complete, validated, and up-to-date configuration snapshot** without blocking runtime operations on central API calls. It combines push (event-driven) and pull (periodic reconciliation) patterns to maintain local config state.
+The policy manager ensures each edge device always has a **complete, validated, and up-to-date policy snapshot** from the control plane without blocking runtime operations on central API calls. It combines push (event-driven) and pull (periodic reconciliation) patterns to maintain local policy state.
+
+Note: This is distinct from the Raft-based KV store which handles runtime state and coordination.
 
 ## Architecture
 
 ### Components
 
-#### 1. **ConfigSnapshot** (`types.go`)
-- Versioned, validated configuration from control plane
+#### 1. **PolicySnapshot** (`types.go`)
+- Versioned, validated policy from control plane
 - Contains: `Version`, `Payload`, `Hash`, `Timestamp`, `ServerID`
 - Immutable once created, validated via SHA256 hash
 - Tracks age and staleness
@@ -25,15 +27,15 @@ The config manager ensures each edge device always has a **complete, validated, 
 - **CLI**: `~/.underleaf/snapshot.yaml` and `~/.underleaf/config.yaml`
 - **Agent**: `/var/lib/underleaf/snapshot.yaml` and `/var/lib/underleaf/local.yaml`
 
-#### 4. **SnapshotConfigManager** (`manager.go`)
+#### 4. **SnapshotPolicyManager** (`manager.go`)
 - Core sync engine running as agent background service
 - **Push**: Listens to `server-data-update` event bus topic (filtered by `target_id`)
 - **Pull**: Periodic reconciliation (default: 5 minutes) via control plane API
 - **Validate**: Hash verification before saving
 - **Watch**: Channels for real-time update notifications
 
-#### 5. **SnapshotConfigClient** (`server.go`)
-- Unified ConfigClient interface implementation
+#### 5. **SnapshotPolicyClient** (`server.go`)
+- Unified PolicyClient interface implementation
 - Merges snapshot + local metadata into single API
 - Keys prefixed with `local.` route to LocalMetadata
 - Other keys route to snapshot payload
@@ -48,7 +50,7 @@ Control Plane API (/servers/{id})
     │                                 │
     └─ Push (event bus) ─────────────┤
                                       ▼
-                          SnapshotConfigManager
+                          SnapshotPolicyManager
                                       │
                                       ├─ Validate (hash check)
                                       ├─ Version comparison
@@ -57,19 +59,19 @@ Control Plane API (/servers/{id})
                                       ▼
                                     Store
                                       │
-                                      ├─ snapshot.yaml (versioned config)
+                                      ├─ snapshot.yaml (versioned policy)
                                       └─ local.yaml (local metadata)
                                       ▼
-                          SnapshotConfigClient
+                          SnapshotPolicyClient
                                       │
                                       └─ Merged Get/Set interface
                                       ▼
                               Agent / CLI consumers
 ```
 
-## Configuration Tiers
+## Policy Tiers
 
-### Tier 1: Versioned Snapshot (from control plane)
+### Tier 1: Versioned Policy Snapshot (from control plane)
 - Source: `GET /servers/{id}` → `configuration.payload`
 - Synced via push (events) + pull (periodic)
 - Read-only to local consumers
@@ -95,8 +97,8 @@ serverName, ok := config.Get("local.server_name")
 // Set local metadata only
 config.Set("local.auth.token", "new-token")
 
-// Get merged config
-fullConfig := config.Config() // Returns both tiers merged
+// Get merged policy
+fullPolicy := policy.Config() // Returns both tiers merged
 ```
 
 ## Resilience Features

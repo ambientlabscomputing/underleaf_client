@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -69,4 +70,41 @@ func (c *Client) GetHealth() (bool, error) {
 	defer resp.Body.Close()
 
 	return resp.StatusCode == http.StatusOK, nil
+}
+
+// DoRequest performs a generic HTTP request to the agent
+func (c *Client) DoRequest(method, path string, body []byte) ([]byte, error) {
+	var req *http.Request
+	var err error
+
+	if body != nil {
+		req, err = http.NewRequest(method, c.baseURL+path, bytes.NewReader(body))
+	} else {
+		req, err = http.NewRequest(method, c.baseURL+path, nil)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
 }

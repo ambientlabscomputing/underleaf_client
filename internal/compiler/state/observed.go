@@ -22,7 +22,7 @@ type DockerObservedStateStore struct {
 
 // NewDockerObservedStateStore creates a new Docker-based observed state store
 func NewDockerObservedStateStore() (*DockerObservedStateStore, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}

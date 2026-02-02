@@ -20,7 +20,7 @@ type DockerCollector struct {
 
 // NewDockerCollector creates a new Docker collector
 func NewDockerCollector() (*DockerCollector, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, err
 	}

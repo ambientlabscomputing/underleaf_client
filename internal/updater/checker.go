@@ -182,12 +182,12 @@ func (c *GitHubReleaseChecker) parseGitHubRelease(ghRelease *githubRelease) (*Re
 
 		asset.DownloadURL = ghAsset.BrowserDownloadURL
 		asset.Size = ghAsset.Size
-		
+
 		// Set SHA256 from checksums map
 		if sha, ok := checksums[ghAsset.Name]; ok {
 			asset.SHA256 = sha
 		}
-		
+
 		release.Assets = append(release.Assets, *asset)
 	}
 
@@ -221,29 +221,10 @@ func parseAssetName(name string) *ReleaseAsset {
 	}
 }
 
-// extractSHA256FromBody extracts SHA256 hash from release notes
-// Looks for patterns like: SHA256: abc123... or sha256sum: abc123...
-func extractSHA256FromBody(body string) string {
-	patterns := []string{
-		`SHA256:\s*([a-fA-F0-9]{64})`,
-		`sha256sum:\s*([a-fA-F0-9]{64})`,
-		`sha256:\s*([a-fA-F0-9]{64})`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		if matches := re.FindStringSubmatch(body); len(matches) > 1 {
-			return strings.ToLower(matches[1])
-		}
-	}
-
-	return ""
-}
-
 // downloadChecksums downloads and parses the checksums.txt file from a GitHub release
 func (c *GitHubReleaseChecker) downloadChecksums(ghRelease *githubRelease) map[string]string {
 	checksums := make(map[string]string)
-	
+
 	// Find checksums.txt asset
 	var checksumsURL string
 	for _, asset := range ghRelease.Assets {
@@ -252,22 +233,22 @@ func (c *GitHubReleaseChecker) downloadChecksums(ghRelease *githubRelease) map[s
 			break
 		}
 	}
-	
+
 	if checksumsURL == "" {
 		return checksums // No checksums file available
 	}
-	
+
 	// Download checksums.txt
 	resp, err := http.Get(checksumsURL)
 	if err != nil {
 		return checksums
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return checksums
 	}
-	
+
 	// Parse checksums file (format: "sha256  filename" per line)
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -275,7 +256,7 @@ func (c *GitHubReleaseChecker) downloadChecksums(ghRelease *githubRelease) map[s
 		if line == "" {
 			continue
 		}
-		
+
 		// Split on whitespace (handles both single space and multiple spaces/tabs)
 		parts := strings.Fields(line)
 		if len(parts) >= 2 {
@@ -284,7 +265,7 @@ func (c *GitHubReleaseChecker) downloadChecksums(ghRelease *githubRelease) map[s
 			checksums[filename] = sha
 		}
 	}
-	
+
 	return checksums
 }
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto"
 	"github.com/spf13/cobra"
 )
@@ -62,7 +62,7 @@ The CSR will be sent to the control plane CA for signing in the next step.`,
 		deps.Printer.PrintInfo(fmt.Sprintf("Organization: %s (%s)", orgName, orgID))
 
 		// Get cert paths
-		basePath := config_manager.GetBasePath(false) // false = CLI mode
+		basePath := policy_manager.GetBasePath(false) // false = CLI mode
 		keyPath, csrPath, _ := crypto.GetCertPaths(basePath, serverID)
 
 		// Check if key already exists

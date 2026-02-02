@@ -1,4 +1,4 @@
-package config_manager
+package policy_manager
 
 import (
 	"crypto/sha256"
@@ -7,14 +7,14 @@ import (
 	"time"
 )
 
-// ConfigSnapshot represents a versioned, validated configuration snapshot
-type ConfigSnapshot struct {
-	// Core versioned config from control plane (the Server.Config field)
+// PolicySnapshot represents a versioned, validated policy snapshot from control plane
+type PolicySnapshot struct {
+	// Core versioned policy from control plane (the Server.Config field)
 	Version   int                    `json:"version"`
 	Payload   map[string]interface{} `json:"payload"`
 	Hash      string                 `json:"hash"`      // SHA256 of payload for integrity
 	Timestamp time.Time              `json:"timestamp"` // When snapshot was created
-	ServerID  string                 `json:"server_id"` // Which server this config belongs to
+	ServerID  string                 `json:"server_id"` // Which server this policy belongs to
 
 	// Local metadata (not part of versioned snapshot, stored separately)
 	LocalMeta LocalMetadata `json:"-"` // Don't serialize with snapshot
@@ -36,21 +36,21 @@ type EventBusConfig struct {
 	CommitInterval string `json:"commit_interval"`
 }
 
-// SnapshotWithMeta combines snapshot and local metadata for unified access
+// SnapshotWithMeta combines policy snapshot and local metadata for unified access
 type SnapshotWithMeta struct {
-	Snapshot  ConfigSnapshot `json:"snapshot"`
+	Snapshot  PolicySnapshot `json:"snapshot"`
 	LocalMeta LocalMetadata  `json:"local_meta"`
 }
 
 // ComputeHash calculates SHA256 hash of the payload
-func (s *ConfigSnapshot) ComputeHash() string {
+func (s *PolicySnapshot) ComputeHash() string {
 	data, _ := json.Marshal(s.Payload)
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
 
 // Validate checks if the snapshot is valid
-func (s *ConfigSnapshot) Validate() error {
+func (s *PolicySnapshot) Validate() error {
 	expectedHash := s.ComputeHash()
 	if s.Hash != expectedHash {
 		return ErrInvalidHash
@@ -62,18 +62,18 @@ func (s *ConfigSnapshot) Validate() error {
 }
 
 // Age returns how old the snapshot is
-func (s *ConfigSnapshot) Age() time.Duration {
+func (s *PolicySnapshot) Age() time.Duration {
 	return time.Since(s.Timestamp)
 }
 
 // IsStale checks if snapshot exceeds max age
-func (s *ConfigSnapshot) IsStale(maxAge time.Duration) bool {
+func (s *PolicySnapshot) IsStale(maxAge time.Duration) bool {
 	return s.Age() > maxAge
 }
 
-// NewConfigSnapshot creates a new validated snapshot
-func NewConfigSnapshot(serverID string, version int, payload map[string]interface{}) *ConfigSnapshot {
-	snapshot := &ConfigSnapshot{
+// NewPolicySnapshot creates a new validated policy snapshot
+func NewPolicySnapshot(serverID string, version int, payload map[string]interface{}) *PolicySnapshot {
+	snapshot := &PolicySnapshot{
 		Version:   version,
 		Payload:   payload,
 		Timestamp: time.Now(),
@@ -85,17 +85,17 @@ func NewConfigSnapshot(serverID string, version int, payload map[string]interfac
 
 // Errors
 var (
-	ErrInvalidHash     = &ConfigError{Code: "invalid_hash", Message: "snapshot hash validation failed"}
-	ErrMissingServerID = &ConfigError{Code: "missing_server_id", Message: "server ID is required"}
-	ErrStaleSnapshot   = &ConfigError{Code: "stale_snapshot", Message: "snapshot exceeds maximum age"}
+	ErrInvalidHash     = &PolicyError{Code: "invalid_hash", Message: "snapshot hash validation failed"}
+	ErrMissingServerID = &PolicyError{Code: "missing_server_id", Message: "server ID is required"}
+	ErrStaleSnapshot   = &PolicyError{Code: "stale_snapshot", Message: "snapshot exceeds maximum age"}
 )
 
-// ConfigError represents a configuration error
-type ConfigError struct {
+// PolicyError represents a policy error
+type PolicyError struct {
 	Code    string
 	Message string
 }
 
-func (e *ConfigError) Error() string {
+func (e *PolicyError) Error() string {
 	return e.Message
 }

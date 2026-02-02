@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
-	"github.com/ambientlabscomputing/underleaf_client/internal/config_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
@@ -13,13 +13,13 @@ import (
 
 type DependencyManager struct {
 	Printer      ui.Printer
-	ConfigClient config_manager.ConfigClient
+	ConfigClient policy_manager.ConfigClient
 	CPlaneClient controlplane.CPlaneClient
 	ServerSvc    server.ServerService
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
-func getConfigValue(config config_manager.ConfigClient, key string) (interface{}, bool) {
+func getConfigValue(config policy_manager.ConfigClient, key string) (interface{}, bool) {
 	// Try with local. prefix first
 	if val, ok := config.Get("local." + key); ok {
 		return val, true
@@ -30,7 +30,7 @@ func getConfigValue(config config_manager.ConfigClient, key string) (interface{}
 
 func NewDependencyManager(ctx context.Context) *DependencyManager {
 	printer := ui.GetPrinter(ctx)
-	configClient := config_manager.NewConfigClient(config_manager.ConfigClientTypeCLI)
+	configClient := policy_manager.NewConfigClient(policy_manager.ConfigClientTypeCLI)
 
 	// Configure HTTP client with mTLS transport if certificate is available
 	var httpClient *http.Client

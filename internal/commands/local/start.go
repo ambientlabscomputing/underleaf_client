@@ -17,9 +17,6 @@ var (
 				Bold(true).
 				Foreground(lipgloss.Color("#00FF00"))
 
-	startInfoStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#7D56F4"))
-
 	startInstructionStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#999999"))
 )
@@ -90,9 +87,8 @@ Examples:
 			}
 
 			// Download config snapshot silently
-			if err := downloadAndSaveConfigSnapshot(ctx, &deps.Printer, serverID); err != nil {
-				// Silently ignore config snapshot errors
-			}
+			_ = downloadAndSaveConfigSnapshot(ctx, &deps.Printer, serverID)
+			// Silently ignore config snapshot errors
 		}
 
 		// Step 2: Setup mTLS certificate silently
@@ -139,9 +135,8 @@ Examples:
 			}
 
 			// Save port to config
-			if err := deps.ConfigClient.Set("agent.port", port); err != nil {
-				// Silently ignore config save errors
-			}
+			_ = deps.ConfigClient.Set("agent.port", port)
+			// Silently ignore config save errors
 		}
 
 		// Get server name for display

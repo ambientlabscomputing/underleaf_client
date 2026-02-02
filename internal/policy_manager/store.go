@@ -1,4 +1,4 @@
-package config_manager
+package policy_manager
 
 import (
 	"encoding/json"
@@ -39,7 +39,7 @@ func NewStore(basePath string, isAgent bool) *Store {
 }
 
 // SaveSnapshot atomically saves a config snapshot
-func (s *Store) SaveSnapshot(snapshot *ConfigSnapshot) error {
+func (s *Store) SaveSnapshot(snapshot *PolicySnapshot) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,7 +75,7 @@ func (s *Store) SaveSnapshot(snapshot *ConfigSnapshot) error {
 }
 
 // LoadSnapshot loads the config snapshot from disk
-func (s *Store) LoadSnapshot() (*ConfigSnapshot, error) {
+func (s *Store) LoadSnapshot() (*PolicySnapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -87,7 +87,7 @@ func (s *Store) LoadSnapshot() (*ConfigSnapshot, error) {
 		return nil, fmt.Errorf("failed to read snapshot: %w", err)
 	}
 
-	var snapshot ConfigSnapshot
+	var snapshot PolicySnapshot
 	if err := yaml.Unmarshal(data, &snapshot); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal snapshot: %w", err)
 	}
@@ -161,7 +161,7 @@ func (s *Store) LoadSnapshotWithMeta() (*SnapshotWithMeta, error) {
 
 	// If no snapshot, return empty one
 	if snapshot == nil {
-		snapshot = &ConfigSnapshot{
+		snapshot = &PolicySnapshot{
 			Payload: make(map[string]interface{}),
 		}
 	}

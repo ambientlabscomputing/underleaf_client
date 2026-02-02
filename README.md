@@ -506,7 +506,7 @@ graph TD
     Commands --> Local[local/ - Auth, agent, config]
     Commands --> Servers[servers/ - Server management]
     Internal --> Config[config/ - Configuration loading]
-    Internal --> ConfigMgr[config_manager/ - Snapshot management]
+    Internal --> PolicyMgr[policy_manager/ - Policy snapshot management]
     Internal --> ControlPlane[controlplane/ - API clients]
     Internal --> Exec[exec/ - Command execution engine]
     Internal --> Logging[logging/ - Structured logging]
