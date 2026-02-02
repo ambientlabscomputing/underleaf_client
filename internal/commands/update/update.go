@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/pkg/version"
@@ -77,7 +77,7 @@ Compares current version against the desired version from server configuration.`
 			if release.Version != version.Version {
 				printer.Print(fmt.Sprintf("\nVersion update available: %s → %s", version.Version, release.Version))
 			} else {
-				printer.Print(fmt.Sprintf("\nNew build available (SHA changed)"))
+				printer.Print("\nNew build available (SHA changed)")
 				printer.Print(fmt.Sprintf("Current SHA: %s", currentSHA[:16]+"..."))
 				printer.Print(fmt.Sprintf("Latest SHA:  %s", release.SHA256[:16]+"..."))
 			}

@@ -3,7 +3,6 @@ package raft
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 )
 
@@ -36,7 +35,6 @@ type Watcher struct {
 	eventCh       chan WatchEvent
 	ctx           context.Context
 	cancel        context.CancelFunc
-	mu            sync.Mutex
 }
 
 // WatchOptions configures a watch stream.
@@ -231,12 +229,4 @@ func (w *Watch) WatchPrefix(ctx context.Context, prefix string, startRevision ui
 		BufferSize:    100,
 	}
 	return w.CreateWatcher(ctx, opts)
-}
-
-// matchesPrefix checks if a key matches the watcher's prefix filter.
-func matchesPrefix(key, prefix string) bool {
-	if prefix == "" || prefix == "/" {
-		return true
-	}
-	return strings.HasPrefix(key, prefix)
 }

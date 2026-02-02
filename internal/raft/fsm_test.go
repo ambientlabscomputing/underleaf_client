@@ -112,24 +112,3 @@ func TestKVStateMachine_MaxValueSize(t *testing.T) {
 		t.Error("expected error for oversized value")
 	}
 }
-
-type mockReadCloser struct {
-	data []byte
-	pos  int
-}
-
-func (m *mockReadCloser) Read(p []byte) (n int, err error) {
-	if m.pos >= len(m.data) {
-		return 0, os.ErrClosed
-	}
-	n = copy(p, m.data[m.pos:])
-	m.pos += n
-	if m.pos >= len(m.data) {
-		err = os.ErrClosed
-	}
-	return
-}
-
-func (m *mockReadCloser) Close() error {
-	return nil
-}

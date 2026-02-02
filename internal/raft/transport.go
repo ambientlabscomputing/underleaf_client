@@ -128,7 +128,7 @@ func (t *GRPCTransport) AppendEntries(id raft.ServerID, target raft.ServerAddres
 	// Convert raft.AppendEntriesRequest to protobuf
 	pbReq := &pb.AppendEntriesRequest{
 		Term:              args.Term,
-		Leader:            []byte(args.Leader),
+		Leader:            []byte(args.Addr),
 		PrevLogEntry:      args.PrevLogEntry,
 		PrevLogTerm:       args.PrevLogTerm,
 		Entries:           convertLogEntries(args.Entries),
@@ -163,7 +163,7 @@ func (t *GRPCTransport) RequestVote(id raft.ServerID, target raft.ServerAddress,
 	// Convert to protobuf
 	pbReq := &pb.RequestVoteRequest{
 		Term:               args.Term,
-		Candidate:          []byte(args.Candidate),
+		Candidate:          []byte(args.Addr),
 		LastLogIndex:       args.LastLogIndex,
 		LastLogTerm:        args.LastLogTerm,
 		LeadershipTransfer: args.LeadershipTransfer,
@@ -331,11 +331,9 @@ func (t *GRPCTransport) getConn(target raft.ServerAddress) (*grpc.ClientConn, er
 	}
 
 	// Dial the peer
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		string(target),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-		grpc.WithTimeout(t.timeout),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial %s: %w", target, err)

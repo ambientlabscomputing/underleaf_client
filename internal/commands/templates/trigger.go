@@ -212,12 +212,7 @@ func showJobResults(deps *utils.DependencyManager, jobID string, results []JobRe
 			serverDisplay = r.ServerID
 		}
 
-		statusDisplay := r.Status
-		if r.Status == "completed" && r.ExitCode == 0 {
-			statusDisplay = successStyle.Render("✓")
-		} else {
-			statusDisplay = errorStyle.Render("✗")
-		}
+		var statusDisplay string
 
 		duration := fmt.Sprintf("%dms", r.Duration)
 

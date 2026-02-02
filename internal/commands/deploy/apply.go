@@ -185,7 +185,7 @@ Examples:
 			}
 
 			// Show summary
-			deps.Printer.Print(fmt.Sprintf("\n📊 Summary:"))
+			deps.Printer.Print("\n📊 Summary:")
 			deps.Printer.Print(fmt.Sprintf("   Duration: %v", result.CompletedAt.Sub(result.StartedAt)))
 			deps.Printer.Print(fmt.Sprintf("   Operations: %d/%d successful", len(result.Results), len(plan.Operations)))
 		} else {
@@ -194,7 +194,7 @@ Examples:
 				Foreground(lipgloss.Color("9")).
 				Render(fmt.Sprintf("\n❌ Deployment failed: %s\n", result.Error)))
 
-			deps.Printer.PrintError(fmt.Sprintf("⚠️  Partial state detected - some resources may have been created"))
+			deps.Printer.PrintError("⚠️  Partial state detected - some resources may have been created")
 			deps.Printer.PrintError(fmt.Sprintf("   Check report: %s", applyReportDir))
 
 			// Show failed operation

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	"github.com/gin-gonic/gin"
@@ -503,14 +502,4 @@ func (s *Server) handleRaftDisableMaintenance(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "maintenance mode disabled",
 	})
-}
-
-// Helper to parse integer from query string with default
-func parseIntQuery(c *gin.Context, key string, defaultVal int) int {
-	if val := c.Query(key); val != "" {
-		if i, err := strconv.Atoi(val); err == nil {
-			return i
-		}
-	}
-	return defaultVal
 }
