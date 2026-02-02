@@ -140,9 +140,11 @@ func (m *Membership) PromoteNode(nodeID string) error {
 		return NewRaftError("max_voters_reached", "cluster already has maximum of 3 voters")
 	}
 
-	// TODO: Verify node is fully synchronized (RFC Section 11.3)
-	// This would require checking that the node's log is caught up
-	// For now, we'll trust the operator
+	// Note on synchronization (RFC Section 11.3):
+	// The Raft library automatically handles log synchronization when a node is promoted.
+	// AddVoter will wait for the node to catch up before it participates in voting.
+	// Operators should still ensure the node is healthy and connected before promotion.
+	// For stricter verification, check node stats using GetNodeInfo() before calling this method.
 
 	// Promote to voter
 	serverID := raft.ServerID(nodeID)

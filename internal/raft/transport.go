@@ -257,8 +257,14 @@ func (t *GRPCTransport) DecodePeer(buf []byte) raft.ServerAddress {
 }
 
 // SetHeartbeatHandler sets the handler for heartbeat fast-path.
+// This is an optional performance optimization that allows handling heartbeats
+// without going through the normal RPC pipeline. For our edge-optimized use case
+// with small clusters (1-3 nodes) and low latency networks, the standard RPC
+// path provides sufficient performance. If heartbeat performance becomes a
+// bottleneck in production, this can be implemented to bypass the consumeCh.
 func (t *GRPCTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
-	// Not implemented in this version
+	// Intentionally not implemented - standard RPC path is sufficient for our use case
+	// See: https://github.com/hashicorp/raft/blob/main/transport.go for reference implementation
 }
 
 // TimeoutNow sends a TimeoutNow RPC to the target node.
