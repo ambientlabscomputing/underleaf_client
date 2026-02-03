@@ -3,12 +3,16 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 )
@@ -16,6 +20,12 @@ import (
 type APIClient struct {
 	httpClient *http.Client
 	config     policy_manager.ConfigClient
+
+	// CA certificate caching
+	caCertPEM       []byte
+	caCert          *x509.Certificate
+	caCertFetchedAt time.Time
+	caCertMu        sync.RWMutex
 }
 
 func NewAPIClient(config policy_manager.ConfigClient, h *http.Client) *APIClient {
@@ -321,4 +331,102 @@ func (c *APIClient) GetServerConfig(ctx context.Context, serverID string) (map[s
 	}
 
 	return resp.Configuration.Payload, resp.Configuration.Version, nil
+}
+
+// GetCACertificate fetches and caches the CA certificate from the server API
+// The certificate is cached for 1 hour to reduce unnecessary requests
+func (c *APIClient) GetCACertificate(ctx context.Context) ([]byte, error) {
+	c.caCertMu.RLock()
+	// Check if we have a cached cert that's less than 1 hour old
+	if c.caCertPEM != nil && time.Since(c.caCertFetchedAt) < time.Hour {
+		defer c.caCertMu.RUnlock()
+		return c.caCertPEM, nil
+	}
+	c.caCertMu.RUnlock()
+
+	// Need to fetch the certificate
+	c.caCertMu.Lock()
+	defer c.caCertMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if c.caCertPEM != nil && time.Since(c.caCertFetchedAt) < time.Hour {
+		return c.caCertPEM, nil
+	}
+
+	baseURL, ok := c.config.Get("api.base_url")
+	if !ok || baseURL == nil {
+		return nil, fmt.Errorf("api.base_url not configured")
+	}
+
+	// Fetch CA certificate (this is a public endpoint, no auth required)
+	req, err := http.NewRequest("GET", baseURL.(string)+"/ca/certificate", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CA cert request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch CA certificate: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to fetch CA certificate: status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Read the certificate
+	certPEM, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+
+	// Validate that it's a valid PEM-encoded certificate
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("invalid CA certificate: not a valid PEM-encoded certificate")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+	}
+
+	// Cache the certificate
+	c.caCertPEM = certPEM
+	c.caCert = cert
+	c.caCertFetchedAt = time.Now()
+
+	slog.Info("CA certificate fetched and cached",
+		"subject", cert.Subject.String(),
+		"valid_until", cert.NotAfter,
+		"cache_duration", time.Hour)
+
+	return certPEM, nil
+}
+
+// GetCACertificateParsed returns the parsed CA certificate
+// Fetches from server if not cached
+func (c *APIClient) GetCACertificateParsed(ctx context.Context) (*x509.Certificate, error) {
+	if _, err := c.GetCACertificate(ctx); err != nil {
+		return nil, err
+	}
+
+	c.caCertMu.RLock()
+	defer c.caCertMu.RUnlock()
+
+	return c.caCert, nil
+}
+
+// InvalidateCACertificateCache clears the cached CA certificate
+// Useful for testing or when the CA certificate is rotated
+func (c *APIClient) InvalidateCACertificateCache() {
+	c.caCertMu.Lock()
+	defer c.caCertMu.Unlock()
+
+	c.caCertPEM = nil
+	c.caCert = nil
+	c.caCertFetchedAt = time.Time{}
+
+	slog.Info("CA certificate cache invalidated")
 }

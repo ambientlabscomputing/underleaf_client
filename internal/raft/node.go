@@ -37,7 +37,16 @@ type Node struct {
 
 	// maintenanceMode indicates if cluster is in maintenance mode
 	maintenanceMode bool
+
+	// leaderChangeCallbacks are called when leadership state changes
+	leaderChangeCallbacks []LeaderChangeCallback
+
+	// lastKnownRole tracks the last known role to detect transitions
+	lastKnownRole NodeRole
 }
+
+// LeaderChangeCallback is called when the node's leadership state changes
+type LeaderChangeCallback func(isLeader bool)
 
 // NewNode creates a new Raft node.
 func NewNode(config *NodeConfig, logger *slog.Logger) (*Node, error) {
@@ -104,6 +113,7 @@ func (n *Node) Start() error {
 	// Create Raft configuration
 	raftConfig := raft.DefaultConfig()
 	raftConfig.LocalID = raft.ServerID(n.config.NodeID)
+	raftConfig.ProtocolVersion = raft.ProtocolVersionMax // Use latest protocol version for compatibility
 	raftConfig.HeartbeatTimeout = n.config.HeartbeatTimeout
 	raftConfig.ElectionTimeout = n.config.ElectionTimeout
 	raftConfig.LeaderLeaseTimeout = n.config.LeaderLeaseTimeout
@@ -140,6 +150,10 @@ func (n *Node) Start() error {
 	}
 
 	n.logger.Info("raft node started successfully")
+
+	// Start leadership monitoring in background
+	go n.monitorLeadershipChanges()
+
 	return nil
 }
 
@@ -462,4 +476,62 @@ func (n *Node) GetRaft() *raft.Raft {
 // GetFSM returns the FSM instance.
 func (n *Node) GetFSM() *KVStateMachine {
 	return n.fsm
+}
+
+// RegisterLeaderChangeCallback registers a callback to be called when leadership state changes
+func (n *Node) RegisterLeaderChangeCallback(callback LeaderChangeCallback) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.leaderChangeCallbacks = append(n.leaderChangeCallbacks, callback)
+}
+
+// monitorLeadershipChanges monitors for leadership state changes and invokes callbacks
+func (n *Node) monitorLeadershipChanges() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			currentRole := n.GetRole()
+
+			n.mu.Lock()
+			if currentRole != n.lastKnownRole {
+				// Leadership state changed
+				wasLeader := n.lastKnownRole == RoleLeader
+				isLeader := currentRole == RoleLeader
+
+				if wasLeader != isLeader {
+					n.logger.Info("leadership state changed",
+						"was_leader", wasLeader,
+						"is_leader", isLeader,
+						"old_role", n.lastKnownRole,
+						"new_role", currentRole)
+
+					// Invoke callbacks
+					for _, callback := range n.leaderChangeCallbacks {
+						// Run callback in goroutine to avoid blocking
+						go callback(isLeader)
+					}
+				}
+
+				n.lastKnownRole = currentRole
+			}
+			n.mu.Unlock()
+
+		case <-n.shutdownCh:
+			n.logger.Info("stopping leadership monitor")
+			return
+		}
+	}
+}
+
+// GetMembership returns a Membership manager for this node
+func (n *Node) GetMembership() *Membership {
+	return NewMembership(n)
+}
+
+// ID returns the Node ID
+func (n *Node) ID() string {
+	return n.config.NodeID
 }

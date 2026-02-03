@@ -328,3 +328,36 @@ func (m *Membership) ListNodes() ([]*NodeInfo, error) {
 
 	return nodes, nil
 }
+
+// AddNodeAsLearner adds a new node to the cluster as a non-voter (learner).
+// This is a simpler variant of AddNode that always adds as a learner.
+func (m *Membership) AddNodeAsLearner(nodeID string, address string) error {
+	if !m.node.IsLeader() {
+		return ErrNotLeader
+	}
+
+	// Check if node already exists
+	config, err := m.node.GetConfiguration()
+	if err != nil {
+		return err
+	}
+
+	if _, exists := config.Nodes[nodeID]; exists {
+		return ErrNodeAlreadyExists
+	}
+
+	// Add as learner (non-voter)
+	serverID := raft.ServerID(nodeID)
+	serverAddr := raft.ServerAddress(address)
+
+	future := m.node.raft.AddNonvoter(serverID, serverAddr, 0, 0)
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to add node as learner: %w", err)
+	}
+
+	m.node.logger.Info("node added to cluster as learner",
+		"node_id", nodeID,
+		"address", address)
+
+	return nil
+}

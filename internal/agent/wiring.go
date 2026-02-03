@@ -13,6 +13,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/mdns"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
@@ -185,11 +186,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	})
 
 	// Start the config manager
-	slog.Info("starting config manager", "server_id", serverID)
 	if err := policyManager.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start config manager: %w", err)
 	}
-	slog.Info("config manager started successfully")
 
 	// Create snapshot config client
 	snapshotClient := policy_manager.NewSnapshotPolicyClientWithManager(policyManager, store)
@@ -239,7 +238,13 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Initialize Raft node if configured
 	var raftNode *raft.Node
-	if raftConfig := getRaftConfigFromSnapshot(snapshotClient); raftConfig != nil {
+	// Try snapshot config first, fall back to simple config for local-only testing
+	raftConfig := getRaftConfigFromSnapshot(snapshotClient)
+	if raftConfig == nil {
+		raftConfig = getRaftConfigFromSnapshot(configClient)
+	}
+
+	if raftConfig != nil {
 		slog.Info("initializing raft cluster node", "node_id", raftConfig.NodeID)
 
 		var err error
@@ -252,6 +257,27 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 			// Wire Raft node into server
 			server.SetRaftNode(raftNode)
+
+			// Initialize mDNS coordinator if enabled (pass raftConfig for NodeID)
+			// Try snapshot config first, fall back to simple config
+			mdnsCoordinator := initializeMDNSCoordinator(ctx, snapshotClient, cplaneClient, port, raftConfig)
+			if mdnsCoordinator == nil {
+				mdnsCoordinator = initializeMDNSCoordinator(ctx, configClient, cplaneClient, port, raftConfig)
+			}
+
+			if mdnsCoordinator != nil {
+				// Register mDNS coordinator with Raft leadership callbacks
+				raftNode.RegisterLeaderChangeCallback(mdnsCoordinator.OnLeadershipChange)
+				slog.Info("mDNS coordinator registered with Raft node")
+
+				// Start node-specific mDNS announcement (always running)
+				if err := mdnsCoordinator.Start(); err != nil {
+					slog.Warn("failed to start mDNS coordinator", "error", err)
+				} else {
+				}
+			} else {
+				slog.Warn("DEBUG: mDNS coordinator is nil, not starting")
+			}
 
 			// Watch for Raft configuration changes
 			go watchConfigForRaftUpdates(ctx, policyManager, raftNode)
@@ -576,15 +602,23 @@ func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, han
 
 // getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
 func getRaftConfigFromSnapshot(config policy_manager.ConfigClient) *raft.NodeConfig {
+	// Helper function to try both local. prefix and without
+	getConfigVal := func(key string) (interface{}, bool) {
+		if val, ok := config.Get("local." + key); ok {
+			return val, true
+		}
+		return config.Get(key)
+	}
+
 	// Check if raft is enabled
-	if enabled, ok := config.Get("raft.enabled"); !ok || enabled != true {
+	if enabled, ok := getConfigVal("raft.enabled"); !ok || enabled != true {
 		return nil
 	}
 
 	// Extract required Raft configuration
-	nodeID, hasNodeID := config.Get("raft.node_id")
-	bindAddr, hasBindAddr := config.Get("raft.bind_addr")
-	dataDir, hasDataDir := config.Get("raft.data_dir")
+	nodeID, hasNodeID := getConfigVal("raft.node_id")
+	bindAddr, hasBindAddr := getConfigVal("raft.bind_addr")
+	dataDir, hasDataDir := getConfigVal("raft.data_dir")
 
 	if !hasNodeID || !hasBindAddr || !hasDataDir {
 		slog.Warn("raft enabled but missing required configuration",
@@ -602,7 +636,7 @@ func getRaftConfigFromSnapshot(config policy_manager.ConfigClient) *raft.NodeCon
 	}
 
 	// Extract optional bootstrap peers
-	if peers, ok := config.Get("raft.bootstrap_peers"); ok {
+	if peers, ok := getConfigVal("raft.bootstrap_peers"); ok {
 		if peersList, ok := peers.([]interface{}); ok {
 			cfg.BootstrapPeers = make([]string, 0, len(peersList))
 			for _, peer := range peersList {
@@ -614,13 +648,37 @@ func getRaftConfigFromSnapshot(config policy_manager.ConfigClient) *raft.NodeCon
 	}
 
 	// Extract optional bootstrap flag (default: auto-detect based on peers)
-	if bootstrap, ok := config.Get("raft.bootstrap"); ok {
+	if bootstrap, ok := getConfigVal("raft.bootstrap"); ok {
 		if bootstrapBool, ok := bootstrap.(bool); ok {
 			cfg.Bootstrap = bootstrapBool
 		}
 	} else {
 		// Auto-detect: bootstrap if no peers specified
 		cfg.Bootstrap = len(cfg.BootstrapPeers) == 0
+	}
+
+	// Apply defaults for any unset timeout/threshold values
+	defaults := raft.DefaultNodeConfig()
+	if cfg.HeartbeatTimeout == 0 {
+		cfg.HeartbeatTimeout = defaults.HeartbeatTimeout
+	}
+	if cfg.ElectionTimeout == 0 {
+		cfg.ElectionTimeout = defaults.ElectionTimeout
+	}
+	if cfg.LeaderLeaseTimeout == 0 {
+		cfg.LeaderLeaseTimeout = defaults.LeaderLeaseTimeout
+	}
+	if cfg.SnapshotInterval == 0 {
+		cfg.SnapshotInterval = defaults.SnapshotInterval
+	}
+	if cfg.SnapshotThreshold == 0 {
+		cfg.SnapshotThreshold = defaults.SnapshotThreshold
+	}
+	if cfg.MaxValueSize == 0 {
+		cfg.MaxValueSize = defaults.MaxValueSize
+	}
+	if cfg.MaxStorageSize == 0 {
+		cfg.MaxStorageSize = defaults.MaxStorageSize
 	}
 
 	return cfg
@@ -642,16 +700,18 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Nod
 		return nil, fmt.Errorf("failed to start raft node: %w", err)
 	}
 
-	// Wait for leader election (with timeout)
-	slog.Info("waiting for raft leader election", "node_id", config.NodeID)
-
-	if err := node.WaitForLeader(30 * time.Second); err != nil {
-		slog.Warn("raft leader election timeout", "error", err)
-		// Don't fail - node can still participate in cluster
-	} else {
-		leader, _ := node.GetLeader()
-		slog.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
-	}
+	// Wait for leader election in background (non-blocking)
+	// Don't block agent startup waiting for Raft cluster to form
+	go func() {
+		slog.Info("waiting for raft leader election", "node_id", config.NodeID)
+		if err := node.WaitForLeader(30 * time.Second); err != nil {
+			slog.Warn("raft leader election timeout", "error", err)
+			// Don't fail - node can still participate in cluster
+		} else {
+			leader, _ := node.GetLeader()
+			slog.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
+		}
+	}()
 
 	return node, nil
 }
@@ -682,4 +742,116 @@ func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.Polic
 			return
 		}
 	}
+}
+
+// initializeMDNSCoordinator creates and initializes the mDNS coordinator for leader discovery
+func initializeMDNSCoordinator(ctx context.Context, config policy_manager.ConfigClient, cplaneClient *controlplane.CPlaneClient, port int, raftConfig *raft.NodeConfig) *mdns.Coordinator {
+	// Helper function to try both local. prefix and without
+	getConfigVal := func(key string) (interface{}, bool) {
+		if val, ok := config.Get("local." + key); ok {
+			return val, true
+		}
+		return config.Get(key)
+	}
+
+	// Check if mDNS is enabled
+	enabled, hasEnabled := getConfigVal("mdns.enabled")
+	if !hasEnabled || enabled != true {
+		slog.Info("mDNS service discovery not enabled")
+		return nil
+	}
+
+	// Extract mDNS configuration
+	clusterID, hasClusterID := getConfigVal("mdns.cluster_id")
+	if !hasClusterID || clusterID == "" {
+		slog.Warn("mDNS enabled but cluster_id not configured - mDNS disabled")
+		return nil
+	}
+
+	// Get NodeID from Raft config
+	nodeID := ""
+	if raftConfig != nil {
+		nodeID = raftConfig.NodeID
+	}
+	if nodeID == "" {
+		slog.Warn("mDNS enabled but no NodeID available from Raft config - per-node discovery disabled")
+	}
+
+	// Get optional configuration with defaults
+	mdnsPort := port
+	if p, ok := getConfigVal("mdns.port"); ok {
+		if portInt, ok := p.(int); ok {
+			mdnsPort = portInt
+		} else if portFloat, ok := p.(float64); ok {
+			mdnsPort = int(portFloat)
+		}
+	}
+
+	ttl := 2 * time.Second
+	if t, ok := getConfigVal("mdns.ttl"); ok {
+		if ttlInt, ok := t.(int); ok {
+			ttl = time.Duration(ttlInt) * time.Second
+		} else if ttlFloat, ok := t.(float64); ok {
+			ttl = time.Duration(ttlFloat) * time.Second
+		}
+	}
+
+	iface := ""
+	if i, ok := getConfigVal("mdns.interface"); ok {
+		if ifaceStr, ok := i.(string); ok {
+			iface = ifaceStr
+		}
+	}
+
+	version := ""
+	if v, ok := getConfigVal("mdns.version"); ok {
+		if vStr, ok := v.(string); ok {
+			version = vStr
+		}
+	}
+	if version == "" {
+		// Default to build version
+		version = "1.0.0"
+	}
+
+	// Fetch CA certificate and compute fingerprint
+	caFingerprint := ""
+	// Create a temporary API client to fetch CA cert
+	apiClient := controlplane.NewAPIClient(config, nil)
+	caCertPEM, err := apiClient.GetCACertificate(ctx)
+	if err != nil {
+		slog.Warn("failed to fetch CA certificate for mDNS fingerprint", "error", err)
+		// Continue without fingerprint - validation will be skipped
+	} else {
+		caFingerprint = mdns.ComputeCAFingerprint(caCertPEM)
+		slog.Info("CA certificate fingerprint computed for mDNS", "fingerprint", caFingerprint[:16]+"...")
+	}
+
+	// Create mDNS configuration
+	mdnsConfig := &mdns.Config{
+		Enabled:       true,
+		NodeID:        nodeID,
+		Port:          mdnsPort,
+		TTL:           ttl,
+		Interface:     iface,
+		ClusterID:     clusterID.(string),
+		CAFingerprint: caFingerprint,
+		Version:       version,
+	}
+
+	// Create coordinator
+	coordinator, err := mdns.NewCoordinator(mdnsConfig, slog.Default())
+	if err != nil {
+		slog.Error("failed to create mDNS coordinator", "error", err)
+		return nil
+	}
+
+	slog.Info("mDNS coordinator initialized",
+		"node_id", nodeID,
+		"cluster_id", clusterID,
+		"port", mdnsPort,
+		"ttl", ttl,
+		"interface", iface)
+
+	return coordinator
 }

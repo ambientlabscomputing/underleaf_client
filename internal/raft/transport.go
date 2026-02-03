@@ -355,7 +355,7 @@ type grpcRaftHandler struct {
 func (h *grpcRaftHandler) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	// Convert protobuf to raft types
 	args := &raft.AppendEntriesRequest{
-		RPCHeader:         raft.RPCHeader{},
+		RPCHeader:         raft.RPCHeader{ProtocolVersion: raft.ProtocolVersionMax},
 		Term:              req.Term,
 		Leader:            req.Leader,
 		PrevLogEntry:      req.PrevLogEntry,
@@ -400,7 +400,7 @@ func (h *grpcRaftHandler) AppendEntries(ctx context.Context, req *pb.AppendEntri
 // RequestVote handles incoming RequestVote RPC.
 func (h *grpcRaftHandler) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	args := &raft.RequestVoteRequest{
-		RPCHeader:          raft.RPCHeader{},
+		RPCHeader:          raft.RPCHeader{ProtocolVersion: raft.ProtocolVersionMax},
 		Term:               req.Term,
 		Candidate:          req.Candidate,
 		LastLogIndex:       req.LastLogIndex,
@@ -445,7 +445,7 @@ func (h *grpcRaftHandler) InstallSnapshot(stream pb.RaftTransport_InstallSnapsho
 	}
 
 	args := &raft.InstallSnapshotRequest{
-		RPCHeader:          raft.RPCHeader{},
+		RPCHeader:          raft.RPCHeader{ProtocolVersion: raft.ProtocolVersionMax},
 		SnapshotVersion:    raft.SnapshotVersionMax,
 		Term:               first.Term,
 		Leader:             first.Leader,
@@ -512,7 +512,7 @@ func (h *grpcRaftHandler) InstallSnapshot(stream pb.RaftTransport_InstallSnapsho
 // TimeoutNow handles incoming TimeoutNow RPC.
 func (h *grpcRaftHandler) TimeoutNow(ctx context.Context, req *pb.TimeoutNowRequest) (*pb.TimeoutNowResponse, error) {
 	args := &raft.TimeoutNowRequest{
-		RPCHeader: raft.RPCHeader{},
+		RPCHeader: raft.RPCHeader{ProtocolVersion: raft.ProtocolVersionMax},
 	}
 
 	respCh := make(chan raft.RPCResponse, 1)

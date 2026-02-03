@@ -99,6 +99,7 @@ func (l *Launcher) startDev(ctx context.Context) error {
 		logger.Error("failed to wire agent dependencies", "err", err)
 		return fmt.Errorf("failed to wire agent: %w", err)
 	}
+	fmt.Println("DEBUG [launch.go]: WireAgent returned successfully")
 
 	// Stop components on exit
 	defer func() {
@@ -119,6 +120,7 @@ func (l *Launcher) startDev(ctx context.Context) error {
 	}()
 
 	// Start the server with all dependencies
+	fmt.Println("DEBUG [launch.go]: About to call deps.Server.Start()")
 	return deps.Server.Start(ctx)
 }
 

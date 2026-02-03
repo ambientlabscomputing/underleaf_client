@@ -35,8 +35,9 @@ var kvGetCmd = &cobra.Command{
 			key = "/" + key
 		}
 
-		// Create agent client
-		client := agent.NewClient(agentPort)
+		// Create agent client with effective port
+		effectivePort := getEffectiveAgentPort(cmd, agentPort)
+		client := agent.NewClient(effectivePort)
 
 		// Get value
 		resp, err := client.DoRequest("GET", fmt.Sprintf("/api/v1/raft/kv%s", key), nil)
@@ -76,8 +77,9 @@ var kvPutCmd = &cobra.Command{
 			key = "/" + key
 		}
 
-		// Create agent client
-		client := agent.NewClient(agentPort)
+		// Create agent client with effective port
+		effectivePort := getEffectiveAgentPort(cmd, agentPort)
+		client := agent.NewClient(effectivePort)
 
 		// Put value
 		payload := map[string]string{
@@ -112,8 +114,9 @@ var kvDeleteCmd = &cobra.Command{
 			key = "/" + key
 		}
 
-		// Create agent client
-		client := agent.NewClient(agentPort)
+		// Create agent client with effective port
+		effectivePort := getEffectiveAgentPort(cmd, agentPort)
+		client := agent.NewClient(effectivePort)
 
 		// Delete value
 		_, err := client.DoRequest("DELETE", fmt.Sprintf("/api/v1/raft/kv%s", key), nil)
@@ -146,8 +149,9 @@ var kvListCmd = &cobra.Command{
 			}
 		}
 
-		// Create agent client
-		client := agent.NewClient(agentPort)
+		// Create agent client with effective port
+		effectivePort := getEffectiveAgentPort(cmd, agentPort)
+		client := agent.NewClient(effectivePort)
 
 		// List keys
 		resp, err := client.DoRequest("GET", fmt.Sprintf("/api/v1/raft/kv?prefix=%s", prefix), nil)

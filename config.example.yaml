@@ -10,6 +10,9 @@ payload:
     base_url: http://localhost:8080/api/v1
     # Use HTTPS in production:
     # base_url: https://api.underleaf.example.com/api/v1
+    
+    # Use HTTPS for mDNS-discovered endpoints (default: true)
+    use_https: true
 
   # Authentication Configuration
   auth:
@@ -83,3 +86,36 @@ payload:
     # Example: ["node2@10.0.1.2:7946", "node3@10.0.1.3:7946"]
     # Leave empty when bootstrapping the first node
     bootstrap_peers: []
+
+  # Optional: mDNS Service Discovery Configuration
+  # Enable automatic discovery of the cluster leader via api.underleaf.local
+  mdns:
+    # Enable/disable mDNS service discovery (default: false)
+    enabled: false
+    
+    # Port where the API is served (default: 8080)
+    # Used for announcing the service when this node is the leader
+    port: 8080
+    
+    # TTL for mDNS records in seconds (default: 2)
+    # Lower values provide faster failover but increase network traffic
+    ttl: 2
+    
+    # Network interface to bind mDNS server to (optional)
+    # Leave empty to bind to all interfaces
+    # Example: en0, eth0, wlan0
+    interface: ""
+    
+    # Cluster ID - unique identifier for this cluster (required if enabled)
+    # Used to distinguish between multiple Underleaf clusters on the same network
+    # Example: my-prod-cluster, staging-01
+    cluster_id: ""
+    
+    # Version string to advertise (optional)
+    # Defaults to the client version if not specified
+    version: ""
+    
+    # NOTE: mDNS requires UDP port 5353 for multicast traffic
+    # If this port is blocked by firewall or unavailable, the system will
+    # gracefully degrade and fall back to static api.base_url configuration
+    # No errors will occur, but mDNS discovery will not function

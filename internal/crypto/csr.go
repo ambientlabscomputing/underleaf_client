@@ -61,10 +61,11 @@ func GenerateCSR(privateKey *ecdsa.PrivateKey, serverID, orgID, orgName string) 
 			Organization:       []string{orgID}, // Use org ID, not name
 			OrganizationalUnit: []string{"Edge Servers"},
 		},
-		// Include server ID in DNS names for flexibility
+		// Include server ID and mDNS hostname in DNS names for flexibility
 		DNSNames: []string{
 			serverID,
 			fmt.Sprintf("%s.underleaf.internal", serverID),
+			"api.underleaf.local", // For mDNS service discovery
 		},
 	}
 

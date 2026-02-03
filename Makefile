@@ -1,4 +1,4 @@
-.PHONY: build test clean install fmt vet lint run-cli run-agent help
+.PHONY: build test clean install fmt vet lint run-cli run-agent help e2e-test
 
 # Variables
 BINARY_CLI=ufctl
@@ -16,6 +16,10 @@ help:
 	@echo ""
 	@grep -E '^##' Makefile | sed 's/## /  /'
 	@echo ""
+
+## bni: Build & Install
+.PHONY: bni
+bni: build install
 
 ## build: Build both CLI and agent binaries
 build: build-cli build-agent
@@ -58,11 +62,10 @@ test-coverage:
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "✓ Coverage report generated: coverage.html"
 
-## fmt: Format code
-fmt:
-	@echo "Formatting code..."
-	@go fmt ./...
-	@echo "✓ Code formatted"
+## e2e-test: Run end-to-end tests with multiple agent processes
+e2e-test: build
+	@echo "Running E2E tests..."
+	@./scripts/e2e-test.sh
 
 ## vet: Run go vet
 vet:

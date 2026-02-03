@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +21,8 @@ type Server struct {
 	configClient   policy_manager.ConfigClient
 	commandHandler *exec.CommandHandler
 	raftNode       *raft.Node
+	sealManager    *raft.SealManager
+	secretStore    *raft.SecretStore
 }
 
 // NewServer creates a new agent server
@@ -55,6 +57,16 @@ func (s *Server) SetRaftNode(node *raft.Node) {
 	s.raftNode = node
 }
 
+// SetSealManager injects the seal manager into the server
+func (s *Server) SetSealManager(sm *raft.SealManager) {
+	s.sealManager = sm
+}
+
+// SetSecretStore injects the secret store into the server
+func (s *Server) SetSecretStore(ss *raft.SecretStore) {
+	s.secretStore = ss
+}
+
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
 	// Health check
@@ -69,6 +81,14 @@ func (s *Server) setupRoutes() {
 		api.GET("/commands/settings", s.handleGetCommandSettings)
 		api.GET("/config", s.handleGetConfig)
 		api.PUT("/config", s.handleUpdateConfig)
+
+		// Cluster trust ceremony endpoints
+		cluster := api.Group("/cluster")
+		{
+			cluster.POST("/join-request", s.handleClusterJoinRequest)
+			cluster.POST("/join-confirm", s.handleClusterJoinConfirm)
+			cluster.GET("/status", s.handleClusterStatus)
+		}
 
 		// Raft cluster endpoints
 		raft := api.Group("/raft")
@@ -93,6 +113,23 @@ func (s *Server) setupRoutes() {
 			// Maintenance mode
 			raft.POST("/maintenance/enable", s.handleRaftEnableMaintenance)
 			raft.POST("/maintenance/disable", s.handleRaftDisableMaintenance)
+		}
+
+		// Secret management endpoints
+		secrets := api.Group("/secrets")
+		{
+			// Management endpoints (must come before catch-all routes)
+			secrets.POST("/init", s.handleSecretsInit)
+			secrets.POST("/seal", s.handleSecretsSeal)
+			secrets.POST("/unseal", s.handleSecretsUnseal)
+			secrets.GET("/status", s.handleSecretsStatus)
+			secrets.GET("/list", s.handleSecretList)
+
+			// Secret CRUD endpoints - use more specific patterns
+			secrets.GET("/get/*path", s.handleSecretGet)
+			secrets.PUT("/put/*path", s.handleSecretPut)
+			secrets.DELETE("/delete/*path", s.handleSecretDelete)
+			secrets.GET("/versions/*path", s.handleSecretVersions)
 		}
 	}
 }

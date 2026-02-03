@@ -18,6 +18,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	// Global flag for specifying which agent port to connect to
+	configAgentPort int
+)
+
+type configAgentPortKey struct{}
+
 var rootCmd = &cobra.Command{
 	Use:   "ufctl",
 	Short: "Underleaf CLI - Manage edge servers and configurations",
@@ -37,6 +44,11 @@ local servers and the control plane.`,
 			cmd.SetContext(ctx)
 		}
 
+		// Store config agent port in context if specified
+		if configAgentPort != 0 {
+			ctx = context.WithValue(ctx, configAgentPortKey{}, configAgentPort)
+			cmd.SetContext(ctx)
+		}
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default action when no subcommands are provided
@@ -47,6 +59,9 @@ local servers and the control plane.`,
 }
 
 func init() {
+	// Add global persistent flags
+	rootCmd.PersistentFlags().IntVar(&configAgentPort, "config-agent-port", 0, "Override the agent port to connect to (default: 8081)")
+
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.StartCmd)
 	rootCmd.AddCommand(local.AuthCmd)
