@@ -44,6 +44,7 @@ type EventClient interface {
 
 type Client struct {
 	eventBus   event_bus_client.EventClient
+	groupID    string // Consumer group ID (typically server_id)
 	channels   map[string][]chan event_bus_client.Message
 	channelsMu sync.RWMutex // Protects channels map from concurrent access
 }
@@ -51,6 +52,7 @@ type Client struct {
 func (c *Client) Start(ctx context.Context, serverID string) error {
 	logger := logging.GetLogger(ctx)
 	logger.Info("starting event bus client")
+	c.groupID = serverID // Use server ID as consumer group ID
 	c.channels = make(map[string][]chan event_bus_client.Message)
 	InitSubscriptions(serverID)
 
@@ -130,6 +132,7 @@ func (c *Client) Subscribe(ctx context.Context, selector SelectorFields) (Client
 	// New subscription - register with event bus
 	// Use nil for empty filter fields (event_bus_client expects nil for "no filter")
 	subscriptionReq := event_bus_client.SubscriptionRequest{
+		GroupID:    c.groupID, // CRITICAL: Set GroupID for consumer group tracking and offset management
 		Topic:      selector.Topic,
 		TargetType: nilIfEmpty(selector.TargetType),
 		TargetID:   nilIfEmpty(selector.TargetID),

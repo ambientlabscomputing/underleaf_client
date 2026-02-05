@@ -2,11 +2,16 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -29,15 +34,19 @@ type MetricsCollector struct {
 	serverID        string
 	cplane          controlplane.CPlaneServerClient
 	policyManager   policy_manager.PolicyManager
+	raftNode        *raft.Node                 // Raft node for extracting cluster info (optional)
+	cplaneAPI       *controlplane.CPlaneClient // Full client for CA cert fetching
 	dockerCollector *DockerCollector
 	interval        time.Duration
 	dockerInterval  time.Duration
 	stopCh          chan struct{}
 	doneCh          chan struct{}
+	caFingerprint   string // Cached CA fingerprint
+	raftAddress     string // Cached Raft address
 }
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, policyManager policy_manager.PolicyManager, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
+func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, policyManager policy_manager.PolicyManager, raftNode *raft.Node, cplaneAPI *controlplane.CPlaneClient, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
 	if interval < MinMetricsInterval {
 		interval = DefaultMetricsInterval
 	}
@@ -52,16 +61,24 @@ func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient
 		dockerCollector = nil
 	}
 
-	return &MetricsCollector{
+	m := &MetricsCollector{
 		serverID:        serverID,
 		cplane:          cplane,
 		policyManager:   policyManager,
+		raftNode:        raftNode,
+		cplaneAPI:       cplaneAPI,
 		dockerCollector: dockerCollector,
 		interval:        interval,
 		dockerInterval:  dockerInterval,
 		stopCh:          make(chan struct{}),
 		doneCh:          make(chan struct{}),
 	}
+
+	// Compute and cache raft address and CA fingerprint
+	// This works even without an active Raft node by reading from config
+	m.computeRaftInfo(context.Background())
+
+	return m
 }
 
 // Start begins the metrics collection loop
@@ -99,6 +116,13 @@ func (m *MetricsCollector) Stop() {
 
 func (m *MetricsCollector) run(ctx context.Context) {
 	defer close(m.doneCh)
+
+	// Send raft info on first run if available
+	if m.raftAddress != "" || m.caFingerprint != "" {
+		if err := m.sendRaftInfo(ctx); err != nil {
+			slog.Error("failed to send raft info", "error", err)
+		}
+	}
 
 	// Collect and send metrics immediately on start
 	m.collectAndSend(ctx)
@@ -258,4 +282,90 @@ func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
 // CollectOnce collects metrics once without sending (useful for testing)
 func (m *MetricsCollector) CollectOnce() (*servertypes.MetricsUpdateRequest, error) {
 	return m.collect()
+}
+
+// sendRaftInfo sends raft_address and ca_fingerprint to backend via PATCH
+func (m *MetricsCollector) sendRaftInfo(ctx context.Context) error {
+	updates := servertypes.UpdateServerRequest{}
+	if m.raftAddress != "" {
+		updates.RaftAddress = m.raftAddress
+	}
+	if m.caFingerprint != "" {
+		updates.CAFingerprint = m.caFingerprint
+	}
+
+	if updates.RaftAddress == "" && updates.CAFingerprint == "" {
+		return nil // Nothing to send
+	}
+
+	_, err := m.cplane.UpdateServer(ctx, m.serverID, updates)
+	if err != nil {
+		return fmt.Errorf("failed to update server with raft info: %w", err)
+	}
+
+	slog.Info("raft info sent to backend",
+		"raft_address", m.raftAddress,
+		"ca_fingerprint", m.caFingerprint[:16]+"...")
+	return nil
+}
+
+// computeRaftInfo extracts raft address and CA fingerprint for auto-reporting
+// This works even without an active Raft node - it reads from config file
+func (m *MetricsCollector) computeRaftInfo(ctx context.Context) {
+	// Try to get raft address from active Raft node first (if available)
+	if m.raftNode != nil {
+		raftConfig, _ := m.raftNode.GetConfiguration()
+		if raftConfig != nil && raftConfig.Nodes != nil {
+			// Try to get this node's address from cluster config
+			if nodeInfo, ok := raftConfig.Nodes[m.raftNode.ID()]; ok && nodeInfo.Address != "" {
+				m.raftAddress = nodeInfo.Address
+				slog.Info("raft address determined from cluster config", "address", m.raftAddress)
+			}
+		}
+	}
+
+	// If we don't have a Raft node or couldn't get address, compute from config file
+	// This allows us to report potential raft_address even before joining a cluster
+	if m.raftAddress == "" {
+		// Get from policy manager config
+		snapshot, err := m.policyManager.GetSnapshot()
+		if err == nil && snapshot.Payload != nil {
+			if raftVal, ok := snapshot.Payload["raft"]; ok {
+				if raftMap, ok := raftVal.(map[string]interface{}); ok {
+					if bindPort, ok := raftMap["bind_port"].(float64); ok {
+						// Get local IP
+						if ipAddr, err := getOutboundIP(); err == nil {
+							m.raftAddress = fmt.Sprintf("%s:%d", ipAddr, int(bindPort))
+							slog.Info("raft address computed from bind port and local IP", "address", m.raftAddress)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Compute CA fingerprint if we have the API client
+	if m.cplaneAPI != nil {
+		caCertPEM, err := m.cplaneAPI.API().GetCACertificate(ctx)
+		if err != nil {
+			slog.Warn("failed to fetch CA certificate for fingerprint", "error", err)
+		} else {
+			// Import mdns package's ComputeCAFingerprint function
+			hash := sha256.Sum256(caCertPEM)
+			m.caFingerprint = hex.EncodeToString(hash[:])
+			slog.Info("CA fingerprint computed", "fingerprint", m.caFingerprint[:16]+"...")
+		}
+	}
+}
+
+// getOutboundIP gets the preferred outbound IP of this machine
+func getOutboundIP() (string, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
 }

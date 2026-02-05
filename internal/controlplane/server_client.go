@@ -149,3 +149,15 @@ func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, p
 	}
 	return &response, nil
 }
+
+func (c *ServerClient) UpdateClusterMemberStatus(ctx context.Context, clusterID, serverID, role, leaderID string) error {
+	var response interface{}
+	payload := map[string]interface{}{
+		"role":      role,
+		"leader_id": leaderID,
+	}
+	if err := c.api.POST(fmt.Sprintf("/clusters/%s/members/%s/heartbeat", clusterID, serverID), payload, &response); err != nil {
+		return err
+	}
+	return nil
+}

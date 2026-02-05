@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -28,6 +29,7 @@ type Dependencies struct {
 	Server           *Server
 	CommandHandler   *exec.CommandHandler
 	MetricsCollector *MetricsCollector
+	ClusterReporter  *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
 	BusClient        *bus.Client            // Event bus client for cleanup on shutdown
 	UpdateManager    *updater.UpdateManager // Update manager for auto-updates
 	CommandDrainer   *CommandDrainer        // Command drainer for graceful updates
@@ -210,6 +212,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	if busClient != nil {
 		go subscribeToCommandEvents(ctx, busClient, commandHandler, serverID.(string))
 		go subscribeToDeploymentEvents(ctx, busClient, deploymentHandler, serverID.(string))
+		go subscribeToClusterMembershipEvents(ctx, busClient, policyManager, serverID.(string))
 	}
 
 	// Watch for config updates to refresh command settings
@@ -221,16 +224,6 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		// Don't fail agent startup if network info publish fails
 	}
 
-	// Initialize and start metrics collector with Docker support
-	metricsCollector := NewMetricsCollector(
-		serverID.(string),
-		cplaneClient.Servers,
-		policyManager,
-		DefaultMetricsInterval,
-		DefaultDockerMetricsInterval,
-	)
-	metricsCollector.Start(ctx)
-
 	// Initialize server
 	server := NewServer(port)
 	server.SetDependencies(policyManager, snapshotClient)
@@ -238,6 +231,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Initialize Raft node if configured
 	var raftNode *raft.Node
+	var clusterReporter *ClusterStatusReporter
 	// Try snapshot config first, fall back to simple config for local-only testing
 	raftConfig := getRaftConfigFromSnapshot(snapshotClient)
 	if raftConfig == nil {
@@ -246,6 +240,16 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	if raftConfig != nil {
 		slog.Info("initializing raft cluster node", "node_id", raftConfig.NodeID)
+
+		// Extract cluster_id from policy manager snapshot (it's not stored in raftConfig struct)
+		var clusterID string
+		if snapshot, err := policyManager.GetSnapshot(); err == nil && snapshot != nil && snapshot.Payload != nil {
+			if raftVal, ok := snapshot.Payload["raft"]; ok {
+				if raftMap, ok := raftVal.(map[string]interface{}); ok {
+					clusterID, _ = raftMap["cluster_id"].(string)
+				}
+			}
+		}
 
 		var err error
 		raftNode, err = initializeRaftNode(ctx, raftConfig)
@@ -279,12 +283,90 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 				slog.Warn("DEBUG: mDNS coordinator is nil, not starting")
 			}
 
-			// Watch for Raft configuration changes
-			go watchConfigForRaftUpdates(ctx, policyManager, raftNode)
+			// Watch for Raft configuration changes (peer updates)
+			go watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
+
+			// Initialize and start cluster status reporter
+			clusterReporter = NewClusterStatusReporter(
+				serverID.(string),
+				clusterID,
+				cplaneClient.Servers,
+				raftNode,
+				DefaultClusterReportInterval,
+			)
+			clusterReporter.Start(ctx)
+			slog.Info("cluster status reporter started")
 		}
 	} else {
-		slog.Info("raft cluster not configured, KV quorum disabled")
+		slog.Info("raft cluster not configured on startup, checking current snapshot")
+
+		// Check if current snapshot already has raft config that wasn't detected
+		snapshot, err := policyManager.GetSnapshot()
+		if err == nil && snapshot != nil && snapshot.Payload != nil {
+			// Extract both raftConfig and cluster_id
+			raftConfig := getRaftConfigFromPayload(snapshot.Payload)
+			var clusterID string
+			if raftVal, ok := snapshot.Payload["raft"]; ok {
+				if raftMap, ok := raftVal.(map[string]interface{}); ok {
+					clusterID, _ = raftMap["cluster_id"].(string)
+				}
+			}
+			if raftConfig != nil {
+				slog.Info("found raft config in current snapshot, initializing now", "node_id", raftConfig.NodeID)
+
+				raftNode, err := initializeRaftNode(ctx, raftConfig)
+				if err != nil {
+					slog.Warn("failed to initialize raft node from snapshot", "error", err)
+				} else {
+					slog.Info("raft node initialized successfully from current snapshot", "node_id", raftConfig.NodeID)
+					server.SetRaftNode(raftNode)
+
+					// Initialize mDNS coordinator if enabled
+					mdnsCoordinator := initializeMDNSCoordinator(ctx, snapshotClient, cplaneClient, port, raftConfig)
+					if mdnsCoordinator != nil {
+						raftNode.RegisterLeaderChangeCallback(mdnsCoordinator.OnLeadershipChange)
+						if err := mdnsCoordinator.Start(); err != nil {
+							slog.Warn("failed to start mDNS coordinator", "error", err)
+						}
+					}
+
+					// Watch for peer updates
+					go watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
+
+					// Initialize cluster reporter
+					clusterReporter = NewClusterStatusReporter(
+						serverID.(string),
+						clusterID,
+						cplaneClient.Servers,
+						raftNode,
+						DefaultClusterReportInterval,
+					)
+					clusterReporter.Start(ctx)
+					slog.Info("cluster status reporter started")
+				}
+			} else {
+				slog.Info("no raft config in current snapshot, will monitor for cluster assignment")
+				// Watch for Raft configuration to appear (when server is added to cluster)
+				go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient)
+			}
+		} else {
+			slog.Info("could not check current snapshot, will monitor for cluster assignment")
+			// Watch for Raft configuration to appear (when server is added to cluster)
+			go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient)
+		}
 	}
+
+	// Initialize and start metrics collector AFTER Raft (so we can pass raft node reference)
+	metricsCollector := NewMetricsCollector(
+		serverID.(string),
+		cplaneClient.Servers,
+		policyManager,
+		raftNode,
+		cplaneClient,
+		DefaultMetricsInterval,
+		DefaultDockerMetricsInterval,
+	)
+	metricsCollector.Start(ctx)
 
 	// Initialize update manager
 	updateBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
@@ -313,6 +395,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		Server:           server,
 		CommandHandler:   commandHandler,
 		MetricsCollector: metricsCollector,
+		ClusterReporter:  clusterReporter,
 		BusClient:        busClient, // Store bus client for cleanup
 		UpdateManager:    updateManager,
 		CommandDrainer:   drainer,
@@ -425,6 +508,48 @@ func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handle
 			handler.HandleCommandEvent(ctx, []byte(msg.Content))
 		case <-ctx.Done():
 			slog.Info("stopping command event subscription")
+			return
+		}
+	}
+}
+
+// subscribeToClusterMembershipEvents subscribes to cluster membership change events
+func subscribeToClusterMembershipEvents(ctx context.Context, busClient *bus.Client, policyManager policy_manager.PolicyManager, serverID string) {
+	slog.Info("subscribing to cluster membership events", "server_id", serverID)
+
+	// Subscribe to cluster membership change notifications
+	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
+		Topic:      bus.ClusterMembershipChanged,
+		TargetType: "server",
+		TargetID:   serverID,
+	})
+	if err != nil {
+		slog.Error("failed to subscribe to cluster membership events", "error", err)
+		return
+	}
+
+	slog.Info("subscribed to cluster membership events successfully", "topic", bus.ClusterMembershipChanged)
+
+	// Handle incoming membership change messages
+	for {
+		select {
+		case msg := <-subscription.HandlerChan:
+			// Safely handle content preview
+			contentPreview := msg.Content
+			if len(contentPreview) > 100 {
+				contentPreview = contentPreview[:100] + "..."
+			}
+			slog.Info("received cluster membership change event",
+				"topic", msg.Topic,
+				"content_preview", contentPreview)
+
+			// Config sync will happen automatically via the config version bump
+			// The backend bumps config version for all cluster members when membership changes
+			// The watchConfigForRaftUpdates handler will detect changes and update Raft
+			// This event serves as immediate notification that changes are coming
+
+		case <-ctx.Done():
+			slog.Info("stopping cluster membership event subscription")
 			return
 		}
 	}
@@ -601,93 +726,145 @@ func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, han
 }
 
 // getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
+// getRaftConfigFromSnapshot extracts Raft configuration from server-provided config
+// Config is populated by the control plane when a server is assigned to a cluster
 func getRaftConfigFromSnapshot(config policy_manager.ConfigClient) *raft.NodeConfig {
-	// Helper function to try both local. prefix and without
-	getConfigVal := func(key string) (interface{}, bool) {
-		if val, ok := config.Get("local." + key); ok {
-			return val, true
-		}
-		return config.Get(key)
-	}
-
-	// Check if raft is enabled
-	if enabled, ok := getConfigVal("raft.enabled"); !ok || enabled != true {
+	// Get raft section from config payload (provided by control plane)
+	raftVal, ok := config.Get("raft")
+	if !ok {
 		return nil
 	}
 
-	// Extract required Raft configuration
-	nodeID, hasNodeID := getConfigVal("raft.node_id")
-	bindAddr, hasBindAddr := getConfigVal("raft.bind_addr")
-	dataDir, hasDataDir := getConfigVal("raft.data_dir")
-
-	if !hasNodeID || !hasBindAddr || !hasDataDir {
-		slog.Warn("raft enabled but missing required configuration",
-			"has_node_id", hasNodeID,
-			"has_bind_addr", hasBindAddr,
-			"has_data_dir", hasDataDir,
-		)
+	raftMap, ok := raftVal.(map[string]interface{})
+	if !ok {
+		slog.Warn("raft config is not a map", "type", fmt.Sprintf("%T", raftVal))
 		return nil
 	}
 
-	cfg := &raft.NodeConfig{
-		NodeID:   nodeID.(string),
-		BindAddr: bindAddr.(string),
-		DataDir:  dataDir.(string),
+	return getRaftConfigFromMap(raftMap)
+}
+
+// getRaftConfigFromPayload extracts Raft configuration from a payload map
+func getRaftConfigFromPayload(payload map[string]interface{}) *raft.NodeConfig {
+	raftVal, ok := payload["raft"]
+	if !ok {
+		return nil
 	}
 
-	// Extract optional bootstrap peers
-	if peers, ok := getConfigVal("raft.bootstrap_peers"); ok {
-		if peersList, ok := peers.([]interface{}); ok {
-			cfg.BootstrapPeers = make([]string, 0, len(peersList))
-			for _, peer := range peersList {
-				if peerStr, ok := peer.(string); ok {
-					cfg.BootstrapPeers = append(cfg.BootstrapPeers, peerStr)
+	raftMap, ok := raftVal.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	return getRaftConfigFromMap(raftMap)
+}
+
+// getRaftConfigFromMap extracts Raft configuration from a map
+func getRaftConfigFromMap(raftMap map[string]interface{}) *raft.NodeConfig {
+
+	// Check if enabled
+	enabled, ok := raftMap["enabled"].(bool)
+	if !ok || !enabled {
+		return nil
+	}
+
+	// Extract required fields
+	clusterID, ok := raftMap["cluster_id"].(string)
+	if !ok || clusterID == "" {
+		slog.Warn("raft enabled but missing cluster_id")
+		return nil
+	}
+
+	nodeID, ok := raftMap["node_id"].(string)
+	if !ok || nodeID == "" {
+		slog.Warn("raft enabled but missing node_id")
+		return nil
+	}
+
+	bindPort, ok := raftMap["bind_port"].(float64) // JSON numbers are float64
+	if !ok {
+		bindPort = 7001 // Default port
+	}
+
+	bootstrap, ok := raftMap["bootstrap"].(bool)
+	if !ok {
+		bootstrap = false
+	}
+
+	// Build bind address (bind to all interfaces, use configured port)
+	bindAddr := fmt.Sprintf("0.0.0.0:%d", int(bindPort))
+
+	// Get data directory (default to ~/.underleaf/raft)
+	homeDir, _ := os.UserHomeDir()
+	dataDir := filepath.Join(homeDir, ".underleaf", "raft")
+	if dir, ok := raftMap["data_dir"].(string); ok && dir != "" {
+		dataDir = dir
+	}
+
+	// Extract bootstrap peers first to determine cluster size
+	var bootstrapPeers []string
+	if peersVal, ok := raftMap["bootstrap_peers"]; ok {
+		if peersList, ok := peersVal.([]interface{}); ok {
+			for _, peerVal := range peersList {
+				if peerMap, ok := peerVal.(map[string]interface{}); ok {
+					if raftAddr, ok := peerMap["raft_address"].(string); ok && raftAddr != "" {
+						bootstrapPeers = append(bootstrapPeers, raftAddr)
+					}
 				}
 			}
 		}
 	}
 
-	// Extract optional bootstrap flag (default: auto-detect based on peers)
-	if bootstrap, ok := getConfigVal("raft.bootstrap"); ok {
-		if bootstrapBool, ok := bootstrap.(bool); ok {
-			cfg.Bootstrap = bootstrapBool
+	// Handle existing raft.db - behavior depends on cluster type
+	raftDBPath := filepath.Join(dataDir, "raft.db")
+	if _, err := os.Stat(raftDBPath); err == nil {
+		// Raft DB exists
+		if bootstrap && len(bootstrapPeers) == 0 {
+			// Single-node cluster wants to bootstrap - delete old state and start fresh
+			// This allows the node to become leader
+			slog.Warn("removing stale raft data for single-node cluster bootstrap",
+				"data_dir", dataDir)
+			os.RemoveAll(dataDir)
+			os.MkdirAll(dataDir, 0755)
+		} else {
+			// Multi-node cluster or joining existing cluster - keep existing state
+			slog.Info("found existing raft data, disabling bootstrap mode", "data_dir", dataDir)
+			bootstrap = false
 		}
-	} else {
-		// Auto-detect: bootstrap if no peers specified
-		cfg.Bootstrap = len(cfg.BootstrapPeers) == 0
 	}
 
-	// Apply defaults for any unset timeout/threshold values
+	cfg := &raft.NodeConfig{
+		NodeID:         nodeID,
+		BindAddr:       bindAddr,
+		DataDir:        dataDir,
+		Bootstrap:      bootstrap,
+		BootstrapPeers: bootstrapPeers,
+	}
+
+	// Apply defaults for timeouts/thresholds
 	defaults := raft.DefaultNodeConfig()
-	if cfg.HeartbeatTimeout == 0 {
-		cfg.HeartbeatTimeout = defaults.HeartbeatTimeout
-	}
-	if cfg.ElectionTimeout == 0 {
-		cfg.ElectionTimeout = defaults.ElectionTimeout
-	}
-	if cfg.LeaderLeaseTimeout == 0 {
-		cfg.LeaderLeaseTimeout = defaults.LeaderLeaseTimeout
-	}
-	if cfg.SnapshotInterval == 0 {
-		cfg.SnapshotInterval = defaults.SnapshotInterval
-	}
-	if cfg.SnapshotThreshold == 0 {
-		cfg.SnapshotThreshold = defaults.SnapshotThreshold
-	}
-	if cfg.MaxValueSize == 0 {
-		cfg.MaxValueSize = defaults.MaxValueSize
-	}
-	if cfg.MaxStorageSize == 0 {
-		cfg.MaxStorageSize = defaults.MaxStorageSize
-	}
+	cfg.HeartbeatTimeout = defaults.HeartbeatTimeout
+	cfg.ElectionTimeout = defaults.ElectionTimeout
+	cfg.LeaderLeaseTimeout = defaults.LeaderLeaseTimeout
+	cfg.SnapshotInterval = defaults.SnapshotInterval
+	cfg.SnapshotThreshold = defaults.SnapshotThreshold
+	cfg.MaxValueSize = defaults.MaxValueSize
+	cfg.MaxStorageSize = defaults.MaxStorageSize
+
+	slog.Info("extracted raft config from control plane",
+		"cluster_id", clusterID,
+		"node_id", nodeID,
+		"bind_addr", bindAddr,
+		"bootstrap", bootstrap,
+		"peer_count", len(cfg.BootstrapPeers))
 
 	return cfg
 }
 
 // initializeRaftNode creates and starts a Raft cluster node
 func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Node, error) {
-	// Get logger from context
-	logger := slog.Default()
+	// Get logger from context - it's the best configured context
+	logger := slog.Default().With("component", "raft", "node_id", config.NodeID)
 
 	// Create Raft node
 	node, err := raft.NewNode(config, logger)
@@ -703,21 +880,22 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Nod
 	// Wait for leader election in background (non-blocking)
 	// Don't block agent startup waiting for Raft cluster to form
 	go func() {
-		slog.Info("waiting for raft leader election", "node_id", config.NodeID)
+		logger.Info("waiting for raft leader election", "node_id", config.NodeID)
 		if err := node.WaitForLeader(30 * time.Second); err != nil {
-			slog.Warn("raft leader election timeout", "error", err)
+			logger.Warn("raft leader election timeout", "error", err)
 			// Don't fail - node can still participate in cluster
 		} else {
 			leader, _ := node.GetLeader()
-			slog.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
+			logger.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
 		}
 	}()
 
 	return node, nil
 }
 
-// watchConfigForRaftUpdates monitors config changes and updates Raft cluster configuration
-func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.PolicyManager, node *raft.Node) {
+// watchConfigForRaftInitialization monitors config changes and initializes Raft when server is added to cluster
+func watchConfigForRaftInitialization(ctx context.Context, manager policy_manager.PolicyManager, server *Server, port int, cplaneClient *controlplane.CPlaneClient) {
+	logger := slog.Default().With("component", "raft-init-watcher")
 	watchChan := manager.Watch()
 
 	for {
@@ -727,21 +905,217 @@ func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.Polic
 				continue
 			}
 
-			// Check if Raft is still enabled
-			if enabled, ok := snapshot.Payload["raft"].(map[string]interface{})["enabled"]; !ok || enabled != true {
-				slog.Warn("raft disabled in config update - node will continue running")
+			// Check if Raft configuration has appeared
+			raftVal, ok := snapshot.Payload["raft"]
+			if !ok {
 				continue
 			}
 
-			// Note: Dynamic reconfiguration of Raft (adding/removing nodes)
-			// should be done through the cluster management API, not config changes.
-			// This watcher is primarily for detecting if Raft should be disabled.
+			raftMap, ok := raftVal.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			enabled, ok := raftMap["enabled"].(bool)
+			if !ok || !enabled {
+				continue
+			}
+
+			logger.Info("detected server added to cluster, initializing raft")
+
+			// Extract Raft config
+			raftConfig := getRaftConfigFromPayload(snapshot.Payload)
+			if raftConfig == nil {
+				logger.Warn("failed to extract raft config from payload")
+				continue
+			}
+
+			// Initialize Raft node
+			raftNode, err := initializeRaftNode(ctx, raftConfig)
+			if err != nil {
+				logger.Warn("failed to initialize raft node after cluster assignment", "error", err)
+				continue
+			}
+
+			logger.Info("raft node initialized successfully after cluster assignment", "node_id", raftConfig.NodeID)
+
+			// Wire Raft node into server
+			server.SetRaftNode(raftNode)
+
+			// Initialize mDNS coordinator if enabled
+			mdnsCoordinator := initializeMDNSCoordinator(ctx, manager.(policy_manager.ConfigClient), cplaneClient, port, raftConfig)
+			if mdnsCoordinator != nil {
+				raftNode.RegisterLeaderChangeCallback(mdnsCoordinator.OnLeadershipChange)
+				logger.Info("mDNS coordinator registered with Raft node")
+				if err := mdnsCoordinator.Start(); err != nil {
+					logger.Warn("failed to start mDNS coordinator", "error", err)
+				}
+			}
+
+			// Start watching for peer updates
+			go watchConfigForRaftUpdates(ctx, manager, raftNode, logger)
+
+			// Exit this watcher - Raft is now initialized
+			logger.Info("raft initialization watcher exiting, peer update watcher started")
+			return
 
 		case <-ctx.Done():
-			slog.Info("stopping raft config watcher")
+			logger.Info("stopping raft initialization watcher")
 			return
 		}
 	}
+}
+
+// watchConfigForRaftUpdates monitors config changes and updates Raft cluster configuration
+func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.PolicyManager, node *raft.Node, existingLogger *slog.Logger) {
+	// Use logger from context - it's the best configured context
+	var logger *slog.Logger
+	if existingLogger != nil {
+		logger = existingLogger
+	} else {
+		logger = slog.Default().With("component", "raft-config-watcher", "node_id", node.ID())
+	}
+	watchChan := manager.Watch()
+
+	// Track last known cluster config to detect changes
+	var lastKnownPeers []string
+
+	for {
+		select {
+		case snapshot := <-watchChan:
+			if snapshot == nil || snapshot.Payload == nil {
+				continue
+			}
+
+			// Get Raft config from payload
+			raftVal, ok := snapshot.Payload["raft"]
+			if !ok {
+				continue
+			}
+
+			raftMap, ok := raftVal.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Check if Raft is still enabled
+			enabled, ok := raftMap["enabled"].(bool)
+			if !ok || !enabled {
+				logger.Warn("raft disabled in config update - node will continue running")
+				continue
+			}
+
+			// Extract bootstrap_peers list
+			peersVal, ok := raftMap["bootstrap_peers"]
+			if !ok {
+				// No peers configured yet
+				continue
+			}
+
+			peersList, ok := peersVal.([]interface{})
+			if !ok {
+				continue
+			}
+
+			// Build list of peer addresses
+			var currentPeers []string
+			for _, peerVal := range peersList {
+				if peerMap, ok := peerVal.(map[string]interface{}); ok {
+					if raftAddr, ok := peerMap["raft_address"].(string); ok && raftAddr != "" {
+						currentPeers = append(currentPeers, raftAddr)
+					}
+				}
+			}
+
+			// Check if peer list has changed
+			if !peersListEqual(lastKnownPeers, currentPeers) {
+				logger.Info("detected raft peer list change",
+					"old_peers", lastKnownPeers,
+					"new_peers", currentPeers)
+
+				// Only the leader should handle dynamic reconfiguration
+				// Non-leaders will learn about new members through Raft replication
+				if node.IsLeader() {
+					if err := reconcileRaftMembership(ctx, node, currentPeers); err != nil {
+						logger.Warn("failed to reconcile raft membership", "error", err)
+					}
+				} else {
+					logger.Info("not leader - waiting for leader to handle membership changes")
+				}
+
+				lastKnownPeers = currentPeers
+			}
+
+		case <-ctx.Done():
+			logger.Info("stopping raft config watcher")
+			return
+		}
+	}
+}
+
+// peersListEqual checks if two peer lists are equal (order-independent)
+func peersListEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Create maps for quick lookup
+	aMap := make(map[string]bool, len(a))
+	for _, peer := range a {
+		aMap[peer] = true
+	}
+
+	for _, peer := range b {
+		if !aMap[peer] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// reconcileRaftMembership ensures the Raft cluster membership matches the config
+func reconcileRaftMembership(ctx context.Context, node *raft.Node, expectedPeers []string) error {
+	// Use logger from context - it's the best configured context
+	logger := slog.Default().With("component", "raft-reconciliation", "node_id", node.ID())
+
+	// Get current Raft configuration
+	currentConfig, err := node.GetConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to get current configuration: %w", err)
+	}
+
+	// Build map of current nodes
+	currentNodes := make(map[string]bool)
+	for nodeID := range currentConfig.Nodes {
+		currentNodes[nodeID] = true
+	}
+
+	// Build map of expected peer addresses to node IDs
+	// Note: We derive node ID from the address since the control plane provides addresses
+	expectedNodes := make(map[string]string) // address -> nodeID
+	for _, peerAddr := range expectedPeers {
+		// Use address as node ID for now - this matches the control plane's approach
+		expectedNodes[peerAddr] = peerAddr
+	}
+
+	// Add missing nodes
+	membership := raft.NewMembership(node)
+	for addr, nodeID := range expectedNodes {
+		if !currentNodes[nodeID] {
+			logger.Info("adding new raft peer", "node_id", nodeID, "address", addr)
+			if err := membership.AddNode(nodeID, addr); err != nil {
+				logger.Warn("failed to add raft peer", "node_id", nodeID, "address", addr, "error", err)
+				// Continue with other nodes even if one fails
+			}
+		}
+	}
+
+	// Note: We don't automatically remove nodes that aren't in the config
+	// Node removal should be done explicitly through the cluster management API
+	// to avoid accidentally removing nodes due to transient config issues
+
+	return nil
 }
 
 // initializeMDNSCoordinator creates and initializes the mDNS coordinator for leader discovery

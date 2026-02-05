@@ -298,8 +298,8 @@ func (n *Node) GetStats() (*ClusterStats, error) {
 		return nil, fmt.Errorf("raft not initialized")
 	}
 
-	// Get Raft stats
-	leaderAddr, _ := n.raft.LeaderWithID()
+	// Get Raft stats - LeaderWithID returns both address and ID
+	_, leaderID := n.raft.LeaderWithID()
 	lastLog := n.raft.LastIndex()
 
 	// Get FSM stats
@@ -322,7 +322,7 @@ func (n *Node) GetStats() (*ClusterStats, error) {
 	stats := &ClusterStats{
 		NodeID:       n.config.NodeID,
 		Role:         n.GetRole(),
-		LeaderID:     string(leaderAddr),
+		LeaderID:     string(leaderID), // Use leader ID (node UUID) not address
 		Term:         term,
 		CommitIndex:  n.raft.CommitIndex(),
 		AppliedIndex: n.raft.AppliedIndex(),

@@ -103,6 +103,10 @@ func (l *Launcher) startDev(ctx context.Context) error {
 
 	// Stop components on exit
 	defer func() {
+		if deps.ClusterReporter != nil {
+			logger.Info("stopping cluster status reporter")
+			deps.ClusterReporter.Stop()
+		}
 		if deps.RaftNode != nil {
 			logger.Info("stopping raft node")
 			if err := deps.RaftNode.Stop(); err != nil {

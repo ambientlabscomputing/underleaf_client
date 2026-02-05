@@ -298,6 +298,16 @@ func (m *SnapshotPolicyManager) loadFromDisk() error {
 		return err
 	}
 
+	// Validate snapshot server_id matches our configured server_id
+	if snapshot != nil && snapshot.ServerID != m.serverID {
+		slog.Warn("loaded snapshot is for different server, ignoring stale data",
+			"snapshot_server_id", snapshot.ServerID,
+			"configured_server_id", m.serverID,
+			"snapshot_version", snapshot.Version)
+		// Don't load mismatched snapshot - force fresh fetch
+		snapshot = nil
+	}
+
 	m.snapshotMu.Lock()
 	m.currentSnapshot = snapshot
 	m.currentMeta = meta
@@ -308,6 +318,8 @@ func (m *SnapshotPolicyManager) loadFromDisk() error {
 			"server_id", snapshot.ServerID,
 			"version", snapshot.Version,
 			"age", snapshot.Age())
+	} else {
+		slog.Info("no valid snapshot on disk, will fetch fresh config")
 	}
 
 	return nil

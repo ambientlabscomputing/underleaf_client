@@ -193,9 +193,11 @@ type GetActivityParams struct {
 
 // UpdateServerRequest represents the request to update server metadata
 type UpdateServerRequest struct {
-	Location  string `json:"location,omitempty"`
-	IPAddress string `json:"ip_address,omitempty"`
-	Hostname  string `json:"hostname,omitempty"`
+	Location      string `json:"location,omitempty"`
+	IPAddress     string `json:"ip_address,omitempty"`
+	Hostname      string `json:"hostname,omitempty"`
+	RaftAddress   string `json:"raft_address,omitempty"`   // Auto-reported by agent when Raft enabled
+	CAFingerprint string `json:"ca_fingerprint,omitempty"` // Auto-reported by agent
 }
 
 // MetricsUpdateRequest represents the request to update server metrics
