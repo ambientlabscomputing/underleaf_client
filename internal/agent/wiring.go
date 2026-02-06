@@ -483,6 +483,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					slog.Info("capability manager started successfully")
 					capabilityManager = mgr
 					server.SetCapabilityManager(capabilityManager)
+
+					// Auto-install MMA if enabled and not already installed
+					if autoInstallMMA, ok := getConfigValue(snapshotClient, "capability_registry.auto_install_mma"); !ok || autoInstallMMA == true {
+						go ensureMMAInstalled(ctx, mgr)
+					}
 				}
 			}
 		}
@@ -1332,3 +1337,36 @@ func initializeMDNSCoordinator(ctx context.Context, config policy_manager.Config
 
 	return coordinator
 }
+
+// ensureMMAInstalled checks if Mycelium Mesh Agent is installed and starts it.
+// If not installed, it logs a message. In production, MMA will be auto-installed
+// via UCRS when it's registered as a provider.
+func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager) {
+	providerID := "ambient.mycelium-mesh-agent"
+	slog.Info("checking MMA installation status", "provider_id", providerID)
+
+	// Check if MMA is already installed
+	installed, err := mgr.ListInstalledProviders(ctx)
+	if err != nil {
+		slog.Warn("failed to list installed providers", "error", err)
+		return
+	}
+
+	// Check if MMA is in the list
+	for _, provider := range installed {
+		if provider.ProviderID == providerID {
+			slog.Info("MMA is installed", 
+				"provider_id", providerID, 
+				"version", provider.Version,
+				"state", provider.State)
+			return
+		}
+	}
+
+	// MMA not installed
+	slog.Info("MMA not installed. To install MMA:",
+		"option_1", "Use the test_binary_lifecycle.go script in underleaf_client",
+		"option_2", "Run: ufctl provider install ambient.mycelium-mesh-agent (when implemented)",
+		"option_3", "MMA will auto-install when registered in UCRS")
+}
+
