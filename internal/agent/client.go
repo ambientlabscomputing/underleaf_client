@@ -108,3 +108,101 @@ func (c *Client) DoRequest(method, path string, body []byte) ([]byte, error) {
 
 	return respBody, nil
 }
+
+// MMA Event Stream Client Methods
+
+// GetMMeshStatus retrieves the MMA event stream server status
+func (c *Client) GetMMeshStatus() (map[string]interface{}, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/v1/mmesh/status")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get MMA status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("agent returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var status map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return status, nil
+}
+
+// GetMMeshSubscribers retrieves information about active MMA subscribers
+func (c *Client) GetMMeshSubscribers() (map[string]interface{}, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/v1/mmesh/subscribers")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get MMA subscribers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("agent returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetMMeshBuffer retrieves MMA event stream buffer statistics
+func (c *Client) GetMMeshBuffer() (map[string]interface{}, error) {
+	resp, err := c.client.Get(c.baseURL + "/api/v1/mmesh/buffer")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get buffer stats: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("agent returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var stats map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return stats, nil
+}
+
+// PublishMMeshEvent publishes a test event to the MMA event stream
+func (c *Client) PublishMMeshEvent(eventType string, payload map[string]interface{}, entityKind, entityID string) (map[string]interface{}, error) {
+	req := map[string]interface{}{
+		"event_type":  eventType,
+		"payload":     payload,
+		"entity_kind": entityKind,
+		"entity_id":   entityID,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := c.client.Post(c.baseURL+"/api/v1/mmesh/publish", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to publish event: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("agent returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return result, nil
+}

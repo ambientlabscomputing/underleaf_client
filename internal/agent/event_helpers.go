@@ -105,6 +105,40 @@ func (e *EventStreamServer) PublishIdentityTrustRootsUpdated(clusterTrustBundle 
 	return e.PublishEvent("identity.trust_roots.updated", payload, "identity", rotationID)
 }
 
+// PublishIdentityServiceIssued publishes an identity.service.issued event to MMA subscribers.
+func (e *EventStreamServer) PublishIdentityServiceIssued(serviceID, spiffeID, certRef string, claims map[string]string, expiresAt time.Time) error {
+	payload := map[string]interface{}{
+		"service_id": serviceID,
+		"spiffe_id":  spiffeID,
+		"cert_ref":   certRef,
+		"claims":     toInterfaceMap(claims),
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}
+	return e.PublishEvent("identity.service.issued", payload, "service", serviceID)
+}
+
+// PublishIdentityServiceRevoked publishes an identity.service.revoked event to MMA subscribers.
+func (e *EventStreamServer) PublishIdentityServiceRevoked(serviceID, reason string, revokedAt time.Time) error {
+	payload := map[string]interface{}{
+		"service_id": serviceID,
+		"reason":     reason,
+		"revoked_at": revokedAt.Format(time.RFC3339),
+	}
+	return e.PublishEvent("identity.service.revoked", payload, "service", serviceID)
+}
+
+// PublishConsentStateUpdated publishes a consent_state.updated event to MMA subscribers.
+func (e *EventStreamServer) PublishConsentStateUpdated(subjectRef, capabilityID, decision, version string, constraints map[string]interface{}) error {
+	payload := map[string]interface{}{
+		"subject_ref":   subjectRef,
+		"capability_id": capabilityID,
+		"decision":      decision,
+		"constraints":   constraints,
+		"version":       version,
+	}
+	return e.PublishEvent("consent_state.updated", payload, "consent", subjectRef)
+}
+
 // PublishClusterSnapshot publishes a cluster.snapshot event to MMA subscribers.
 // This is typically sent on MMA startup or when the MMA reconnects.
 func (e *EventStreamServer) PublishClusterSnapshot(members []map[string]interface{}, clusterCAFingerprint, meshConfigVersion string) error {

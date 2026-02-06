@@ -128,15 +128,15 @@ Examples:
 			Port: port,
 		})
 
+		// Save port to config (do this before checking if running, so port is always updated)
+		_ = deps.ConfigClient.Set("agent.port", port)
+		// Silently ignore config save errors
+
 		// Check if already running
 		if !launcher.IsRunning() {
 			if err := launcher.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start agent: %w", err)
 			}
-
-			// Save port to config
-			_ = deps.ConfigClient.Set("agent.port", port)
-			// Silently ignore config save errors
 		}
 
 		// Get server name for display

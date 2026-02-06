@@ -9,6 +9,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/deploy"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/mmesh"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/templates"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/update"
@@ -75,6 +76,7 @@ func init() {
 	rootCmd.AddCommand(templates.TemplatesCmd)
 	rootCmd.AddCommand(update.UpdateCmd)
 	rootCmd.AddCommand(cluster.ClusterCmd)
+	rootCmd.AddCommand(mmesh.MMeshCmd)
 }
 
 func Execute(ctx context.Context) error {

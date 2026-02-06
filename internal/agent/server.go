@@ -137,6 +137,15 @@ func (s *Server) setupRoutes() {
 			secrets.DELETE("/delete/*path", s.handleSecretDelete)
 			secrets.GET("/versions/*path", s.handleSecretVersions)
 		}
+
+		// Mycelium Mesh Agent (MMA) event stream endpoints
+		mmesh := api.Group("/mmesh")
+		{
+			mmesh.GET("/status", s.handleMMeshStatus)
+			mmesh.GET("/subscribers", s.handleMMeshSubscribers)
+			mmesh.GET("/buffer", s.handleMMeshBuffer)
+			mmesh.POST("/publish", s.handleMMeshPublish)
+		}
 	}
 }
 
@@ -291,5 +300,100 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": "local config updates not yet supported",
 		"hint":  "config updates are managed via the control plane",
+	})
+}
+
+// MMA Event Stream Handlers
+
+func (s *Server) handleMMeshStatus(c *gin.Context) {
+	if s.eventStreamServer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error":  "MMA event stream server not initialized",
+			"status": "disabled",
+		})
+		return
+	}
+
+	subscriberCount := s.eventStreamServer.SubscriberCount()
+	bufferSize, bufferCapacity := s.eventStreamServer.BufferStats()
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":           "running",
+		"cluster_id":       s.eventStreamServer.clusterID,
+		"node_id":          s.eventStreamServer.nodeID,
+		"socket_address":   s.eventStreamServer.address,
+		"subscriber_count": subscriberCount,
+		"buffer": gin.H{
+			"size":     bufferSize,
+			"capacity": bufferCapacity,
+			"usage":    fmt.Sprintf("%.1f%%", float64(bufferSize)/float64(bufferCapacity)*100),
+		},
+	})
+}
+
+func (s *Server) handleMMeshSubscribers(c *gin.Context) {
+	if s.eventStreamServer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MMA event stream server not initialized",
+		})
+		return
+	}
+
+	subscriberCount := s.eventStreamServer.SubscriberCount()
+
+	c.JSON(http.StatusOK, gin.H{
+		"subscriber_count": subscriberCount,
+		"subscribers":      []gin.H{}, // TODO: Expose subscriber details
+	})
+}
+
+func (s *Server) handleMMeshBuffer(c *gin.Context) {
+	if s.eventStreamServer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MMA event stream server not initialized",
+		})
+		return
+	}
+
+	bufferSize, bufferCapacity := s.eventStreamServer.BufferStats()
+
+	c.JSON(http.StatusOK, gin.H{
+		"size":     bufferSize,
+		"capacity": bufferCapacity,
+		"free":     bufferCapacity - bufferSize,
+		"usage":    fmt.Sprintf("%.1f%%", float64(bufferSize)/float64(bufferCapacity)*100),
+	})
+}
+
+func (s *Server) handleMMeshPublish(c *gin.Context) {
+	if s.eventStreamServer == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MMA event stream server not initialized",
+		})
+		return
+	}
+
+	var req struct {
+		EventType  string                 `json:"event_type" binding:"required"`
+		Payload    map[string]interface{} `json:"payload" binding:"required"`
+		EntityKind string                 `json:"entity_kind"`
+		EntityID   string                 `json:"entity_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := s.eventStreamServer.PublishEvent(req.EventType, req.Payload, req.EntityKind, req.EntityID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":      "published",
+		"event_type":  req.EventType,
+		"entity_kind": req.EntityKind,
+		"entity_id":   req.EntityID,
 	})
 }
