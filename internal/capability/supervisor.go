@@ -156,45 +156,42 @@ func (s *ProcessSupervisor) Stop(providerID, version string) error {
 
 	proc.info.State = ProcessStateStopping
 
-	// Cancel the supervision goroutine
-	if proc.cancel != nil {
-		proc.cancel()
-	}
-
 	// Stop health checks
 	if proc.healthTicker != nil {
 		proc.healthTicker.Stop()
 	}
 
-	// Graceful shutdown: SIGTERM, wait, then SIGKILL
+	// Send SIGTERM to the process
 	if proc.cmd != nil && proc.cmd.Process != nil {
 		s.log.Info("Stopping process", "provider", providerID, "version", version, "pid", proc.cmd.Process.Pid)
 
-		// Send SIGTERM
 		if err := proc.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 			s.log.Warn("Failed to send SIGTERM", "error", err)
 		}
+	}
 
-		// Wait up to 10 seconds
-		done := make(chan error, 1)
-		go func() {
-			done <- proc.cmd.Wait()
-		}()
+	// Cancel the supervision context, which will stop the superviseProcess goroutine  
+	if proc.cancel != nil {
+		proc.cancel()
+	}
 
-		select {
-		case <-time.After(10 * time.Second):
-			// Force kill
+	// Wait a bit for graceful shutdown
+	time.Sleep(2 * time.Second)
+
+	// Check if still running and force kill if needed
+	if proc.cmd != nil && proc.cmd.Process != nil {
+		// Try to check if process still exists
+		if err := proc.cmd.Process.Signal(syscall.Signal(0)); err == nil {
+			// Process still exists, force kill
 			s.log.Warn("Process did not stop gracefully, sending SIGKILL", "provider", providerID)
 			if err := proc.cmd.Process.Kill(); err != nil {
 				s.log.Error("Failed to kill process", "error", err)
 			}
-			<-done // Wait for Wait() to complete
-		case <-done:
-			// Stopped gracefully
 		}
 	}
 
 	proc.info.State = ProcessStateStopped
+	s.log.Info("Process stopped", "key", key)
 	return nil
 }
 

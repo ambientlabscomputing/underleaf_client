@@ -141,7 +141,20 @@ func (d *BinaryDownloader) expandURITemplate(uri, version string) string {
 }
 
 // downloadFile downloads a file from the given URL to the specified path.
+// Supports HTTP/HTTPS URLs and file:// URIs for local files.
 func (d *BinaryDownloader) downloadFile(url, filepath string) error {
+	// Handle file:// URLs for local files
+	if strings.HasPrefix(url, "file://") {
+		localPath := strings.TrimPrefix(url, "file://")
+		return d.copyFile(localPath, filepath)
+	}
+
+	// Handle regular paths as local files (for convenience)
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return d.copyFile(url, filepath)
+	}
+
+	// HTTP/HTTPS download
 	resp, err := d.httpClient.Get(url)
 	if err != nil {
 		return fmt.Errorf("HTTP GET failed: %w", err)
@@ -160,6 +173,27 @@ func (d *BinaryDownloader) downloadFile(url, filepath string) error {
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+// copyFile copies a local file to the destination path.
+func (d *BinaryDownloader) copyFile(src, dst string) error {
+	source, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer source.Close()
+
+	destination, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destination.Close()
+
+	if _, err := io.Copy(destination, source); err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
 	}
 
 	return nil

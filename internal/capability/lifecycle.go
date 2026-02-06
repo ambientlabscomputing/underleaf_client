@@ -313,9 +313,25 @@ func (l *LifecycleManager) Stop(ctx context.Context, providerID, version string)
 
 	slog.Info("stopping provider", "provider_id", providerID, "version", version)
 
+	// Determine if this is a binary or OCI provider based on metadata
+	isBinary := instance.Metadata != nil && instance.Metadata["binary_path"] != ""
+
+	if isBinary {
+		return l.stopBinary(ctx, instance)
+	} else {
+		return l.stopOCI(ctx, instance)
+	}
+}
+
+// stopOCI stops an OCI container provider
+func (l *LifecycleManager) stopOCI(ctx context.Context, instance *store.ProviderInstance) error {
+	if l.dockerClient == nil {
+		return fmt.Errorf("docker client not available")
+	}
+
 	// Stop container with timeout
 	timeout := 10 // seconds
-	_, err = l.dockerClient.ContainerStop(ctx, instance.RuntimeID, client.ContainerStopOptions{Timeout: &timeout})
+	_, err := l.dockerClient.ContainerStop(ctx, instance.RuntimeID, client.ContainerStopOptions{Timeout: &timeout})
 	if err != nil {
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
@@ -326,23 +342,54 @@ func (l *LifecycleManager) Stop(ctx context.Context, providerID, version string)
 		return fmt.Errorf("failed to update provider state: %w", err)
 	}
 
-	slog.Info("provider stopped successfully", "provider_id", providerID, "version", version)
-
+	slog.Info("OCI provider stopped successfully", "provider_id", instance.ProviderID, "version", instance.Version)
 	return nil
 }
 
-// Uninstall removes a provider (stops and removes container)
+// stopBinary stops a binary provider process
+func (l *LifecycleManager) stopBinary(ctx context.Context, instance *store.ProviderInstance) error {
+	if err := l.supervisor.Stop(instance.ProviderID, instance.Version); err != nil {
+		return fmt.Errorf("failed to stop binary process: %w", err)
+	}
+
+	// Update state
+	instance.State = string(ProviderStateStopped)
+	if err := l.providerStore.SaveProvider(instance); err != nil {
+		return fmt.Errorf("failed to update provider state: %w", err)
+	}
+
+	slog.Info("binary provider stopped successfully", "provider_id", instance.ProviderID, "version", instance.Version)
+	return nil
+}
+
+// Uninstall removes a provider (stops and removes container or binary)
 func (l *LifecycleManager) Uninstall(ctx context.Context, providerID, version string) error {
 	instance, err := l.providerStore.GetProvider(providerID, version)
 	if err != nil {
 		return fmt.Errorf("provider not found: %w", err)
 	}
 
-	if instance.RuntimeID != "" {
-		slog.Info("uninstalling provider", "provider_id", providerID, "version", version)
+	slog.Info("uninstalling provider", "provider_id", providerID, "version", version)
 
+	// Determine if this is a binary or OCI provider based on metadata
+	isBinary := instance.Metadata != nil && instance.Metadata["binary_path"] != ""
+
+	if isBinary {
+		return l.uninstallBinary(ctx, instance)
+	} else {
+		return l.uninstallOCI(ctx, instance)
+	}
+}
+
+// uninstallOCI removes an OCI container provider
+func (l *LifecycleManager) uninstallOCI(ctx context.Context, instance *store.ProviderInstance) error {
+	if l.dockerClient == nil {
+		return fmt.Errorf("docker client not available")
+	}
+
+	if instance.RuntimeID != "" {
 		// Stop container if running
-		l.Stop(ctx, providerID, version) // Ignore error
+		l.stopOCI(ctx, instance) // Ignore error
 
 		// Remove container
 		_, err := l.dockerClient.ContainerRemove(ctx, instance.RuntimeID, client.ContainerRemoveOptions{Force: true})
@@ -352,12 +399,41 @@ func (l *LifecycleManager) Uninstall(ctx context.Context, providerID, version st
 	}
 
 	// Remove from store
-	if err := l.providerStore.DeleteProvider(providerID, version); err != nil {
+	if err := l.providerStore.DeleteProvider(instance.ProviderID, instance.Version); err != nil {
 		return fmt.Errorf("failed to delete provider from store: %w", err)
 	}
 
-	slog.Info("provider uninstalled successfully", "provider_id", providerID, "version", version)
+	slog.Info("OCI provider uninstalled successfully", "provider_id", instance.ProviderID, "version", instance.Version)
+	return nil
+}
 
+// uninstallBinary removes a binary provider
+func (l *LifecycleManager) uninstallBinary(ctx context.Context, instance *store.ProviderInstance) error {
+	// Stop process if running
+	l.supervisor.Stop(instance.ProviderID, instance.Version) // Ignore error
+
+	// Call binary lifecycle Uninstall to remove files
+	provider := &Provider{
+		ProviderID: instance.ProviderID,
+		Version:    instance.Version,
+	}
+
+	installState := &InstallState{
+		ProviderID: instance.ProviderID,
+		Version:    instance.Version,
+		BinaryPath: instance.Metadata["binary_path"],
+	}
+
+	if err := l.binaryLifecycle.Uninstall(provider, installState); err != nil {
+		slog.Warn("failed to uninstall binary files", "error", err)
+	}
+
+	// Remove from store
+	if err := l.providerStore.DeleteProvider(instance.ProviderID, instance.Version); err != nil {
+		return fmt.Errorf("failed to delete provider from store: %w", err)
+	}
+
+	slog.Info("binary provider uninstalled successfully", "provider_id", instance.ProviderID, "version", instance.Version)
 	return nil
 }
 
