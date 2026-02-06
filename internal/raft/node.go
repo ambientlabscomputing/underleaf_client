@@ -527,8 +527,9 @@ func (n *Node) monitorLeadershipChanges() {
 }
 
 // GetMembership returns a Membership manager for this node
+// Note: Event publishing is not available when using this method - use NewMembership directly
 func (n *Node) GetMembership() *Membership {
-	return NewMembership(n)
+	return NewMembership(n, nil)
 }
 
 // ID returns the Node ID

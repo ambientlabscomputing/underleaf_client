@@ -7,14 +7,26 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+// EventPublisher is an interface for publishing cluster events.
+// This allows Membership to publish events without depending on the agent package.
+type EventPublisher interface {
+	PublishMemberJoined(nodeID string, endpoints []string, tags map[string]string) error
+	PublishMemberLeft(nodeID string, reason string) error
+	PublishMemberUpdated(nodeID string, endpoints []string, tags map[string]string, status string) error
+}
+
 // Membership manages cluster membership operations.
 type Membership struct {
-	node *Node
+	node           *Node
+	eventPublisher EventPublisher
 }
 
 // NewMembership creates a new Membership manager.
-func NewMembership(node *Node) *Membership {
-	return &Membership{node: node}
+func NewMembership(node *Node, eventPublisher EventPublisher) *Membership {
+	return &Membership{
+		node:           node,
+		eventPublisher: eventPublisher,
+	}
 }
 
 // AddNode adds a new node to the cluster as a learner.
@@ -66,6 +78,20 @@ func (m *Membership) AddNode(nodeID string, address string) error {
 		"address", address,
 		"suffrage", suffrage)
 
+	// Publish membership event
+	if m.eventPublisher != nil {
+		role := "voter"
+		if suffrage == raft.Nonvoter {
+			role = "learner"
+		}
+		endpoints := []string{address}
+		tags := map[string]string{"role": role}
+		if err := m.eventPublisher.PublishMemberJoined(nodeID, endpoints, tags); err != nil {
+			m.node.logger.Warn("failed to publish member joined event", "error", err)
+			// Don't fail the operation if event publishing fails
+		}
+	}
+
 	return nil
 }
 
@@ -103,6 +129,14 @@ func (m *Membership) RemoveNode(nodeID string) error {
 	}
 
 	m.node.logger.Info("node removed from cluster", "node_id", nodeID)
+
+	// Publish membership event
+	if m.eventPublisher != nil {
+		if err := m.eventPublisher.PublishMemberLeft(nodeID, "removed_from_cluster"); err != nil {
+			m.node.logger.Warn("failed to publish member left event", "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -156,6 +190,15 @@ func (m *Membership) PromoteNode(nodeID string) error {
 	}
 
 	m.node.logger.Info("node promoted to voter", "node_id", nodeID)
+
+	// Publish membership event
+	if m.eventPublisher != nil {
+		tags := map[string]string{"role": "voter"}
+		if err := m.eventPublisher.PublishMemberUpdated(nodeID, nil, tags, ""); err != nil {
+			m.node.logger.Warn("failed to publish member updated event", "error", err)
+		}
+	}
+
 	return nil
 }
 
@@ -210,6 +253,15 @@ func (m *Membership) DemoteNode(nodeID string) error {
 	}
 
 	m.node.logger.Info("node demoted to learner", "node_id", nodeID)
+
+	// Publish membership event
+	if m.eventPublisher != nil {
+		tags := map[string]string{"role": "learner"}
+		if err := m.eventPublisher.PublishMemberUpdated(nodeID, nil, tags, ""); err != nil {
+			m.node.logger.Warn("failed to publish member updated event", "error", err)
+		}
+	}
+
 	return nil
 }
 

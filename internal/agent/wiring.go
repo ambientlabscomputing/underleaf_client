@@ -24,16 +24,17 @@ import (
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config           policy_manager.ConfigClient
-	PolicyManager    policy_manager.PolicyManager
-	Server           *Server
-	CommandHandler   *exec.CommandHandler
-	MetricsCollector *MetricsCollector
-	ClusterReporter  *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
-	BusClient        *bus.Client            // Event bus client for cleanup on shutdown
-	UpdateManager    *updater.UpdateManager // Update manager for auto-updates
-	CommandDrainer   *CommandDrainer        // Command drainer for graceful updates
-	RaftNode         *raft.Node             // Raft cluster node for KV quorum
+	Config            policy_manager.ConfigClient
+	PolicyManager     policy_manager.PolicyManager
+	Server            *Server
+	CommandHandler    *exec.CommandHandler
+	MetricsCollector  *MetricsCollector
+	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
+	BusClient         *bus.Client            // Event bus client for cleanup on shutdown
+	UpdateManager     *updater.UpdateManager // Update manager for auto-updates
+	CommandDrainer    *CommandDrainer        // Command drainer for graceful updates
+	RaftNode          *raft.Node             // Raft cluster node for KV quorum
+	EventStreamServer *EventStreamServer     // UA→MMA event stream server
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -387,19 +388,51 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		go watchConfigForSoftwareUpdates(ctx, policyManager, updateManager)
 	}
 
+	// Initialize UA→MMA event stream server
+	var eventStreamServer *EventStreamServer
+	// Get cluster ID from raft config if available
+	clusterID := "default-cluster"
+	nodeID := serverID.(string)
+	if snapshot, err := policyManager.GetSnapshot(); err == nil && snapshot != nil && snapshot.Payload != nil {
+		if raftVal, ok := snapshot.Payload["raft"]; ok {
+			if raftMap, ok := raftVal.(map[string]interface{}); ok {
+				if cid, ok := raftMap["cluster_id"].(string); ok && cid != "" {
+					clusterID = cid
+				}
+				if nid, ok := raftMap["node_id"].(string); ok && nid != "" {
+					nodeID = nid
+				}
+			}
+		}
+	}
+
+	// Use Unix socket for UA→MMA communication
+	socketPath := "/tmp/ua_mma.sock"
+	eventStreamServer = NewEventStreamServer(socketPath, clusterID, nodeID, slog.Default())
+	if err := eventStreamServer.Start(ctx); err != nil {
+		slog.Warn("failed to start UA event stream server", "error", err)
+		// Don't fail agent startup if event stream fails - it's optional
+		eventStreamServer = nil
+	} else {
+		slog.Info("UA event stream server started", "socket", socketPath, "cluster_id", clusterID, "node_id", nodeID)
+		// Inject event stream server into server for HTTP handlers to use
+		server.SetEventStreamServer(eventStreamServer)
+	}
+
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
-		Config:           snapshotClient,
-		PolicyManager:    policyManager,
-		Server:           server,
-		CommandHandler:   commandHandler,
-		MetricsCollector: metricsCollector,
-		ClusterReporter:  clusterReporter,
-		BusClient:        busClient, // Store bus client for cleanup
-		UpdateManager:    updateManager,
-		CommandDrainer:   drainer,
-		RaftNode:         raftNode,
+		Config:            snapshotClient,
+		PolicyManager:     policyManager,
+		Server:            server,
+		CommandHandler:    commandHandler,
+		MetricsCollector:  metricsCollector,
+		ClusterReporter:   clusterReporter,
+		BusClient:         busClient, // Store bus client for cleanup
+		UpdateManager:     updateManager,
+		CommandDrainer:    drainer,
+		RaftNode:          raftNode,
+		EventStreamServer: eventStreamServer,
 	}, nil
 }
 
@@ -1036,7 +1069,7 @@ func watchConfigForRaftUpdates(ctx context.Context, manager policy_manager.Polic
 				// Only the leader should handle dynamic reconfiguration
 				// Non-leaders will learn about new members through Raft replication
 				if node.IsLeader() {
-					if err := reconcileRaftMembership(ctx, node, currentPeers); err != nil {
+					if err := reconcileRaftMembership(ctx, node, currentPeers, nil); err != nil {
 						logger.Warn("failed to reconcile raft membership", "error", err)
 					}
 				} else {
@@ -1075,7 +1108,7 @@ func peersListEqual(a, b []string) bool {
 }
 
 // reconcileRaftMembership ensures the Raft cluster membership matches the config
-func reconcileRaftMembership(ctx context.Context, node *raft.Node, expectedPeers []string) error {
+func reconcileRaftMembership(ctx context.Context, node *raft.Node, expectedPeers []string, eventPublisher raft.EventPublisher) error {
 	// Use logger from context - it's the best configured context
 	logger := slog.Default().With("component", "raft-reconciliation", "node_id", node.ID())
 
@@ -1100,7 +1133,7 @@ func reconcileRaftMembership(ctx context.Context, node *raft.Node, expectedPeers
 	}
 
 	// Add missing nodes
-	membership := raft.NewMembership(node)
+	membership := raft.NewMembership(node, eventPublisher)
 	for addr, nodeID := range expectedNodes {
 		if !currentNodes[nodeID] {
 			logger.Info("adding new raft peer", "node_id", nodeID, "address", addr)

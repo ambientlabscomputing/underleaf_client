@@ -14,15 +14,16 @@ import (
 
 // Server is the agent HTTP server
 type Server struct {
-	port           int
-	router         *gin.Engine
-	server         *http.Server
-	configManager  policy_manager.PolicyManager
-	configClient   policy_manager.ConfigClient
-	commandHandler *exec.CommandHandler
-	raftNode       *raft.Node
-	sealManager    *raft.SealManager
-	secretStore    *raft.SecretStore
+	port              int
+	router            *gin.Engine
+	server            *http.Server
+	configManager     policy_manager.PolicyManager
+	configClient      policy_manager.ConfigClient
+	commandHandler    *exec.CommandHandler
+	raftNode          *raft.Node
+	sealManager       *raft.SealManager
+	secretStore       *raft.SecretStore
+	eventStreamServer *EventStreamServer
 }
 
 // NewServer creates a new agent server
@@ -65,6 +66,11 @@ func (s *Server) SetSealManager(sm *raft.SealManager) {
 // SetSecretStore injects the secret store into the server
 func (s *Server) SetSecretStore(ss *raft.SecretStore) {
 	s.secretStore = ss
+}
+
+// SetEventStreamServer injects the event stream server into the server
+func (s *Server) SetEventStreamServer(ess *EventStreamServer) {
+	s.eventStreamServer = ess
 }
 
 // setupRoutes configures all HTTP routes

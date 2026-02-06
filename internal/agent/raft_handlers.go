@@ -275,7 +275,7 @@ func (s *Server) handleRaftListNodes(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	nodes, err := membership.ListNodes()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -310,7 +310,7 @@ func (s *Server) handleRaftAddNode(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.AddNode(req.NodeID, req.Address); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{
@@ -346,7 +346,7 @@ func (s *Server) handleRaftRemoveNode(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.RemoveNode(nodeID); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{
@@ -382,7 +382,7 @@ func (s *Server) handleRaftPromoteNode(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.PromoteNode(nodeID); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{
@@ -424,7 +424,7 @@ func (s *Server) handleRaftDemoteNode(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.DemoteNode(nodeID); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{
@@ -458,7 +458,7 @@ func (s *Server) handleRaftEnableMaintenance(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.EnableMaintenanceMode(); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{
@@ -485,7 +485,7 @@ func (s *Server) handleRaftDisableMaintenance(c *gin.Context) {
 		return
 	}
 
-	membership := raft.NewMembership(s.raftNode)
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if err := membership.DisableMaintenanceMode(); err != nil {
 		if raft.IsRaftError(err, "not_leader") {
 			c.JSON(http.StatusTemporaryRedirect, gin.H{

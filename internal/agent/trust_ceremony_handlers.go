@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/cluster"
+	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
 	"github.com/gin-gonic/gin"
 )
 
@@ -111,7 +112,7 @@ func (s *Server) handleClusterJoinConfirm(c *gin.Context) {
 
 	// Add the requesting node to this Raft cluster
 	// The node will join as a learner initially, can be promoted later
-	membership := s.raftNode.GetMembership()
+	membership := raft.NewMembership(s.raftNode, s.eventStreamServer)
 	if membership == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "membership not initialized",

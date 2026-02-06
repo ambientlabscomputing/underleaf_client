@@ -103,6 +103,12 @@ func (l *Launcher) startDev(ctx context.Context) error {
 
 	// Stop components on exit
 	defer func() {
+		if deps.EventStreamServer != nil {
+			logger.Info("stopping UA event stream server")
+			if err := deps.EventStreamServer.Stop(); err != nil {
+				logger.Error("failed to stop event stream server", "err", err)
+			}
+		}
 		if deps.ClusterReporter != nil {
 			logger.Info("stopping cluster status reporter")
 			deps.ClusterReporter.Stop()
