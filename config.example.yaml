@@ -119,3 +119,39 @@ payload:
     # If this port is blocked by firewall or unavailable, the system will
     # gracefully degrade and fall back to static api.base_url configuration
     # No errors will occur, but mDNS discovery will not function
+
+  # Optional: Capability Registry Service (UCRS) Configuration
+  # Enables dynamic capability resolution and provider management
+  capability_registry:
+    # Enable/disable capability registry integration (default: false)
+    enabled: false
+
+    # UCRS base URL for registry synchronization
+    ucrs_base_url: https://registry.underleaf.io
+
+    # Path to UCRS Ed25519 public key for signature verification
+    # Required when enabled
+    public_key_path: /etc/underleaf/ucrs_public_key.pem
+
+    # Interval for periodic registry synchronization
+    sync_interval: 10m
+
+    # Directory for caching registry snapshots
+    cache_dir: ~/.underleaf/capability_cache
+
+    # Directory for provider installations
+    provider_dir: ~/.underleaf/providers
+
+    # Provider defaults
+    provider_defaults:
+      # Default trust tier constraint: official_only, certified+, all
+      trust_tier: certified+
+
+      # Docker network for provider containers
+      network: underleaf-providers
+
+      # Default memory limit for provider containers
+      memory_limit: 512m
+
+      # Default CPU limit for provider containers (in cores)
+      cpu_limit: "1.0"

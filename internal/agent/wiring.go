@@ -11,6 +11,7 @@ import (
 
 	"github.com/ambientlabscomputing/event_bus_client"
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
+	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
@@ -20,21 +21,23 @@ import (
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
+	"github.com/moby/moby/client"
 )
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config            policy_manager.ConfigClient
-	PolicyManager     policy_manager.PolicyManager
-	Server            *Server
-	CommandHandler    *exec.CommandHandler
-	MetricsCollector  *MetricsCollector
-	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
-	BusClient         *bus.Client            // Event bus client for cleanup on shutdown
-	UpdateManager     *updater.UpdateManager // Update manager for auto-updates
-	CommandDrainer    *CommandDrainer        // Command drainer for graceful updates
-	RaftNode          *raft.Node             // Raft cluster node for KV quorum
-	EventStreamServer *EventStreamServer     // UA→MMA event stream server
+	Config             policy_manager.ConfigClient
+	PolicyManager      policy_manager.PolicyManager
+	Server             *Server
+	CommandHandler     *exec.CommandHandler
+	MetricsCollector   *MetricsCollector
+	ClusterReporter    *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
+	BusClient          *bus.Client            // Event bus client for cleanup on shutdown
+	UpdateManager      *updater.UpdateManager // Update manager for auto-updates
+	CommandDrainer     *CommandDrainer        // Command drainer for graceful updates
+	RaftNode           *raft.Node             // Raft cluster node for KV quorum
+	EventStreamServer  *EventStreamServer     // UA→MMA event stream server
+	CapabilityManager  interface{}            // Capability manager (type from internal/capability)
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -45,6 +48,31 @@ func getConfigValue(config policy_manager.ConfigClient, key string) (interface{}
 	}
 	// Fallback to non-prefixed for backward compatibility
 	return config.Get(key)
+}
+
+// getConfigValueStr gets a string value with a default
+func getConfigValueStr(config policy_manager.ConfigClient, key string, defaultValue string) string {
+	if val, ok := getConfigValue(config, key); ok {
+		if strVal, ok := val.(string); ok {
+			return strVal
+		}
+	}
+	return defaultValue
+}
+
+// getConfigValueInt gets an int value with a default
+func getConfigValueInt(config policy_manager.ConfigClient, key string, defaultValue int) int {
+	if val, ok := getConfigValue(config, key); ok {
+		switch v := val.(type) {
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case float64:
+			return int(v)
+		}
+	}
+	return defaultValue
 }
 
 // WireAgent sets up all agent dependencies
@@ -419,6 +447,47 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		server.SetEventStreamServer(eventStreamServer)
 	}
 
+	// Initialize capability manager if enabled
+	var capabilityManager interface{}
+	if capEnabled, ok := getConfigValue(snapshotClient, "capability_registry.enabled"); ok && capEnabled == true {
+		slog.Info("initializing capability manager")
+
+		// Initialize Docker client
+		dockerClient, err := client.NewClientWithOpts(client.FromEnv)
+		if err != nil {
+			slog.Warn("failed to initialize Docker client for capability manager", "error", err)
+		} else {
+			// Build capability configuration
+			homeDir, _ := os.UserHomeDir()
+			capConfig := capability.Config{
+				UCRSBaseURL:   getConfigValueStr(snapshotClient, "capability_registry.ucrs_base_url", "https://registry.underleaf.io"),
+				PublicKeyPath: getConfigValueStr(snapshotClient, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
+				CacheDir:      getConfigValueStr(snapshotClient, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
+				ProviderDir:   getConfigValueStr(snapshotClient, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
+				SyncInterval:  time.Duration(getConfigValueInt(snapshotClient, "capability_registry.sync_interval_seconds", 600)) * time.Second,
+				Network:       getConfigValueStr(snapshotClient, "provider_defaults.network", "underleaf-providers"),
+				MemoryLimit:   getConfigValueStr(snapshotClient, "provider_defaults.memory_limit", "512m"),
+				CPULimit:      getConfigValueStr(snapshotClient, "provider_defaults.cpu_limit", "1.0"),
+				TrustTier:     getConfigValueStr(snapshotClient, "provider_defaults.trust_tier_constraint", "certified+"),
+			}
+
+			// Create capability manager
+			mgr, err := capability.NewManager(dockerClient, capConfig)
+			if err != nil {
+				slog.Warn("failed to create capability manager", "error", err)
+			} else {
+				// Start capability manager
+				if err := mgr.Start(ctx); err != nil {
+					slog.Warn("failed to start capability manager", "error", err)
+				} else {
+					slog.Info("capability manager started successfully")
+					capabilityManager = mgr
+					server.SetCapabilityManager(capabilityManager)
+				}
+			}
+		}
+	}
+
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
@@ -433,6 +502,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CommandDrainer:    drainer,
 		RaftNode:          raftNode,
 		EventStreamServer: eventStreamServer,
+		CapabilityManager: capabilityManager,
 	}, nil
 }
 

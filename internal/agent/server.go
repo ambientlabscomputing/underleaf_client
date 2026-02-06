@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
@@ -24,6 +25,8 @@ type Server struct {
 	sealManager       *raft.SealManager
 	secretStore       *raft.SecretStore
 	eventStreamServer *EventStreamServer
+	capabilityManager interface{}              // Capability manager (type from internal/capability)
+	capabilityAPI     *capability.APIHandlers // HTTP handlers for capability endpoints
 }
 
 // NewServer creates a new agent server
@@ -71,6 +74,16 @@ func (s *Server) SetSecretStore(ss *raft.SecretStore) {
 // SetEventStreamServer injects the event stream server into the server
 func (s *Server) SetEventStreamServer(ess *EventStreamServer) {
 	s.eventStreamServer = ess
+}
+
+// SetCapabilityManager injects the capability manager into the server
+func (s *Server) SetCapabilityManager(cm interface{}) {
+	s.capabilityManager = cm
+
+	// Type assert to create API handlers
+	if mgr, ok := cm.(*capability.Manager); ok {
+		s.capabilityAPI = capability.NewAPIHandlers(mgr)
+	}
 }
 
 // setupRoutes configures all HTTP routes
@@ -136,6 +149,27 @@ func (s *Server) setupRoutes() {
 			secrets.PUT("/put/*path", s.handleSecretPut)
 			secrets.DELETE("/delete/*path", s.handleSecretDelete)
 			secrets.GET("/versions/*path", s.handleSecretVersions)
+		}
+
+		// Capability registry endpoints (if capability manager is enabled)
+		if s.capabilityManager != nil {
+			capabilities := api.Group("/capabilities")
+			{
+				capabilities.POST("/ensure", s.handleCapabilityEnsure)
+				capabilities.GET("/resolve", s.handleCapabilityResolve)
+				capabilities.GET("/available", s.handleCapabilityList)
+			}
+
+			providers := api.Group("/providers")
+			{
+				providers.GET("/installed", s.handleProviderList)
+			}
+
+			registry := api.Group("/registry")
+			{
+				registry.GET("/status", s.handleRegistryStatus)
+				registry.POST("/sync", s.handleRegistrySync)
+			}
 		}
 
 		// Mycelium Mesh Agent (MMA) event stream endpoints
@@ -396,4 +430,60 @@ func (s *Server) handleMMeshPublish(c *gin.Context) {
 		"entity_kind": req.EntityKind,
 		"entity_id":   req.EntityID,
 	})
+}
+
+// Capability management handlers
+
+func (s *Server) handleCapabilityEnsure(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleEnsureCapability(c)
+}
+
+func (s *Server) handleCapabilityResolve(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleResolveCapability(c)
+}
+
+func (s *Server) handleCapabilityList(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleListCapabilities(c)
+}
+
+func (s *Server) handleProviderList(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleListProviders(c)
+}
+
+func (s *Server) handleRegistryStatus(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleRegistryStatus(c)
+}
+
+func (s *Server) handleRegistrySync(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleForceSync(c)
 }

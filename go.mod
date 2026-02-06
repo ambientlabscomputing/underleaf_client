@@ -4,6 +4,7 @@ go 1.24.3
 
 require (
 	github.com/ambientlabscomputing/event_bus_client v1.2.4
+	github.com/ambientlabscomputing/underleaf/capability_registry_service v0.0.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -28,6 +29,7 @@ require (
 )
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
@@ -124,3 +126,5 @@ require (
 	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 )
+
+replace github.com/ambientlabscomputing/underleaf/capability_registry_service => ../capability_registry_service/service
