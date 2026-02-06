@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability/mcp"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability/store"
@@ -76,11 +77,13 @@ func NewManager(dockerClient *client.Client, config Config) (*Manager, error) {
 
 	// Create lifecycle manager
 	lifecycle, err := NewLifecycleManager(dockerClient, providerStore, LifecycleConfig{
-		Network:      config.Network,
-		ProviderDir:  config.ProviderDir,
-		MemoryLimit:  config.MemoryLimit,
-		CPULimit:     config.CPULimit,
-	})
+		Network:     config.Network,
+		ProviderDir: config.ProviderDir,
+		MemoryLimit: config.MemoryLimit,
+		CPULimit:    config.CPULimit,
+		LogDir:      filepath.Join(config.ProviderDir, "logs"),
+		StagingDir:  filepath.Join(config.ProviderDir, "staging"),
+	}, slog.Default())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create lifecycle manager: %w", err)
 	}
@@ -166,12 +169,12 @@ func (m *Manager) EnsureCapability(ctx context.Context, req CapabilityRequest) (
 	}
 
 	// Start if not running
-	if providerInstance.State != string(StateRunning) {
+	if providerInstance.State != string(ProviderStateRunning) {
 		slog.Info("starting provider", "provider_id", provider.ProviderID, "version", provider.Version)
 		if err := m.lifecycle.Start(ctx, provider.ProviderID, provider.Version); err != nil {
 			return nil, fmt.Errorf("failed to start provider: %w", err)
 		}
-		providerInstance.State = string(StateRunning)
+		providerInstance.State = string(ProviderStateRunning)
 	}
 
 	// Create MCP client if not exists

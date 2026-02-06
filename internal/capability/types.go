@@ -54,22 +54,39 @@ type CapabilityRequest struct {
 
 // ResolveConstraints specifies filtering constraints for provider selection
 type ResolveConstraints struct {
-	TrustTier    string `json:"trust_tier,omitempty"`    // "official_only", "certified+", "all"
-	RiskClass    string `json:"risk_class,omitempty"`    // "low_only", "medium+", "all"
-	Platform     string `json:"platform,omitempty"`      // "darwin", "linux", "windows"
-	Architecture string `json:"architecture,omitempty"`  // "amd64", "arm64"
+	TrustTier    string `json:"trust_tier,omitempty"`   // "official_only", "certified+", "all"
+	RiskClass    string `json:"risk_class,omitempty"`   // "low_only", "medium+", "all"
+	Platform     string `json:"platform,omitempty"`     // "darwin", "linux", "windows"
+	Architecture string `json:"architecture,omitempty"` // "amd64", "arm64"
 }
 
 // ProviderState represents the runtime state of a provider
 type ProviderState string
 
 const (
-	StateInstalling ProviderState = "installing"
-	StateRunning    ProviderState = "running"
-	StateStopped    ProviderState = "stopped"
-	StateFailed     ProviderState = "failed"
-	StateUnknown    ProviderState = "unknown"
+	ProviderStateInstalling  ProviderState = "installing"
+	ProviderStateInstalled   ProviderState = "installed"
+	ProviderStateRunning     ProviderState = "running"
+	ProviderStateStopped     ProviderState = "stopped"
+	ProviderStateFailed      ProviderState = "failed"
+	ProviderStateUnknown     ProviderState = "unknown"
+	ProviderStateUninstalled ProviderState = "uninstalled"
 )
+
+// InstallState tracks the installation and runtime state of a provider
+type InstallState struct {
+	ProviderID  string        `json:"provider_id"`
+	Version     string        `json:"version"`
+	Status      ProviderState `json:"status"`
+	BinaryPath  string        `json:"binary_path,omitempty"`  // For binary providers
+	ContainerID string        `json:"container_id,omitempty"` // For OCI providers
+	Digest      string        `json:"digest,omitempty"`       // SHA256 or OCI digest
+	Platform    string        `json:"platform,omitempty"`     // e.g., "darwin/arm64"
+	PID         int           `json:"pid,omitempty"`          // For binary providers
+	Healthy     bool          `json:"healthy"`
+	InstalledAt int64         `json:"installed_at,omitempty"` // Unix timestamp or size (overloaded)
+	Error       string        `json:"error,omitempty"`
+}
 
 // ProviderInstance represents an installed provider instance
 type ProviderInstance struct {
@@ -79,16 +96,16 @@ type ProviderInstance struct {
 	Capabilities []string          `json:"capabilities"` // Capability IDs this provider implements
 	Endpoint     string            `json:"endpoint"`     // MCP endpoint (e.g., "unix:///var/run/underleaf/providers/xyz.sock")
 	InstalledAt  time.Time         `json:"installed_at"`
-	RuntimeID    string            `json:"runtime_id,omitempty"`    // Docker container ID or process PID
-	Metadata     map[string]string `json:"metadata,omitempty"`      // Additional metadata
+	RuntimeID    string            `json:"runtime_id,omitempty"` // Docker container ID or process PID
+	Metadata     map[string]string `json:"metadata,omitempty"`   // Additional metadata
 }
 
 // ProviderEndpoint represents a resolved provider endpoint
 type ProviderEndpoint struct {
-	Provider   *Provider         `json:"provider"`
-	Capability *Capability       `json:"capability"`
-	Endpoint   string            `json:"endpoint"`
-	State      ProviderState     `json:"state"`
+	Provider   *Provider     `json:"provider"`
+	Capability *Capability   `json:"capability"`
+	Endpoint   string        `json:"endpoint"`
+	State      ProviderState `json:"state"`
 }
 
 // EnsureCapabilityRequest is the API request for ensuring a capability is available

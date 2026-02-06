@@ -15,51 +15,86 @@ import (
 
 // LifecycleManager manages the lifecycle of provider instances
 type LifecycleManager struct {
-	dockerClient  *client.Client
-	providerStore *store.ProviderStore
-	config        LifecycleConfig
+	dockerClient    *client.Client
+	binaryLifecycle *BinaryLifecycleManager
+	supervisor      *ProcessSupervisor
+	providerStore   *store.ProviderStore
+	config          LifecycleConfig
+	log             *slog.Logger
 }
 
 // LifecycleConfig configures the lifecycle manager
 type LifecycleConfig struct {
-	Network      string // Docker network for providers
-	ProviderDir  string // Directory for provider data
-	MemoryLimit  string // Default memory limit (e.g., "512m")
-	CPULimit     string // Default CPU limit (e.g., "1.0")
+	Network     string // Docker network for providers
+	ProviderDir string // Directory for provider data
+	MemoryLimit string // Default memory limit (e.g., "512m")
+	CPULimit    string // Default CPU limit (e.g., "1.0")
+	LogDir      string // Directory for binary provider logs
+	StagingDir  string // Directory for binary downloads
 }
 
 // NewLifecycleManager creates a new lifecycle manager
-func NewLifecycleManager(dockerClient *client.Client, providerStore *store.ProviderStore, config LifecycleConfig) (*LifecycleManager, error) {
-	if dockerClient == nil {
-		return nil, fmt.Errorf("docker client cannot be nil")
-	}
+func NewLifecycleManager(dockerClient *client.Client, providerStore *store.ProviderStore, config LifecycleConfig, log *slog.Logger) (*LifecycleManager, error) {
 	if providerStore == nil {
 		return nil, fmt.Errorf("provider store cannot be nil")
 	}
+	if log == nil {
+		log = slog.Default()
+	}
+
+	// Create process supervisor for binary providers
+	supervisor := NewProcessSupervisor(log, config.LogDir)
+
+	// Create binary lifecycle manager
+	binaryLifecycle := NewBinaryLifecycleManager(
+		log,
+		config.ProviderDir,
+		config.StagingDir,
+		config.LogDir,
+		supervisor,
+	)
 
 	return &LifecycleManager{
-		dockerClient:  dockerClient,
-		providerStore: providerStore,
-		config:        config,
+		dockerClient:    dockerClient,
+		binaryLifecycle: binaryLifecycle,
+		supervisor:      supervisor,
+		providerStore:   providerStore,
+		config:          config,
+		log:             log,
 	}, nil
 }
 
-// Install installs a provider (pulls OCI image and creates container)
+// Install installs a provider (pulls OCI image or downloads binary)
 func (l *LifecycleManager) Install(ctx context.Context, provider *Provider) (*store.ProviderInstance, error) {
-	if provider.Artifact.Type != ArtifactOCI {
-		return nil, fmt.Errorf("only OCI artifacts are supported in MVP")
-	}
-
-	slog.Info("installing provider",
+	l.log.Info("installing provider",
 		"provider_id", provider.ProviderID,
 		"version", provider.Version,
-		"image", provider.Artifact.URI)
+		"artifact_type", provider.Artifact.Type)
+
+	// Route based on artifact type
+	switch provider.Artifact.Type {
+	case ArtifactOCI:
+		return l.installOCI(ctx, provider)
+	case ArtifactBinary:
+		return l.installBinary(ctx, provider)
+	default:
+		return nil, fmt.Errorf("unsupported artifact type: %s", provider.Artifact.Type)
+	}
+}
+
+// installOCI installs an OCI container provider
+func (l *LifecycleManager) installOCI(ctx context.Context, provider *Provider) (*store.ProviderInstance, error) {
+	if l.dockerClient == nil {
+		return nil, fmt.Errorf("docker client not available for OCI providers")
+	}
+
+	l.log.Info("installing OCI provider", "image", provider.Artifact.URI)
 
 	// Create provider instance record
 	instance := &store.ProviderInstance{
 		ProviderID:   provider.ProviderID,
 		Version:      provider.Version,
-		State:        string(StateInstalling),
+		State:        string(ProviderStateInstalling),
 		Capabilities: extractCapabilityIDs(provider.Capabilities),
 		InstalledAt:  time.Now(),
 		Metadata:     make(map[string]string),
@@ -74,7 +109,7 @@ func (l *LifecycleManager) Install(ctx context.Context, provider *Provider) (*st
 	slog.Debug("pulling OCI image", "image", provider.Artifact.URI)
 	pullResp, err := l.dockerClient.ImagePull(ctx, provider.Artifact.URI, client.ImagePullOptions{})
 	if err != nil {
-		instance.State = string(StateFailed)
+		instance.State = string(ProviderStateFailed)
 		l.providerStore.SaveProvider(instance)
 		return nil, fmt.Errorf("failed to pull image: %w", err)
 	}
@@ -117,14 +152,14 @@ func (l *LifecycleManager) Install(ctx context.Context, provider *Provider) (*st
 		},
 	})
 	if err != nil {
-		instance.State = string(StateFailed)
+		instance.State = string(ProviderStateFailed)
 		l.providerStore.SaveProvider(instance)
 		return nil, fmt.Errorf("failed to create container: %w", err)
 	}
 
 	// Update instance with container ID
 	instance.RuntimeID = resp.ID
-	instance.State = string(StateStopped)
+	instance.State = string(ProviderStateStopped)
 	instance.Endpoint = fmt.Sprintf("unix:///var/run/underleaf/providers/%s.sock", provider.ProviderID)
 
 	if err := l.providerStore.SaveProvider(instance); err != nil {
@@ -139,7 +174,54 @@ func (l *LifecycleManager) Install(ctx context.Context, provider *Provider) (*st
 	return instance, nil
 }
 
-// Start starts a provider container
+// installBinary installs a binary provider
+func (l *LifecycleManager) installBinary(ctx context.Context, provider *Provider) (*store.ProviderInstance, error) {
+	l.log.Info("installing binary provider", "provider_id", provider.ProviderID)
+
+	// Create provider instance record
+	instance := &store.ProviderInstance{
+		ProviderID:   provider.ProviderID,
+		Version:      provider.Version,
+		State:        string(ProviderStateInstalling),
+		Capabilities: extractCapabilityIDs(provider.Capabilities),
+		InstalledAt:  time.Now(),
+		Metadata:     make(map[string]string),
+	}
+
+	// Save initial state
+	if err := l.providerStore.SaveProvider(instance); err != nil {
+		return nil, fmt.Errorf("failed to save provider state: %w", err)
+	}
+
+	// Install using binary lifecycle manager
+	installState, err := l.binaryLifecycle.Install(provider)
+	if err != nil {
+		instance.State = string(ProviderStateFailed)
+		l.providerStore.SaveProvider(instance)
+		return nil, fmt.Errorf("failed to install binary: %w", err)
+	}
+
+	// Update instance with binary info
+	instance.RuntimeID = installState.BinaryPath // Store binary path in RuntimeID
+	instance.State = string(ProviderStateInstalled)
+	instance.Endpoint = "" // No endpoint until started
+	instance.Metadata["binary_path"] = installState.BinaryPath
+	instance.Metadata["digest"] = installState.Digest
+	instance.Metadata["platform"] = installState.Platform
+
+	if err := l.providerStore.SaveProvider(instance); err != nil {
+		return nil, fmt.Errorf("failed to update provider state: %w", err)
+	}
+
+	l.log.Info("binary provider installed successfully",
+		"provider_id", provider.ProviderID,
+		"version", provider.Version,
+		"binary_path", installState.BinaryPath)
+
+	return instance, nil
+}
+
+// Start starts a provider (container or binary process)
 func (l *LifecycleManager) Start(ctx context.Context, providerID, version string) error {
 	instance, err := l.providerStore.GetProvider(providerID, version)
 	if err != nil {
@@ -150,28 +232,75 @@ func (l *LifecycleManager) Start(ctx context.Context, providerID, version string
 		return fmt.Errorf("provider has no runtime ID")
 	}
 
-	slog.Info("starting provider", "provider_id", providerID, "version", version)
+	l.log.Info("starting provider", "provider_id", providerID, "version", version, "state", instance.State)
+
+	// Determine if this is a binary or OCI provider based on metadata or RuntimeID pattern
+	isBinary := instance.Metadata != nil && instance.Metadata["binary_path"] != ""
+
+	if isBinary {
+		return l.startBinary(ctx, instance)
+	} else {
+		return l.startOCI(ctx, instance)
+	}
+}
+
+// startOCI starts an OCI container provider
+func (l *LifecycleManager) startOCI(ctx context.Context, instance *store.ProviderInstance) error {
+	if l.dockerClient == nil {
+		return fmt.Errorf("docker client not available")
+	}
 
 	// Start container
-	_, err = l.dockerClient.ContainerStart(ctx, instance.RuntimeID, client.ContainerStartOptions{})
+	_, err := l.dockerClient.ContainerStart(ctx, instance.RuntimeID, client.ContainerStartOptions{})
 	if err != nil {
-		instance.State = string(StateFailed)
+		instance.State = string(ProviderStateFailed)
 		l.providerStore.SaveProvider(instance)
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
 	// Update state
-	instance.State = string(StateRunning)
+	instance.State = string(ProviderStateRunning)
 	if err := l.providerStore.SaveProvider(instance); err != nil {
 		return fmt.Errorf("failed to update provider state: %w", err)
 	}
 
-	slog.Info("provider started successfully", "provider_id", providerID, "version", version)
-
+	l.log.Info("OCI provider started successfully", "provider_id", instance.ProviderID, "version", instance.Version)
 	return nil
 }
 
-// Stop stops a provider container
+// startBinary starts a binary provider process
+func (l *LifecycleManager) startBinary(ctx context.Context, instance *store.ProviderInstance) error {
+	// Need to reconstruct provider info for Start() call
+	// This is a simplification - in production you'd store more provider metadata
+	provider := &Provider{
+		ProviderID:          instance.ProviderID,
+		Version:             instance.Version,
+		RuntimeRequirements: RuntimeRequirements{},
+	}
+
+	installState := &InstallState{
+		ProviderID: instance.ProviderID,
+		Version:    instance.Version,
+		BinaryPath: instance.Metadata["binary_path"],
+	}
+
+	if err := l.binaryLifecycle.Start(provider, installState); err != nil {
+		instance.State = string(ProviderStateFailed)
+		l.providerStore.SaveProvider(instance)
+		return fmt.Errorf("failed to start binary: %w", err)
+	}
+
+	// Update state
+	instance.State = string(ProviderStateRunning)
+	if err := l.providerStore.SaveProvider(instance); err != nil {
+		return fmt.Errorf("failed to update provider state: %w", err)
+	}
+
+	l.log.Info("binary provider started successfully", "provider_id", instance.ProviderID, "version", instance.Version)
+	return nil
+}
+
+// Stop stops a provider (container or binary process)
 func (l *LifecycleManager) Stop(ctx context.Context, providerID, version string) error {
 	instance, err := l.providerStore.GetProvider(providerID, version)
 	if err != nil {
@@ -192,7 +321,7 @@ func (l *LifecycleManager) Stop(ctx context.Context, providerID, version string)
 	}
 
 	// Update state
-	instance.State = string(StateStopped)
+	instance.State = string(ProviderStateStopped)
 	if err := l.providerStore.SaveProvider(instance); err != nil {
 		return fmt.Errorf("failed to update provider state: %w", err)
 	}
@@ -236,7 +365,7 @@ func (l *LifecycleManager) Uninstall(ctx context.Context, providerID, version st
 func (l *LifecycleManager) GetStatus(ctx context.Context, providerID, version string) (ProviderState, error) {
 	instance, err := l.providerStore.GetProvider(providerID, version)
 	if err != nil {
-		return StateUnknown, fmt.Errorf("provider not found: %w", err)
+		return ProviderStateUnknown, fmt.Errorf("provider not found: %w", err)
 	}
 
 	if instance.RuntimeID == "" {
