@@ -10,6 +10,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/mmesh"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/provider"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/templates"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/update"
@@ -24,7 +25,8 @@ var (
 	configAgentPort int
 )
 
-type configAgentPortKey struct{}
+// Context key for agent port (using string to avoid import cycles)
+const configAgentPortContextKey = "config-agent-port"
 
 var rootCmd = &cobra.Command{
 	Use:   "ufctl",
@@ -47,7 +49,7 @@ local servers and the control plane.`,
 
 		// Store config agent port in context if specified
 		if configAgentPort != 0 {
-			ctx = context.WithValue(ctx, configAgentPortKey{}, configAgentPort)
+			ctx = context.WithValue(ctx, configAgentPortContextKey, configAgentPort)
 			cmd.SetContext(ctx)
 		}
 	},
@@ -77,6 +79,7 @@ func init() {
 	rootCmd.AddCommand(update.UpdateCmd)
 	rootCmd.AddCommand(cluster.ClusterCmd)
 	rootCmd.AddCommand(mmesh.MMeshCmd)
+	rootCmd.AddCommand(provider.ProviderCmd)
 }
 
 func Execute(ctx context.Context) error {

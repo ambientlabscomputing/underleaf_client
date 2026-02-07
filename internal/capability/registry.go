@@ -11,9 +11,9 @@ type Registry struct {
 	snapshot *RegistrySnapshot
 
 	// Indexes for fast lookups
-	capabilitiesById      map[string]*Capability   // Key: capability.ID
-	providersByCapability map[string][]*Provider   // Key: capability.ID
-	providersById         map[string]*Provider     // Key: provider_id:version
+	capabilitiesById      map[string]*Capability // Key: capability.ID
+	providersByCapability map[string][]*Provider // Key: capability.ID
+	providersById         map[string]*Provider   // Key: provider_id:version
 
 	mu sync.RWMutex
 }
@@ -132,6 +132,27 @@ func (r *Registry) GetProvider(providerID, version string) (*Provider, error) {
 	}
 
 	return provider, nil
+}
+
+// FindProviderByID finds a provider by just provider ID (returns latest version)
+func (r *Registry) FindProviderByID(providerID string) (*Provider, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var best *Provider
+	for _, provider := range r.providersById {
+		if provider.ProviderID == providerID {
+			if best == nil || provider.Version > best.Version {
+				best = provider
+			}
+		}
+	}
+
+	if best == nil {
+		return nil, fmt.Errorf("provider not found: %s", providerID)
+	}
+
+	return best, nil
 }
 
 // ListProviders returns all providers

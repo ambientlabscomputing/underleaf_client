@@ -45,6 +45,7 @@ type CPlaneServerClient interface {
 	GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error)
 	UpdateServerMetrics(ctx context.Context, serverID string, metrics servertypes.MetricsUpdateRequest) error
 	UpdateServerDockerData(ctx context.Context, serverID string, dockerData servertypes.DockerDataUpdateRequest) error
+	UpdateServerProviders(ctx context.Context, serverID string, providers servertypes.ProvidersUpdateRequest) error
 	UpdateClusterMemberStatus(ctx context.Context, clusterID, serverID, role, leaderID string) error
 	GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*servertypes.MetricsHistoryResponse, error)
 	GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error)

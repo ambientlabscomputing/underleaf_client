@@ -25,7 +25,7 @@ type Server struct {
 	sealManager       *raft.SealManager
 	secretStore       *raft.SecretStore
 	eventStreamServer *EventStreamServer
-	capabilityManager interface{}              // Capability manager (type from internal/capability)
+	capabilityManager interface{}             // Capability manager (type from internal/capability)
 	capabilityAPI     *capability.APIHandlers // HTTP handlers for capability endpoints
 }
 
@@ -83,6 +83,40 @@ func (s *Server) SetCapabilityManager(cm interface{}) {
 	// Type assert to create API handlers
 	if mgr, ok := cm.(*capability.Manager); ok {
 		s.capabilityAPI = capability.NewAPIHandlers(mgr)
+	}
+
+	// Register capability routes now that manager is available
+	s.registerCapabilityRoutes()
+}
+
+// registerCapabilityRoutes adds capability-specific routes to the router
+func (s *Server) registerCapabilityRoutes() {
+	if s.capabilityManager == nil {
+		return
+	}
+
+	// Find the /api/v1 route group
+	api := s.router.Group("/api/v1")
+	{
+		capabilities := api.Group("/capabilities")
+		{
+			capabilities.POST("/ensure", s.handleCapabilityEnsure)
+			capabilities.GET("/resolve", s.handleCapabilityResolve)
+			capabilities.GET("/available", s.handleCapabilityList)
+		}
+
+		providers := api.Group("/providers")
+		{
+			providers.GET("/installed", s.handleProviderList)
+			providers.POST("/install", s.handleProviderInstall)
+			providers.POST("/uninstall", s.handleProviderUninstall)
+		}
+
+		registry := api.Group("/registry")
+		{
+			registry.GET("/status", s.handleRegistryStatus)
+			registry.POST("/sync", s.handleRegistrySync)
+		}
 	}
 }
 
@@ -151,26 +185,8 @@ func (s *Server) setupRoutes() {
 			secrets.GET("/versions/*path", s.handleSecretVersions)
 		}
 
-		// Capability registry endpoints (if capability manager is enabled)
-		if s.capabilityManager != nil {
-			capabilities := api.Group("/capabilities")
-			{
-				capabilities.POST("/ensure", s.handleCapabilityEnsure)
-				capabilities.GET("/resolve", s.handleCapabilityResolve)
-				capabilities.GET("/available", s.handleCapabilityList)
-			}
-
-			providers := api.Group("/providers")
-			{
-				providers.GET("/installed", s.handleProviderList)
-			}
-
-			registry := api.Group("/registry")
-			{
-				registry.GET("/status", s.handleRegistryStatus)
-				registry.POST("/sync", s.handleRegistrySync)
-			}
-		}
+		// NOTE: Capability routes are registered dynamically via registerCapabilityRoutes()
+		// after SetCapabilityManager() is called, to ensure proper initialization order
 
 		// Mycelium Mesh Agent (MMA) event stream endpoints
 		mmesh := api.Group("/mmesh")
@@ -468,6 +484,24 @@ func (s *Server) handleProviderList(c *gin.Context) {
 	}
 
 	s.capabilityAPI.HandleListProviders(c)
+}
+
+func (s *Server) handleProviderInstall(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleInstallProvider(c)
+}
+
+func (s *Server) handleProviderUninstall(c *gin.Context) {
+	if s.capabilityAPI == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capability manager not available"})
+		return
+	}
+
+	s.capabilityAPI.HandleUninstallProvider(c)
 }
 
 func (s *Server) handleRegistryStatus(c *gin.Context) {

@@ -170,7 +170,7 @@ func (s *ProcessSupervisor) Stop(providerID, version string) error {
 		}
 	}
 
-	// Cancel the supervision context, which will stop the superviseProcess goroutine  
+	// Cancel the supervision context, which will stop the superviseProcess goroutine
 	if proc.cancel != nil {
 		proc.cancel()
 	}

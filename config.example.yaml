@@ -126,6 +126,12 @@ payload:
     # Enable/disable capability registry integration (default: false)
     enabled: false
 
+    # Auto-install MMA on agent startup
+    auto_install_mma: true
+
+    # MMA provider ID to auto-install (default: underleaf.mma)
+    mma_provider_id: underleaf.mma
+
     # UCRS base URL for registry synchronization
     ucrs_base_url: https://registry.underleaf.io
 

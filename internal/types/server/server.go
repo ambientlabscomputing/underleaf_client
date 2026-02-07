@@ -224,3 +224,21 @@ type DockerDataUpdateRequest struct {
 	Networks   []interface{} `json:"networks,omitempty"`
 	Services   []interface{} `json:"services,omitempty"`
 }
+
+// ProviderInstance represents an installed provider on a server
+type ProviderInstance struct {
+	ProviderID   string   `json:"provider_id"`
+	Version      string   `json:"version"`
+	State        string   `json:"state"` // installing, installed, running, stopped, failed, uninstalled
+	Capabilities []string `json:"capabilities"`
+	InstalledAt  string   `json:"installed_at,omitempty"`
+	UpdatedAt    string   `json:"updated_at,omitempty"`
+	Error        string   `json:"error,omitempty"` // Error message if state is failed
+}
+
+// ProvidersUpdateRequest represents the request to update server provider data
+type ProvidersUpdateRequest struct {
+	Providers       []ProviderInstance `json:"providers"`
+	RegistryVersion int                `json:"registry_version"`
+	LastSyncAt      string             `json:"last_sync_at"`
+}

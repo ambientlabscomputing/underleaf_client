@@ -54,16 +54,34 @@ func NewSyncClient(config SyncClientConfig) (*SyncClient, error) {
 		config.SyncInterval = 10 * time.Minute
 	}
 
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
 	// Load public key for signature verification
-	publicKey, err := loadPublicKey(config.PublicKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load public key: %w", err)
+	// Try local path first if provided, otherwise fetch from UCRS
+	var publicKey ed25519.PublicKey
+	var err error
+
+	if config.PublicKeyPath != "" {
+		publicKey, err = loadPublicKey(config.PublicKeyPath)
+		if err != nil {
+			slog.Warn("failed to load public key from local path, will fetch from UCRS", "error", err, "path", config.PublicKeyPath)
+		}
+	}
+
+	// If no local key or loading failed, fetch from UCRS
+	if publicKey == nil {
+		slog.Info("fetching public key from UCRS", "url", config.UCRSBaseURL)
+		publicKey, err = fetchPublicKeyFromUCRS(httpClient, config.UCRSBaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch public key from UCRS: %w", err)
+		}
+		slog.Info("successfully fetched public key from UCRS")
 	}
 
 	return &SyncClient{
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		httpClient:   httpClient,
 		ucrsBaseURL:  config.UCRSBaseURL,
 		publicKey:    publicKey,
 		store:        config.Store,
@@ -113,8 +131,8 @@ func (c *SyncClient) Stop(ctx context.Context) error {
 func (c *SyncClient) Sync(ctx context.Context) error {
 	slog.Debug("syncing with UCRS registry", "base_url", c.ucrsBaseURL)
 
-	// Build sync request
-	url := fmt.Sprintf("%s/api/v1/sync/snapshot", c.ucrsBaseURL)
+	// Build sync request (baseURL already contains /api/v1/registry)
+	url := fmt.Sprintf("%s/sync/snapshot", c.ucrsBaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create sync request: %w", err)
@@ -155,11 +173,15 @@ func (c *SyncClient) Sync(ctx context.Context) error {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Parse snapshot
-	var snapshot RegistrySnapshot
-	if err := json.Unmarshal(body, &snapshot); err != nil {
-		return fmt.Errorf("failed to unmarshal snapshot: %w", err)
+	// Parse response wrapper
+	var response struct {
+		Snapshot RegistrySnapshot `json:"snapshot"`
 	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal snapshot response: %w", err)
+	}
+
+	snapshot := response.Snapshot
 
 	// Verify signature
 	if err := c.verifySnapshot(&snapshot); err != nil {
@@ -266,11 +288,21 @@ func (c *SyncClient) verifySnapshot(snapshot *RegistrySnapshot) error {
 
 	// Compute payload to verify
 	// The payload format must match what UCRS signs
+	// Always use UTC to ensure consistent payload after MongoDB roundtrip
 	payload := fmt.Sprintf("%s:%s:%d:%d",
 		snapshot.Version,
-		snapshot.Timestamp.Format(time.RFC3339),
+		snapshot.Timestamp.UTC().Format(time.RFC3339),
 		len(snapshot.Capabilities),
 		len(snapshot.Providers))
+
+	// Debug logging
+	slog.Info("verifying snapshot signature",
+		"version", snapshot.Version,
+		"timestamp", snapshot.Timestamp.UTC().Format(time.RFC3339),
+		"capabilities_count", len(snapshot.Capabilities),
+		"providers_count", len(snapshot.Providers),
+		"payload", payload,
+		"public_key_len", len(c.publicKey))
 
 	// Decode signature from base64
 	signature, err := base64.StdEncoding.DecodeString(snapshot.Manifest.Signature)
@@ -280,9 +312,15 @@ func (c *SyncClient) verifySnapshot(snapshot *RegistrySnapshot) error {
 
 	// Verify signature
 	if !ed25519.Verify(c.publicKey, []byte(payload), signature) {
+		slog.Error("signature verification failed",
+			"payload", payload,
+			"signature_base64", snapshot.Manifest.Signature[:50],
+			"signature_len", len(signature),
+			"public_key_base64", base64.StdEncoding.EncodeToString(c.publicKey))
 		return fmt.Errorf("invalid signature: verification failed")
 	}
 
+	slog.Info("snapshot signature verified successfully")
 	return nil
 }
 
@@ -307,4 +345,44 @@ func loadPublicKey(path string) (ed25519.PublicKey, error) {
 	// TODO: Add PEM parsing if needed
 
 	return nil, fmt.Errorf("invalid public key format (expected %d bytes, got %d)", ed25519.PublicKeySize, len(data))
+}
+
+// fetchPublicKeyFromUCRS fetches the public key from the UCRS /public-key endpoint
+func fetchPublicKeyFromUCRS(httpClient *http.Client, ucrsBaseURL string) (ed25519.PublicKey, error) {
+	url := fmt.Sprintf("%s/public-key", ucrsBaseURL)
+
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch public key: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("UCRS returned status %d when fetching public key", resp.StatusCode)
+	}
+
+	var result struct {
+		PublicKey string `json:"public_key"`
+		Algorithm string `json:"algorithm"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode public key response: %w", err)
+	}
+
+	if result.Algorithm != "Ed25519" {
+		return nil, fmt.Errorf("unsupported algorithm: %s (expected Ed25519)", result.Algorithm)
+	}
+
+	// Decode base64 public key
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(result.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public key: %w", err)
+	}
+
+	if len(publicKeyBytes) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf("invalid public key size: got %d bytes, expected %d", len(publicKeyBytes), ed25519.PublicKeySize)
+	}
+
+	return ed25519.PublicKey(publicKeyBytes), nil
 }

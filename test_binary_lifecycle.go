@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"time"
 
+	ucrstypes "github.com/ambientlabscomputing/underleaf/capability_registry_service/types"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability/store"
-	ucrstypes "github.com/ambientlabscomputing/underleaf/capability_registry_service/types"
 )
 
 func main() {
@@ -97,7 +97,7 @@ func main() {
 	if err := lifecycle.Start(ctx, testProvider.ProviderID, testProvider.Version); err != nil {
 		log.Fatalf("Start failed: %v", err)
 	}
-	fmt.Println("✓ Start successful\n")
+	fmt.Println("✓ Start successful")
 
 	// Wait a bit for process to stabilize
 	time.Sleep(3 * time.Second)
@@ -117,14 +117,14 @@ func main() {
 	if err := lifecycle.Stop(ctx, testProvider.ProviderID, testProvider.Version); err != nil {
 		log.Fatalf("Stop failed: %v", err)
 	}
-	fmt.Println("✓ Stop successful\n")
+	fmt.Println("✓ Stop successful")
 
 	// Test 5: Uninstall
 	fmt.Println("=== Test 5: Uninstall Provider ===")
 	if err := lifecycle.Uninstall(ctx, testProvider.ProviderID, testProvider.Version); err != nil {
 		log.Fatalf("Uninstall failed: %v", err)
 	}
-	fmt.Println("✓ Uninstall successful\n")
+	fmt.Println("✓ Uninstall successful")
 
 	fmt.Println("=== All Tests Passed ===")
 }

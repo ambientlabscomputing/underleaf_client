@@ -26,18 +26,18 @@ import (
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config             policy_manager.ConfigClient
-	PolicyManager      policy_manager.PolicyManager
-	Server             *Server
-	CommandHandler     *exec.CommandHandler
-	MetricsCollector   *MetricsCollector
-	ClusterReporter    *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
-	BusClient          *bus.Client            // Event bus client for cleanup on shutdown
-	UpdateManager      *updater.UpdateManager // Update manager for auto-updates
-	CommandDrainer     *CommandDrainer        // Command drainer for graceful updates
-	RaftNode           *raft.Node             // Raft cluster node for KV quorum
-	EventStreamServer  *EventStreamServer     // UA→MMA event stream server
-	CapabilityManager  interface{}            // Capability manager (type from internal/capability)
+	Config            policy_manager.ConfigClient
+	PolicyManager     policy_manager.PolicyManager
+	Server            *Server
+	CommandHandler    *exec.CommandHandler
+	MetricsCollector  *MetricsCollector
+	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
+	BusClient         *bus.Client            // Event bus client for cleanup on shutdown
+	UpdateManager     *updater.UpdateManager // Update manager for auto-updates
+	CommandDrainer    *CommandDrainer        // Command drainer for graceful updates
+	RaftNode          *raft.Node             // Raft cluster node for KV quorum
+	EventStreamServer *EventStreamServer     // UA→MMA event stream server
+	CapabilityManager interface{}            // Capability manager (type from internal/capability)
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -70,6 +70,20 @@ func getConfigValueInt(config policy_manager.ConfigClient, key string, defaultVa
 			return int(v)
 		case float64:
 			return int(v)
+		}
+	}
+	return defaultValue
+}
+
+// getConfigValueBool gets a bool value with a default
+func getConfigValueBool(config policy_manager.ConfigClient, key string, defaultValue bool) bool {
+	if val, ok := getConfigValue(config, key); ok {
+		switch v := val.(type) {
+		case bool:
+			return v
+		case string:
+			// Handle string "true"/"false"
+			return v == "true" || v == "True" || v == "TRUE"
 		}
 	}
 	return defaultValue
@@ -385,18 +399,6 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		}
 	}
 
-	// Initialize and start metrics collector AFTER Raft (so we can pass raft node reference)
-	metricsCollector := NewMetricsCollector(
-		serverID.(string),
-		cplaneClient.Servers,
-		policyManager,
-		raftNode,
-		cplaneClient,
-		DefaultMetricsInterval,
-		DefaultDockerMetricsInterval,
-	)
-	metricsCollector.Start(ctx)
-
 	// Initialize update manager
 	updateBasePath := filepath.Join(policy_manager.GetBasePath(true), "updates")
 	updateStore := updater.NewStore(updateBasePath)
@@ -447,9 +449,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		server.SetEventStreamServer(eventStreamServer)
 	}
 
-	// Initialize capability manager if enabled
+	// Initialize capability manager if enabled (use simpleConfig for local settings)
 	var capabilityManager interface{}
-	if capEnabled, ok := getConfigValue(snapshotClient, "capability_registry.enabled"); ok && capEnabled == true {
+	capEnabled := getConfigValueBool(simpleConfig, "capability_registry.enabled", false)
+	slog.Info("checking capability_registry config", "enabled", capEnabled)
+	if capEnabled {
 		slog.Info("initializing capability manager")
 
 		// Initialize Docker client
@@ -457,18 +461,18 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		if err != nil {
 			slog.Warn("failed to initialize Docker client for capability manager", "error", err)
 		} else {
-			// Build capability configuration
+			// Build capability configuration (all from local config)
 			homeDir, _ := os.UserHomeDir()
 			capConfig := capability.Config{
-				UCRSBaseURL:   getConfigValueStr(snapshotClient, "capability_registry.ucrs_base_url", "https://registry.underleaf.io"),
-				PublicKeyPath: getConfigValueStr(snapshotClient, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
-				CacheDir:      getConfigValueStr(snapshotClient, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
-				ProviderDir:   getConfigValueStr(snapshotClient, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
-				SyncInterval:  time.Duration(getConfigValueInt(snapshotClient, "capability_registry.sync_interval_seconds", 600)) * time.Second,
-				Network:       getConfigValueStr(snapshotClient, "provider_defaults.network", "underleaf-providers"),
-				MemoryLimit:   getConfigValueStr(snapshotClient, "provider_defaults.memory_limit", "512m"),
-				CPULimit:      getConfigValueStr(snapshotClient, "provider_defaults.cpu_limit", "1.0"),
-				TrustTier:     getConfigValueStr(snapshotClient, "provider_defaults.trust_tier_constraint", "certified+"),
+				UCRSBaseURL:   getConfigValueStr(simpleConfig, "capability_registry.ucrs_base_url", "https://registry.underleaf.io"),
+				PublicKeyPath: getConfigValueStr(simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
+				CacheDir:      getConfigValueStr(simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
+				ProviderDir:   getConfigValueStr(simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
+				SyncInterval:  time.Duration(getConfigValueInt(simpleConfig, "capability_registry.sync_interval_seconds", 600)) * time.Second,
+				Network:       getConfigValueStr(simpleConfig, "provider_defaults.network", "underleaf-providers"),
+				MemoryLimit:   getConfigValueStr(simpleConfig, "provider_defaults.memory_limit", "512m"),
+				CPULimit:      getConfigValueStr(simpleConfig, "provider_defaults.cpu_limit", "1.0"),
+				TrustTier:     getConfigValueStr(simpleConfig, "provider_defaults.trust_tier_constraint", "certified+"),
 			}
 
 			// Create capability manager
@@ -485,13 +489,28 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					server.SetCapabilityManager(capabilityManager)
 
 					// Auto-install MMA if enabled and not already installed
-					if autoInstallMMA, ok := getConfigValue(snapshotClient, "capability_registry.auto_install_mma"); !ok || autoInstallMMA == true {
-						go ensureMMAInstalled(ctx, mgr)
+					if getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true) {
+						mmaProviderID := getConfigValueStr(simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
+						go ensureMMAInstalled(ctx, mgr, mmaProviderID)
 					}
 				}
 			}
 		}
 	}
+
+	// Initialize and start metrics collector AFTER capability manager (so we can pass capability manager reference)
+	metricsCollector := NewMetricsCollector(
+		serverID.(string),
+		cplaneClient.Servers,
+		policyManager,
+		raftNode,
+		cplaneClient,
+		capabilityManager, // Pass capability manager for provider reporting
+		DefaultMetricsInterval,
+		DefaultDockerMetricsInterval,
+		DefaultProvidersInterval,
+	)
+	metricsCollector.Start(ctx)
 
 	slog.Info("agent wired successfully", "port", port)
 
@@ -1341,8 +1360,10 @@ func initializeMDNSCoordinator(ctx context.Context, config policy_manager.Config
 // ensureMMAInstalled checks if Mycelium Mesh Agent is installed and starts it.
 // If not installed, it logs a message. In production, MMA will be auto-installed
 // via UCRS when it's registered as a provider.
-func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager) {
-	providerID := "ambient.mycelium-mesh-agent"
+func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID string) {
+	if providerID == "" {
+		providerID = "underleaf.mma"
+	}
 	slog.Info("checking MMA installation status", "provider_id", providerID)
 
 	// Check if MMA is already installed
@@ -1355,8 +1376,8 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager) {
 	// Check if MMA is in the list
 	for _, provider := range installed {
 		if provider.ProviderID == providerID {
-			slog.Info("MMA is installed", 
-				"provider_id", providerID, 
+			slog.Info("MMA is installed",
+				"provider_id", providerID,
 				"version", provider.Version,
 				"state", provider.State)
 			return
@@ -1364,9 +1385,12 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager) {
 	}
 
 	// MMA not installed
-	slog.Info("MMA not installed. To install MMA:",
-		"option_1", "Use the test_binary_lifecycle.go script in underleaf_client",
-		"option_2", "Run: ufctl provider install ambient.mycelium-mesh-agent (when implemented)",
-		"option_3", "MMA will auto-install when registered in UCRS")
-}
+	slog.Info("MMA not installed, attempting auto-install", "provider_id", providerID)
+	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
+	if err != nil {
+		slog.Error("failed to auto-install MMA", "provider_id", providerID, "error", err)
+		return
+	}
 
+	slog.Info("MMA auto-install completed", "provider_id", providerID, "state", endpoint.State)
+}

@@ -241,3 +241,100 @@ func (m *Manager) ListInstalledProviders(ctx context.Context) ([]*store.Provider
 func (m *Manager) GetRegistryStats() RegistryStats {
 	return m.registry.Stats()
 }
+
+// InstallProviderByID installs a provider by its provider ID (not capability ID)
+func (m *Manager) InstallProviderByID(ctx context.Context, providerID string) (*ProviderEndpoint, error) {
+	slog.Info("installing provider by ID", "provider_id", providerID)
+
+	// Look up provider in registry
+	provider, err := m.registry.FindProviderByID(providerID)
+	if err != nil {
+		return nil, fmt.Errorf("provider not found in registry: %w", err)
+	}
+
+	slog.Info("found provider in registry", "provider_id", provider.ProviderID, "version", provider.Version, "capabilities", len(provider.Capabilities))
+
+	// Check if already installed
+	installed, err := m.lifecycle.ListInstalled(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list installed providers: %w", err)
+	}
+
+	var providerInstance *store.ProviderInstance
+	for _, inst := range installed {
+		if inst.ProviderID == provider.ProviderID && inst.Version == provider.Version {
+			// Skip failed installations - will reinstall
+			if inst.State == string(ProviderStateFailed) {
+				slog.Info("previous install failed, will reinstall", "provider_id", provider.ProviderID)
+				continue
+			}
+			providerInstance = inst
+			break
+		}
+	}
+
+	// Install if not already installed (or previous install failed)
+	if providerInstance == nil {
+		slog.Info("installing provider", "provider_id", provider.ProviderID, "version", provider.Version)
+		providerInstance, err = m.lifecycle.Install(ctx, provider)
+		if err != nil {
+			return nil, fmt.Errorf("failed to install provider: %w", err)
+		}
+	}
+
+	// Start provider if not running
+	if providerInstance.State != string(ProviderStateRunning) {
+		slog.Info("starting provider", "provider_id", provider.ProviderID, "version", provider.Version)
+		if err := m.lifecycle.Start(ctx, provider.ProviderID, provider.Version); err != nil {
+			return nil, fmt.Errorf("failed to start provider: %w", err)
+		}
+		providerInstance.State = string(ProviderStateRunning)
+	}
+
+	// Get first capability for response
+	var capability *Capability
+	if len(provider.Capabilities) > 0 {
+		capability, _ = m.registry.GetCapability(provider.Capabilities[0].ID)
+	}
+
+	return &ProviderEndpoint{
+		Provider:   provider,
+		Capability: capability,
+		Endpoint:   providerInstance.Endpoint,
+		State:      ProviderState(providerInstance.State),
+	}, nil
+}
+
+// UninstallProviderByID uninstalls providers by provider ID.
+// If version is empty, all installed versions for that provider ID are removed.
+func (m *Manager) UninstallProviderByID(ctx context.Context, providerID string, version string) (int, error) {
+	slog.Info("uninstalling provider by ID", "provider_id", providerID, "version", version)
+
+	installed, err := m.lifecycle.ListInstalled(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to list installed providers: %w", err)
+	}
+
+	var targets []*store.ProviderInstance
+	for _, inst := range installed {
+		if inst.ProviderID != providerID {
+			continue
+		}
+		if version != "" && inst.Version != version {
+			continue
+		}
+		targets = append(targets, inst)
+	}
+
+	if len(targets) == 0 {
+		return 0, fmt.Errorf("provider not installed: %s", providerID)
+	}
+
+	for _, inst := range targets {
+		if err := m.lifecycle.Uninstall(ctx, inst.ProviderID, inst.Version); err != nil {
+			return 0, fmt.Errorf("failed to uninstall provider %s@%s: %w", inst.ProviderID, inst.Version, err)
+		}
+	}
+
+	return len(targets), nil
+}

@@ -113,6 +113,70 @@ func (h *APIHandlers) HandleListCapabilities(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// HandleInstallProvider handles POST /api/v1/providers/install
+func (h *APIHandlers) HandleInstallProvider(c *gin.Context) {
+	var req struct {
+		ProviderID string `json:"provider_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+		return
+	}
+
+	if req.ProviderID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider_id is required"})
+		return
+	}
+
+	endpoint, err := h.manager.InstallProviderByID(c.Request.Context(), req.ProviderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to install provider", "details": err.Error()})
+		return
+	}
+
+	resp := gin.H{
+		"provider": ProviderInfo{
+			ProviderID: endpoint.Provider.ProviderID,
+			Version:    endpoint.Provider.Version,
+			Endpoint:   endpoint.Endpoint,
+			State:      endpoint.State,
+		},
+		"message": "provider installed successfully",
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// HandleUninstallProvider handles POST /api/v1/providers/uninstall
+func (h *APIHandlers) HandleUninstallProvider(c *gin.Context) {
+	var req struct {
+		ProviderID string `json:"provider_id"`
+		Version    string `json:"version,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "details": err.Error()})
+		return
+	}
+
+	if req.ProviderID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provider_id is required"})
+		return
+	}
+
+	count, err := h.manager.UninstallProviderByID(c.Request.Context(), req.ProviderID, req.Version)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to uninstall provider", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":           "provider uninstalled successfully",
+		"provider_id":       req.ProviderID,
+		"version":           req.Version,
+		"uninstalled_count": count,
+	})
+}
+
 // HandleListProviders handles GET /api/v1/providers/installed
 func (h *APIHandlers) HandleListProviders(c *gin.Context) {
 	providers, err := h.manager.ListInstalledProviders(c.Request.Context())
@@ -150,10 +214,10 @@ func (h *APIHandlers) HandleRegistryStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"registry": gin.H{
-			"version":           stats.Version,
-			"capability_count":  stats.CapabilityCount,
-			"provider_count":    stats.ProviderCount,
-			"last_sync":         lastSync,
+			"version":          stats.Version,
+			"capability_count": stats.CapabilityCount,
+			"provider_count":   stats.ProviderCount,
+			"last_sync":        lastSync,
 		},
 	})
 }

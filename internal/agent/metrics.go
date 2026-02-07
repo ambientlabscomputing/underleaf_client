@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"time"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
+	"github.com/ambientlabscomputing/underleaf_client/internal/capability/store"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
@@ -27,31 +30,39 @@ const (
 
 	// DefaultDockerMetricsInterval is the default interval for collecting and sending Docker data
 	DefaultDockerMetricsInterval = 60 * time.Second
+
+	// DefaultProvidersInterval is the default interval for collecting and sending provider data
+	DefaultProvidersInterval = 60 * time.Second
 )
 
 // MetricsCollector collects system metrics and sends them to the control plane
 type MetricsCollector struct {
-	serverID        string
-	cplane          controlplane.CPlaneServerClient
-	policyManager   policy_manager.PolicyManager
-	raftNode        *raft.Node                 // Raft node for extracting cluster info (optional)
-	cplaneAPI       *controlplane.CPlaneClient // Full client for CA cert fetching
-	dockerCollector *DockerCollector
-	interval        time.Duration
-	dockerInterval  time.Duration
-	stopCh          chan struct{}
-	doneCh          chan struct{}
-	caFingerprint   string // Cached CA fingerprint
-	raftAddress     string // Cached Raft address
+	serverID          string
+	cplane            controlplane.CPlaneServerClient
+	policyManager     policy_manager.PolicyManager
+	raftNode          *raft.Node                 // Raft node for extracting cluster info (optional)
+	cplaneAPI         *controlplane.CPlaneClient // Full client for CA cert fetching
+	dockerCollector   *DockerCollector
+	capabilityManager interface{} // Capability manager for provider data
+	interval          time.Duration
+	dockerInterval    time.Duration
+	providersInterval time.Duration
+	stopCh            chan struct{}
+	doneCh            chan struct{}
+	caFingerprint     string // Cached CA fingerprint
+	raftAddress       string // Cached Raft address
 }
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, policyManager policy_manager.PolicyManager, raftNode *raft.Node, cplaneAPI *controlplane.CPlaneClient, interval time.Duration, dockerInterval time.Duration) *MetricsCollector {
+func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient, policyManager policy_manager.PolicyManager, raftNode *raft.Node, cplaneAPI *controlplane.CPlaneClient, capabilityManager interface{}, interval time.Duration, dockerInterval time.Duration, providersInterval time.Duration) *MetricsCollector {
 	if interval < MinMetricsInterval {
 		interval = DefaultMetricsInterval
 	}
 	if dockerInterval == 0 {
 		dockerInterval = DefaultDockerMetricsInterval
+	}
+	if providersInterval == 0 {
+		providersInterval = DefaultProvidersInterval
 	}
 
 	// Try to create Docker collector - if it fails, we'll log a warning but continue
@@ -62,16 +73,18 @@ func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient
 	}
 
 	m := &MetricsCollector{
-		serverID:        serverID,
-		cplane:          cplane,
-		policyManager:   policyManager,
-		raftNode:        raftNode,
-		cplaneAPI:       cplaneAPI,
-		dockerCollector: dockerCollector,
-		interval:        interval,
-		dockerInterval:  dockerInterval,
-		stopCh:          make(chan struct{}),
-		doneCh:          make(chan struct{}),
+		serverID:          serverID,
+		cplane:            cplane,
+		policyManager:     policyManager,
+		raftNode:          raftNode,
+		cplaneAPI:         cplaneAPI,
+		dockerCollector:   dockerCollector,
+		capabilityManager: capabilityManager,
+		interval:          interval,
+		dockerInterval:    dockerInterval,
+		providersInterval: providersInterval,
+		stopCh:            make(chan struct{}),
+		doneCh:            make(chan struct{}),
 	}
 
 	// Compute and cache raft address and CA fingerprint
@@ -127,6 +140,7 @@ func (m *MetricsCollector) run(ctx context.Context) {
 	// Collect and send metrics immediately on start
 	m.collectAndSend(ctx)
 	m.collectAndSendDocker(ctx)
+	m.collectAndSendProviders(ctx)
 
 	metricsTicker := time.NewTicker(m.interval)
 	defer metricsTicker.Stop()
@@ -134,12 +148,17 @@ func (m *MetricsCollector) run(ctx context.Context) {
 	dockerTicker := time.NewTicker(m.dockerInterval)
 	defer dockerTicker.Stop()
 
+	providersTicker := time.NewTicker(m.providersInterval)
+	defer providersTicker.Stop()
+
 	for {
 		select {
 		case <-metricsTicker.C:
 			m.collectAndSend(ctx)
 		case <-dockerTicker.C:
 			m.collectAndSendDocker(ctx)
+		case <-providersTicker.C:
+			m.collectAndSendProviders(ctx)
 		case <-m.stopCh:
 			return
 		case <-ctx.Done():
@@ -368,4 +387,105 @@ func getOutboundIP() (string, error) {
 
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String(), nil
+}
+
+// collectAndSendProviders collects installed provider data and sends it to the control plane
+func (m *MetricsCollector) collectAndSendProviders(ctx context.Context) {
+	// Skip if capability manager is not available
+	if m.capabilityManager == nil {
+		return
+	}
+
+	// Use JSON marshaling to convert between internal provider types and server types
+	// This avoids direct package dependencies while maintaining type safety
+
+	// Define a minimal interface to call the capability manager
+	type capabilityManagerAPI interface {
+		ListInstalledProviders(ctx context.Context) ([]*store.ProviderInstance, error)
+		GetRegistryStats() capability.RegistryStats
+	}
+
+	mgr, ok := m.capabilityManager.(capabilityManagerAPI)
+	if !ok {
+		slog.Debug("capability manager does not support provider reporting")
+		return
+	}
+
+	// Get installed providers
+	providersIface, err := mgr.ListInstalledProviders(ctx)
+	if err != nil {
+		slog.Warn("failed to list installed providers", "error", err)
+		return
+	}
+
+	// Get registry stats for version and last sync
+	statsIface := mgr.GetRegistryStats()
+
+	// Convert providers to server types
+	providers := make([]servertypes.ProviderInstance, 0, len(providersIface))
+	for _, inst := range providersIface {
+		if inst == nil {
+			continue
+		}
+		installedAt := ""
+		if !inst.InstalledAt.IsZero() {
+			installedAt = inst.InstalledAt.UTC().Format(time.RFC3339)
+		}
+		providers = append(providers, servertypes.ProviderInstance{
+			ProviderID:   inst.ProviderID,
+			Version:      inst.Version,
+			State:        inst.State,
+			Capabilities: inst.Capabilities,
+			InstalledAt:  installedAt,
+		})
+	}
+
+	// Extract registry version and last sync from stats
+	registryVersion := 0
+	lastSyncAt := ""
+	if statsIface.Version != "" {
+		if parsed, err := strconv.Atoi(statsIface.Version); err == nil {
+			registryVersion = parsed
+		}
+	}
+
+	// If we still don't have lastSyncAt, use current time
+	if lastSyncAt == "" {
+		lastSyncAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	// Create the update request
+	updateReq := servertypes.ProvidersUpdateRequest{
+		Providers:       providers,
+		RegistryVersion: registryVersion,
+		LastSyncAt:      lastSyncAt,
+	}
+
+	// Send to control plane
+	if err := m.cplane.UpdateServerProviders(ctx, m.serverID, updateReq); err != nil {
+		slog.Error("failed to update server providers", "error", err)
+		return
+	}
+
+	slog.Info("provider data sent to control plane", "provider_count", len(providers))
+}
+
+func getStringField(m map[string]interface{}, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getStringSliceField(m map[string]interface{}, key string) []string {
+	if v, ok := m[key].([]interface{}); ok {
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
 }
