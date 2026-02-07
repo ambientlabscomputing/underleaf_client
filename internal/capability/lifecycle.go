@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -209,6 +210,11 @@ func (l *LifecycleManager) installBinary(ctx context.Context, provider *Provider
 	instance.Metadata["digest"] = installState.Digest
 	instance.Metadata["platform"] = installState.Platform
 
+	// Persist RuntimeRequirements so Start() can reconstruct the full provider
+	if reqJSON, err := json.Marshal(provider.RuntimeRequirements); err == nil {
+		instance.Metadata["runtime_requirements"] = string(reqJSON)
+	}
+
 	if err := l.providerStore.SaveProvider(instance); err != nil {
 		return nil, fmt.Errorf("failed to update provider state: %w", err)
 	}
@@ -270,12 +276,19 @@ func (l *LifecycleManager) startOCI(ctx context.Context, instance *store.Provide
 
 // startBinary starts a binary provider process
 func (l *LifecycleManager) startBinary(ctx context.Context, instance *store.ProviderInstance) error {
-	// Need to reconstruct provider info for Start() call
-	// This is a simplification - in production you'd store more provider metadata
+	// Reconstruct provider with RuntimeRequirements from stored metadata
 	provider := &Provider{
-		ProviderID:          instance.ProviderID,
-		Version:             instance.Version,
-		RuntimeRequirements: RuntimeRequirements{},
+		ProviderID: instance.ProviderID,
+		Version:    instance.Version,
+	}
+
+	if reqJSON, ok := instance.Metadata["runtime_requirements"]; ok && reqJSON != "" {
+		var req RuntimeRequirements
+		if err := json.Unmarshal([]byte(reqJSON), &req); err == nil {
+			provider.RuntimeRequirements = req
+		} else {
+			l.log.Warn("failed to unmarshal stored runtime_requirements", "error", err, "provider_id", instance.ProviderID)
+		}
 	}
 
 	installState := &InstallState{

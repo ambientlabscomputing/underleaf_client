@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ambientlabscomputing/event_bus_client"
@@ -50,11 +51,32 @@ func getConfigValue(config policy_manager.ConfigClient, key string) (interface{}
 	return config.Get(key)
 }
 
+// expandTilde expands a leading ~ in a path to the user's home directory.
+// Go does not expand ~ in paths, so config values like ~/.underleaf must be resolved.
+func expandTilde(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
 // getConfigValueStr gets a string value with a default
 func getConfigValueStr(config policy_manager.ConfigClient, key string, defaultValue string) string {
 	if val, ok := getConfigValue(config, key); ok {
 		if strVal, ok := val.(string); ok {
 			return strVal
+		}
+	}
+	return defaultValue
+}
+
+// getConfigValuePath gets a path string value with a default, expanding ~ to $HOME.
+func getConfigValuePath(config policy_manager.ConfigClient, key string, defaultValue string) string {
+	if val, ok := getConfigValue(config, key); ok {
+		if strVal, ok := val.(string); ok {
+			return expandTilde(strVal)
 		}
 	}
 	return defaultValue
@@ -465,9 +487,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			homeDir, _ := os.UserHomeDir()
 			capConfig := capability.Config{
 				UCRSBaseURL:   getConfigValueStr(simpleConfig, "capability_registry.ucrs_base_url", "https://registry.underleaf.io"),
-				PublicKeyPath: getConfigValueStr(simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
-				CacheDir:      getConfigValueStr(simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
-				ProviderDir:   getConfigValueStr(simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
+				PublicKeyPath: getConfigValuePath(simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
+				CacheDir:      getConfigValuePath(simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
+				ProviderDir:   getConfigValuePath(simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
 				SyncInterval:  time.Duration(getConfigValueInt(simpleConfig, "capability_registry.sync_interval_seconds", 600)) * time.Second,
 				Network:       getConfigValueStr(simpleConfig, "provider_defaults.network", "underleaf-providers"),
 				MemoryLimit:   getConfigValueStr(simpleConfig, "provider_defaults.memory_limit", "512m"),

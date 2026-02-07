@@ -42,6 +42,7 @@ type ProcessInfo struct {
 	Healthy         bool
 	Command         string
 	Args            []string
+	Env             map[string]string
 	LogFile         string
 	Error           string
 }
@@ -100,7 +101,7 @@ func NewProcessSupervisor(log *slog.Logger, logDir string) *ProcessSupervisor {
 }
 
 // Start starts supervising a process.
-func (s *ProcessSupervisor) Start(providerID, version, binaryPath string, args []string, healthEndpoint string, policy RestartPolicy) error {
+func (s *ProcessSupervisor) Start(providerID, version, binaryPath string, args []string, env map[string]string, healthEndpoint string, policy RestartPolicy) error {
 	key := fmt.Sprintf("%s-%s", providerID, version)
 
 	s.mu.Lock()
@@ -125,6 +126,7 @@ func (s *ProcessSupervisor) Start(providerID, version, binaryPath string, args [
 		HealthEndpoint: healthEndpoint,
 		Command:        binaryPath,
 		Args:           args,
+		Env:            env,
 		LogFile:        logFile,
 	}
 
@@ -137,7 +139,7 @@ func (s *ProcessSupervisor) Start(providerID, version, binaryPath string, args [
 
 	// Start the process in a goroutine
 	s.wg.Add(1)
-	go s.superviseProcess(key, proc, binaryPath, args, logFile)
+	go s.superviseProcess(key, proc, binaryPath, args, env, logFile)
 
 	return nil
 }
@@ -262,7 +264,7 @@ func (s *ProcessSupervisor) Shutdown() error {
 }
 
 // superviseProcess manages a single process lifecycle.
-func (s *ProcessSupervisor) superviseProcess(key string, proc *supervisedProcess, binaryPath string, args []string, logFile string) {
+func (s *ProcessSupervisor) superviseProcess(key string, proc *supervisedProcess, binaryPath string, args []string, env map[string]string, logFile string) {
 	defer s.wg.Done()
 
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -299,6 +301,14 @@ func (s *ProcessSupervisor) superviseProcess(key string, proc *supervisedProcess
 		if logF != nil {
 			cmd.Stdout = io.MultiWriter(logF, os.Stdout)
 			cmd.Stderr = io.MultiWriter(logF, os.Stderr)
+		}
+
+		// Set environment variables
+		if len(env) > 0 {
+			cmd.Env = os.Environ() // Start with parent environment
+			for k, v := range env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
 		}
 
 		proc.cmd = cmd

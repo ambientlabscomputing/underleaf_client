@@ -96,6 +96,11 @@ func (d *BinaryDownloader) Download(artifactURI, version, expectedSHA256 string)
 
 // DownloadWithChecksumsFile downloads a binary and verifies it against a checksums file.
 func (d *BinaryDownloader) DownloadWithChecksumsFile(artifactURI, version, checksumsURI string) (*DownloadResult, error) {
+	// Ensure staging directory exists
+	if err := os.MkdirAll(d.stagingDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create staging directory: %w", err)
+	}
+
 	// Download checksums file
 	checksumsPath := filepath.Join(d.stagingDir, "checksums.txt")
 	if err := d.downloadFile(checksumsURI, checksumsPath); err != nil {

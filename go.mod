@@ -3,6 +3,7 @@ module github.com/ambientlabscomputing/underleaf_client
 go 1.24.3
 
 require (
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ambientlabscomputing/event_bus_client v1.2.4
 	github.com/ambientlabscomputing/underleaf/capability_registry_service v0.0.0
 	github.com/charmbracelet/bubbles v0.21.0
@@ -29,7 +30,6 @@ require (
 )
 
 require (
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect

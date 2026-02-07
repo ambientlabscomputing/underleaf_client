@@ -92,16 +92,28 @@ func (r *Resolver) applyFilters(providers []*Provider, constraints ResolveConstr
 		if platform == "" {
 			platform = runtime.GOOS
 		}
-		// For MVP, we assume providers are platform-agnostic (OCI containers)
-		// In a real implementation, provider metadata would specify supported platforms
 
 		// Apply architecture filter (default to current arch if not specified)
 		architecture := constraints.Architecture
 		if architecture == "" {
 			architecture = runtime.GOARCH
 		}
-		// For MVP, we assume providers are architecture-agnostic
-		// In a real implementation, provider metadata would specify supported architectures
+
+		// Check if provider supports the requested platform
+		// Empty SupportedPlatforms means platform-agnostic (OCI, npm, pypi, etc.)
+		if len(provider.Artifact.SupportedPlatforms) > 0 {
+			platformSupported := false
+			for _, supportedPlatform := range provider.Artifact.SupportedPlatforms {
+				if supportedPlatform.OS == platform && supportedPlatform.Arch == architecture {
+					platformSupported = true
+					break
+				}
+			}
+			if !platformSupported {
+				// Skip this provider - platform not supported
+				continue
+			}
+		}
 
 		filtered = append(filtered, provider)
 	}

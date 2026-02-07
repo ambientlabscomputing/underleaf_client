@@ -37,7 +37,7 @@ func main() {
 
 	// Create test provider metadata for locally built MMA
 	testProvider := ucrstypes.Provider{
-		ProviderID: "ambient.mycelium-mesh-agent",
+		ProviderID: "underleaf.mma",
 		Version:    "f010910-dirty",
 		Capabilities: []ucrstypes.CapabilityRef{
 			{ID: "mesh.binding.engine", VersionRange: "^1.0"},

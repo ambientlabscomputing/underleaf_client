@@ -40,6 +40,34 @@ func (m *BinaryLifecycleManager) Install(provider *Provider) (*InstallState, err
 		"version", provider.Version,
 		"artifact_uri", provider.Artifact.URI)
 
+	// Check platform support before attempting download
+	if len(provider.Artifact.SupportedPlatforms) > 0 {
+		currentOS := runtime.GOOS
+		currentArch := runtime.GOARCH
+		platformSupported := false
+
+		for _, platform := range provider.Artifact.SupportedPlatforms {
+			if platform.OS == currentOS && platform.Arch == currentArch {
+				platformSupported = true
+				break
+			}
+		}
+
+		if !platformSupported {
+			supportedList := make([]string, len(provider.Artifact.SupportedPlatforms))
+			for i, platform := range provider.Artifact.SupportedPlatforms {
+				supportedList[i] = fmt.Sprintf("%s/%s", platform.OS, platform.Arch)
+			}
+			return nil, fmt.Errorf(
+				"provider %s does not support platform %s/%s; supported platforms: %v",
+				provider.ProviderID,
+				currentOS,
+				currentArch,
+				supportedList,
+			)
+		}
+	}
+
 	// Create provider directory
 	providerDir := filepath.Join(m.providerBaseDir, provider.ProviderID, provider.Version)
 	if err := os.MkdirAll(providerDir, 0755); err != nil {
@@ -105,16 +133,25 @@ func (m *BinaryLifecycleManager) Start(provider *Provider, state *InstallState) 
 		"version", provider.Version,
 		"binary_path", state.BinaryPath)
 
-	// Determine health endpoint
-	healthEndpoint := fmt.Sprintf("http://localhost:%d/health", m.getDefaultPort(provider))
+	// Determine health endpoint from UCRS provider record
+	// Priority: explicit health_endpoint > port-based construction > none
+	healthEndpoint := ""
 	if provider.RuntimeRequirements.HealthEndpoint != "" {
 		healthEndpoint = provider.RuntimeRequirements.HealthEndpoint
+	} else if provider.RuntimeRequirements.Port != 0 {
+		healthEndpoint = fmt.Sprintf("http://localhost:%d/health", provider.RuntimeRequirements.Port)
 	}
 
 	// Determine args
 	args := []string{}
 	if len(provider.RuntimeRequirements.Args) > 0 {
 		args = provider.RuntimeRequirements.Args
+	}
+
+	// Get environment variables from provider requirements
+	env := provider.RuntimeRequirements.Env
+	if env == nil {
+		env = make(map[string]string)
 	}
 
 	// Start supervised process
@@ -124,6 +161,7 @@ func (m *BinaryLifecycleManager) Start(provider *Provider, state *InstallState) 
 		provider.Version,
 		state.BinaryPath,
 		args,
+		env,
 		healthEndpoint,
 		policy,
 	); err != nil {
@@ -234,20 +272,4 @@ func (m *BinaryLifecycleManager) getBinaryName(provider *Provider) string {
 		return name + ".exe"
 	}
 	return name
-}
-
-// getDefaultPort returns a default port for the provider based on its ID.
-// This is a simple hash-based approach to avoid port conflicts.
-func (m *BinaryLifecycleManager) getDefaultPort(provider *Provider) int {
-	// MMA uses port 8080, other providers get ports in the 8100-8999 range
-	if provider.ProviderID == "ambient.mycelium-mesh-agent" {
-		return 8080
-	}
-
-	// Simple hash: sum of ASCII values modulo 900, then add 8100
-	sum := 0
-	for _, c := range provider.ProviderID {
-		sum += int(c)
-	}
-	return 8100 + (sum % 900)
 }
