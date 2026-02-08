@@ -36,14 +36,14 @@ func NewPlanCmd() *cobra.Command {
 				return fmt.Errorf("failed to read manifest: %w", err)
 			}
 
-			// Parse manifest
+			// Validate YAML syntax
 			var manifest map[string]interface{}
 			if err := yaml.Unmarshal(manifestBytes, &manifest); err != nil {
 				deps.Printer.PrintError("Failed to parse manifest YAML: " + err.Error())
 				return fmt.Errorf("failed to parse manifest: %w", err)
 			}
 
-			// Call plan endpoint
+			// Call plan endpoint with raw YAML
 			var plan struct {
 				ManifestName string `json:"manifest_name"`
 				Operations   []struct {
@@ -63,7 +63,7 @@ func NewPlanCmd() *cobra.Command {
 				NoChangeCount int `json:"no_change_count"`
 			}
 
-			err = deps.CPlaneClient.API().POST("/infra/plan", manifest, &plan)
+			err = deps.CPlaneClient.API().POSTRaw("/infra/plan", manifestBytes, &plan)
 			if err != nil {
 				deps.Printer.PrintError("Failed to compute plan: " + err.Error())
 				return fmt.Errorf("failed to compute plan: %w", err)

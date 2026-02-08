@@ -183,6 +183,56 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 	return nil
 }
 
+// POSTRaw sends raw bytes (e.g., YAML) to the server without JSON marshaling
+func (c *APIClient) POSTRaw(path string, payloadBytes []byte, response interface{}) error {
+	baseURL, _ := c.config.Get("api.base_url")
+	token, _ := c.config.Get("auth.token")
+
+	if baseURL == nil {
+		return fmt.Errorf("api.base_url not configured")
+	}
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
+	}
+
+	slog.Debug("APIClient POSTRaw", "url", baseURL.(string)+path, "payload_size", len(payloadBytes))
+	req, err := http.NewRequest("POST", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("Content-Type", "application/x-yaml")
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+		slog.Debug("Adding org context to request", "org_id", orgID.(string))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Read the body for debugging and parsing
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	slog.Debug("APIClient POSTRaw response", "status", resp.StatusCode, "body", string(bodyBytes))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("API request failed with status %s: %s", resp.Status, string(bodyBytes))
+	}
+
+	if err := json.Unmarshal(bodyBytes, response); err != nil {
+		return fmt.Errorf("failed to parse response: %w, body: %s", err, string(bodyBytes))
+	}
+
+	return nil
+}
+
 func (c *APIClient) PUT(path string, payload interface{}, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")

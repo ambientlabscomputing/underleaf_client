@@ -43,6 +43,27 @@ clusters:
       - server-1
       - server-2
       - server-3
+
+templates:
+  - name: health-check
+    command_template: "curl -sf http://localhost:{{ .port }}/health"
+    inputs:
+      - key: port
+        type: string
+        required: false
+        default: "8080"
+
+cron_jobs:
+  - name: scheduled-health-check
+    template_name: health-check
+    schedule:
+      minute: "*/5"
+      hour: "*"
+      day_of_month: "*"
+      month: "*"
+      day_of_week: "*"
+    all_servers: true
+    enabled: true
 `
 
 // NewInitCmd creates the init command

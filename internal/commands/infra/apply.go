@@ -37,7 +37,7 @@ func NewApplyCmd() *cobra.Command {
 				return fmt.Errorf("failed to read manifest: %w", err)
 			}
 
-			// Parse manifest
+			// Validate YAML syntax
 			var manifest map[string]interface{}
 			if err := yaml.Unmarshal(manifestBytes, &manifest); err != nil {
 				deps.Printer.PrintError("Failed to parse manifest YAML: " + err.Error())
@@ -53,7 +53,7 @@ func NewApplyCmd() *cobra.Command {
 				NoChangeCount int    `json:"no_change_count"`
 			}
 
-			err = deps.CPlaneClient.API().POST("/infra/plan", manifest, &plan)
+			err = deps.CPlaneClient.API().POSTRaw("/infra/plan", manifestBytes, &plan)
 			if err != nil {
 				deps.Printer.PrintError("Failed to compute plan: " + err.Error())
 				return fmt.Errorf("failed to compute plan: %w", err)
@@ -101,7 +101,7 @@ func NewApplyCmd() *cobra.Command {
 				FailureCount int `json:"failure_count"`
 			}
 
-			err = deps.CPlaneClient.API().POST("/infra/apply", manifest, &result)
+			err = deps.CPlaneClient.API().POSTRaw("/infra/apply", manifestBytes, &result)
 			if err != nil {
 				deps.Printer.PrintError("Failed to apply changes: " + err.Error())
 				return fmt.Errorf("failed to apply changes: %w", err)

@@ -21,6 +21,10 @@ help:
 .PHONY: bni
 bni: build install
 
+## run: Run Underleaf Agent
+run:
+	ufctl start -p 12012
+
 ## build: Build both CLI and agent binaries
 build: build-cli build-agent
 

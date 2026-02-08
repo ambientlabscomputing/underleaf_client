@@ -33,7 +33,7 @@ func NewValidateCmd() *cobra.Command {
 				return fmt.Errorf("failed to read manifest: %w", err)
 			}
 
-			// Parse manifest locally first
+			// Validate YAML syntax locally first
 			var manifest map[string]interface{}
 			if err := yaml.Unmarshal(manifestBytes, &manifest); err != nil {
 				deps.Printer.PrintError("Failed to parse manifest YAML: " + err.Error())
@@ -46,7 +46,7 @@ func NewValidateCmd() *cobra.Command {
 				Errors []string `json:"errors"`
 			}
 
-			err = deps.CPlaneClient.API().POST("/infra/validate", manifest, &result)
+			err = deps.CPlaneClient.API().POSTRaw("/infra/validate", manifestBytes, &result)
 			if err != nil {
 				deps.Printer.PrintError("Failed to validate manifest: " + err.Error())
 				return fmt.Errorf("failed to validate: %w", err)
