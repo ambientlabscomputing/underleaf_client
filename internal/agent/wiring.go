@@ -19,6 +19,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/mdns"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
+	"github.com/ambientlabscomputing/underleaf_client/internal/recipe"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
@@ -469,6 +470,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		slog.Info("UA event stream server started", "socket", socketPath, "cluster_id", clusterID, "node_id", nodeID)
 		// Inject event stream server into server for HTTP handlers to use
 		server.SetEventStreamServer(eventStreamServer)
+		// Wire event stream into deployment handler for capability event publishing
+		deploymentHandler.SetEventPublisher(eventStreamServer)
+		slog.Info("event publisher wired into deployment handler")
 	}
 
 	// Initialize capability manager if enabled (use simpleConfig for local settings)
@@ -509,6 +513,13 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					slog.Info("capability manager started successfully")
 					capabilityManager = mgr
 					server.SetCapabilityManager(capabilityManager)
+
+					// Wire the recipe reconciler into the deployment handler
+					// so deployments with capability_requirements are handled
+					recipeDataDir := filepath.Join(homeDir, ".underleaf")
+					recipeReconciler := recipe.NewReconciler(capabilityManager.(*capability.Manager), recipeDataDir)
+					deploymentHandler.SetRecipeReconciler(recipeReconciler)
+					slog.Info("recipe reconciler wired into deployment handler")
 
 					// Auto-install MMA if enabled and not already installed
 					if getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true) {

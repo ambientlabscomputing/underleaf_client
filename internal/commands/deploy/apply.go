@@ -54,6 +54,36 @@ Examples:
 		}
 		deps.Printer.PrintSuccess(fmt.Sprintf("✅ Loaded: %s (v%d)", deployment.Slug, deployment.Version))
 
+		// Show capability requirements if present
+		if len(deployment.CapabilityRequirements) > 0 {
+			deps.Printer.PrintInfo(fmt.Sprintf("📋 Capability requirements: %d (will be resolved when applied via event bus)", len(deployment.CapabilityRequirements)))
+			for _, req := range deployment.CapabilityRequirements {
+				label := req.CapabilityID
+				if req.Alias != "" {
+					label = req.Alias + " (" + req.CapabilityID + ")"
+				}
+				version := "latest"
+				if req.VersionRange != "" {
+					version = req.VersionRange
+				}
+				deps.Printer.Print(fmt.Sprintf("   - %s @ %s", label, version))
+			}
+			deps.Printer.Print("")
+		}
+
+		// If this is a capability-only recipe with no container specs, show info and exit
+		if len(deployment.Services) == 0 && len(deployment.Networks) == 0 && len(deployment.Volumes) == 0 {
+			if len(deployment.CapabilityRequirements) > 0 {
+				deps.Printer.PrintInfo("ℹ️  This is a capability-only recipe with no container resources.")
+				deps.Printer.PrintInfo("   Capability installation happens on the target servers when you apply")
+				deps.Printer.PrintInfo("   this deployment via the Server API (ufctl deploy applies locally).")
+				deps.Printer.PrintInfo("   Use the Server API / UI to apply this recipe to target servers.")
+				return nil
+			}
+			deps.Printer.PrintInfo("ℹ️  No services or capability requirements — nothing to do")
+			return nil
+		}
+
 		// Step 2: Compile
 		c := compiler.NewCompiler()
 		graph, err := c.Compile(deployment)

@@ -17,8 +17,9 @@ type AppDeployment struct {
 	Status    string        `json:"status"` // success, failure, in_progress
 	Networks  []NetworkSpec `json:"networks"`
 	Volumes   []VolumeSpec  `json:"volumes"`
-	Services  []ServiceSpec `json:"services"`
-	Targeting NodeTargeting `json:"targeting"`
+	Services              []ServiceSpec          `json:"services"`
+	Targeting             NodeTargeting           `json:"targeting"`
+	CapabilityRequirements []CapabilityRequirement `json:"capability_requirements,omitempty"`
 }
 
 // NetworkSpec defines a Docker network
@@ -48,6 +49,23 @@ type NodeTargeting struct {
 	Mode      string            `json:"mode"` // "all", "server_ids", "tags"
 	ServerIDs []string          `json:"server_ids,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
+}
+
+// CapabilityRequirement declares a capability needed by this deployment.
+// The UA will resolve this to a provider from UCRS and ensure it is installed and running.
+type CapabilityRequirement struct {
+	CapabilityID string                `json:"capability_id"`                    // e.g. "iot.light.control"
+	VersionRange string                `json:"version_range,omitempty"`          // semver range, e.g. ">=1.0.0 <2.0.0"
+	Alias        string                `json:"alias,omitempty"`                  // friendly local name for reference
+	Config       map[string]string     `json:"config,omitempty"`                 // runtime env/config overrides
+	Constraints  *CapabilityConstraints `json:"constraints,omitempty"`            // optional resolution constraints
+}
+
+// CapabilityConstraints specifies filtering constraints for provider selection
+type CapabilityConstraints struct {
+	TrustTier    string `json:"trust_tier,omitempty"`    // minimum trust tier
+	Platform     string `json:"platform,omitempty"`      // e.g. "linux", "darwin"
+	Architecture string `json:"architecture,omitempty"` // e.g. "amd64", "arm64"
 }
 
 // ResourceType represents the type of Docker resource
@@ -200,10 +218,19 @@ type PlanOptions struct {
 
 // LastAppliedSnapshot represents a snapshot of the last successfully applied state
 type LastAppliedSnapshot struct {
-	DeploymentID string                 `json:"deployment_id"`
-	Version      int                    `json:"version"`
-	Resources    map[string]interface{} `json:"resources"` // Config for each resource, keyed by ResourceID.String()
-	AppliedAt    time.Time              `json:"applied_at"`
+	DeploymentID           string                      `json:"deployment_id"`
+	Version                int                         `json:"version"`
+	Resources              map[string]interface{}       `json:"resources"` // Config for each resource, keyed by ResourceID.String()
+	InstalledCapabilities  []InstalledCapabilityState   `json:"installed_capabilities,omitempty"`
+	AppliedAt              time.Time                    `json:"applied_at"`
+}
+
+// InstalledCapabilityState records a capability that was installed as part of a deployment
+type InstalledCapabilityState struct {
+	CapabilityID string `json:"capability_id"`
+	ProviderID   string `json:"provider_id"`
+	Version      string `json:"version"`
+	Endpoint     string `json:"endpoint,omitempty"`
 }
 
 // ObservedResource represents a resource as observed in Docker

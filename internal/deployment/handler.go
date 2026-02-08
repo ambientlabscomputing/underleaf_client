@@ -11,6 +11,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/compiler"
 	"github.com/ambientlabscomputing/underleaf_client/internal/compiler/state"
+	"github.com/ambientlabscomputing/underleaf_client/internal/recipe"
 	"github.com/ambientlabscomputing/underleaf_client/internal/runner"
 	"github.com/ambientlabscomputing/underleaf_client/internal/types"
 )
@@ -26,6 +27,12 @@ type DeploymentDrainer interface {
 type ResultSender interface {
 	ReportDeploymentResult(ctx context.Context, result DeploymentResult) error
 	ReportDeploymentProgress(ctx context.Context, progress DeploymentProgress) error
+}
+
+// EventPublisher interface for publishing events to MMA via gRPC stream
+type EventPublisher interface {
+	PublishCapabilityInstalled(deploymentID, capabilityID, providerID, version, endpoint, alias string, config map[string]string) error
+	PublishCapabilityUninstalled(deploymentID, capabilityID, providerID, reason string) error
 }
 
 // DeploymentResult represents the result of a deployment execution
@@ -54,9 +61,11 @@ type DeploymentProgress struct {
 
 // DeploymentHandler handles incoming deployment events from the event bus
 type DeploymentHandler struct {
-	serverID     string
-	resultSender ResultSender
-	drainer      DeploymentDrainer
+	serverID         string
+	resultSender     ResultSender
+	drainer          DeploymentDrainer
+	recipeReconciler *recipe.Reconciler
+	eventPublisher   EventPublisher
 }
 
 // NewDeploymentHandler creates a new deployment handler
@@ -70,6 +79,18 @@ func NewDeploymentHandler(serverID string, resultSender ResultSender) *Deploymen
 // SetDrainer sets the deployment drainer for tracking in-flight deployments
 func (h *DeploymentHandler) SetDrainer(drainer DeploymentDrainer) {
 	h.drainer = drainer
+}
+
+// SetRecipeReconciler sets the recipe reconciler for capability-aware deployments.
+// This is set after construction because the capability manager may be initialized later.
+func (h *DeploymentHandler) SetRecipeReconciler(r *recipe.Reconciler) {
+	h.recipeReconciler = r
+}
+
+// SetEventPublisher sets the event publisher for emitting capability events to MMA.
+// This is set after construction when the event stream server is available.
+func (h *DeploymentHandler) SetEventPublisher(ep EventPublisher) {
+	h.eventPublisher = ep
 }
 
 // DeploymentEventPayload wraps the deployment with job tracking info
@@ -157,6 +178,131 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 				slog.Error("failed to report progress", "stage", stage, "error", err)
 			}
 		}
+	}
+
+	// === Capability Phase ===
+	// If this deployment has capability requirements, resolve and install providers first
+	var capabilityResults []recipe.CapabilityResult
+	if len(deployment.CapabilityRequirements) > 0 && h.recipeReconciler != nil {
+		slog.Info("deployment has capability requirements, starting capability phase",
+			"deployment_id", deployment.ID,
+			"capability_count", len(deployment.CapabilityRequirements),
+		)
+
+		// Load last applied state early for capability diffing
+		stateDir := "/var/lib/underleaf/deployments"
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			stateDir = filepath.Join(homeDir, ".underleaf", "deployments")
+		}
+		lastAppliedStore := state.NewFileLastAppliedStore(stateDir)
+		lastApplied, _ := lastAppliedStore.GetLatest(deployment.ID)
+
+		var capErr error
+		capabilityResults, capErr = h.recipeReconciler.ReconcileCapabilities(ctx, &deployment, lastApplied, reportProgress)
+		if capErr != nil {
+			result.Error = fmt.Sprintf("capability reconciliation failed: %v", capErr)
+			slog.Error("capability phase failed", "error", capErr, "deployment_id", deployment.ID)
+			reportProgress("failed", "Capability reconciliation failed", map[string]interface{}{
+				"error": capErr.Error(),
+			})
+			return result
+		}
+
+		// Check if any capability failed
+		capFailed := false
+		for _, cr := range capabilityResults {
+			if !cr.Success {
+				capFailed = true
+				break
+			}
+		}
+		if capFailed {
+			result.Error = "one or more capability requirements failed to install"
+			result.Output = h.formatCapabilityOutput(capabilityResults)
+			slog.Error("some capabilities failed", "deployment_id", deployment.ID)
+			reportProgress("failed", "Some capability requirements failed", map[string]interface{}{
+				"providers": recipe.InstalledProvidersForReporting(capabilityResults),
+			})
+			return result
+		}
+
+		// Update the manifest with successfully installed providers
+		if err := h.recipeReconciler.UpdateManifest(deployment.ID, capabilityResults); err != nil {
+			slog.Warn("failed to update recipe provider manifest", "error", err)
+		}
+
+		// Emit capability.installed events to MMA for each successfully installed capability
+		if h.eventPublisher != nil {
+			for _, capResult := range capabilityResults {
+				if capResult.Success {
+					// Find the original capability requirement for config and alias
+					var capReq *types.CapabilityRequirement
+					for i := range deployment.CapabilityRequirements {
+						if deployment.CapabilityRequirements[i].CapabilityID == capResult.CapabilityID {
+							capReq = &deployment.CapabilityRequirements[i]
+							break
+						}
+					}
+
+					alias := ""
+					config := map[string]string{}
+					if capReq != nil {
+						alias = capReq.Alias
+						config = capReq.Config
+					}
+
+					if err := h.eventPublisher.PublishCapabilityInstalled(
+						deployment.ID,
+						capResult.CapabilityID,
+						capResult.ProviderID,
+						capResult.Version,
+						capResult.Endpoint,
+						alias,
+						config,
+					); err != nil {
+						slog.Warn("failed to publish capability.installed event",
+							"capability_id", capResult.CapabilityID,
+							"provider_id", capResult.ProviderID,
+							"error", err,
+						)
+					} else {
+						slog.Debug("published capability.installed event",
+							"capability_id", capResult.CapabilityID,
+							"provider_id", capResult.ProviderID,
+							"deployment_id", deployment.ID,
+						)
+					}
+				}
+			}
+		}
+
+		slog.Info("capability phase completed successfully",
+			"deployment_id", deployment.ID,
+			"capabilities_installed", len(capabilityResults),
+		)
+	}
+
+	// === Container Phase ===
+	// If this deployment has services/networks/volumes, run the Docker pipeline
+	hasContainerSpecs := len(deployment.Services) > 0 || len(deployment.Networks) > 0 || len(deployment.Volumes) > 0
+	if !hasContainerSpecs {
+		// Pure capability recipe — no container work needed
+		if len(capabilityResults) > 0 {
+			result.Success = true
+			result.Output = h.formatCapabilityOutput(capabilityResults)
+			reportProgress("completed", "Recipe applied successfully (capabilities only)", map[string]interface{}{
+				"providers": recipe.InstalledProvidersForReporting(capabilityResults),
+			})
+
+			// Save last applied state with capability info
+			h.saveLastAppliedWithCapabilities(deployment, capabilityResults, nil)
+			return result
+		}
+		// No capabilities AND no containers — nothing to do
+		result.Success = true
+		result.Output = "No changes needed - deployment has no services or capability requirements"
+		reportProgress("completed", "No changes needed", nil)
+		return result
 	}
 
 	// Step 1: Compile the deployment into a graph
@@ -318,6 +464,9 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 	// Success
 	result.Success = true
 	result.Output = h.formatExecutionOutput(*execResult)
+	if len(capabilityResults) > 0 {
+		result.Output += "\n--- Capability Results ---\n" + h.formatCapabilityOutput(capabilityResults)
+	}
 	slog.Info("deployment executed successfully",
 		"deployment_id", deployment.ID,
 		"version", deployment.Version,
@@ -326,20 +475,42 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 	reportProgress("completed", "Deployment executed successfully", map[string]interface{}{
 		"operation_count":  len(execResult.Results),
 		"duration_seconds": execResult.CompletedAt.Sub(execResult.StartedAt).Seconds(),
+		"providers":        recipe.InstalledProvidersForReporting(capabilityResults),
 	})
 
 	// Step 7: Save last applied state for future reconciliation
 	slog.Info("saving last applied state", "deployment_id", deployment.ID, "version", deployment.Version)
+	h.saveLastAppliedWithCapabilities(deployment, capabilityResults, graph)
+
+	return result
+}
+
+// saveLastAppliedWithCapabilities persists the last applied snapshot including both
+// Docker resource state and installed capability state.
+func (h *DeploymentHandler) saveLastAppliedWithCapabilities(
+	deployment types.AppDeployment,
+	capResults []recipe.CapabilityResult,
+	graph *types.CompiledGraph,
+) {
+	stateDir := "/var/lib/underleaf/deployments"
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		stateDir = filepath.Join(homeDir, ".underleaf", "deployments")
+	}
+	lastAppliedStore := state.NewFileLastAppliedStore(stateDir)
+
 	snapshot := &types.LastAppliedSnapshot{
-		DeploymentID: deployment.ID,
-		Version:      deployment.Version,
-		AppliedAt:    time.Now(),
-		Resources:    make(map[string]interface{}),
+		DeploymentID:          deployment.ID,
+		Version:               deployment.Version,
+		AppliedAt:             time.Now(),
+		Resources:             make(map[string]interface{}),
+		InstalledCapabilities: recipe.InstalledCapabilitiesFromResults(capResults),
 	}
 
 	// Store the configuration of each resource that was successfully applied
-	for resID, node := range graph.Nodes {
-		snapshot.Resources[resID.String()] = node.Config
+	if graph != nil {
+		for resID, node := range graph.Nodes {
+			snapshot.Resources[resID.String()] = node.Config
+		}
 	}
 
 	if err := lastAppliedStore.Save(snapshot); err != nil {
@@ -348,11 +519,27 @@ func (h *DeploymentHandler) executeDeployment(ctx context.Context, deployment ty
 			"version", deployment.Version,
 			"error", err,
 		)
-		// Don't fail the deployment just because state save failed
-		// The deployment itself was successful
 	}
+}
 
-	return result
+// formatCapabilityOutput formats the capability results into a readable string
+func (h *DeploymentHandler) formatCapabilityOutput(results []recipe.CapabilityResult) string {
+	output := fmt.Sprintf("Capability requirements: %d\n", len(results))
+	successCount := 0
+	for _, res := range results {
+		if res.Success {
+			successCount++
+			label := res.CapabilityID
+			if res.Alias != "" {
+				label = res.Alias + " (" + res.CapabilityID + ")"
+			}
+			output += fmt.Sprintf("  ✓ %s → %s@%s [%s] (%v)\n", label, res.ProviderID, res.Version, res.State, res.Duration.Round(time.Millisecond))
+		} else {
+			output += fmt.Sprintf("  ✗ %s — %s\n", res.CapabilityID, res.Error)
+		}
+	}
+	output += fmt.Sprintf("Successful: %d, Failed: %d\n", successCount, len(results)-successCount)
+	return output
 }
 
 // formatExecutionOutput formats the execution results into a readable string

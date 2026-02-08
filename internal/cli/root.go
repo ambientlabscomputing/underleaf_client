@@ -7,6 +7,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/cluster"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/deploy"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/infra"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/jobs"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/mmesh"
@@ -74,6 +75,7 @@ func init() {
 	rootCmd.AddCommand(local.CSRCmd)
 	rootCmd.AddCommand(servers.ServersCmd)
 	rootCmd.AddCommand(deploy.DeployCmd)
+	rootCmd.AddCommand(infra.NewInfraCmd())
 	rootCmd.AddCommand(jobs.JobsCmd)
 	rootCmd.AddCommand(templates.TemplatesCmd)
 	rootCmd.AddCommand(update.UpdateCmd)

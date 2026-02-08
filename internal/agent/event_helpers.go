@@ -150,6 +150,39 @@ func (e *EventStreamServer) PublishClusterSnapshot(members []map[string]interfac
 	return e.PublishEvent("cluster.snapshot", payload, "", "")
 }
 
+// PublishCapabilityInstalled publishes a capability.installed event to MMA subscribers.
+// This is emitted when a capability is successfully installed via a recipe deployment.
+func (e *EventStreamServer) PublishCapabilityInstalled(deploymentID, capabilityID, providerID, version, endpoint, alias string, config map[string]string) error {
+	payload := map[string]interface{}{
+		"deployment_id": deploymentID,
+		"capability_id": capabilityID,
+		"provider_id":   providerID,
+		"version":       version,
+	}
+	if endpoint != "" {
+		payload["endpoint"] = endpoint
+	}
+	if alias != "" {
+		payload["alias"] = alias
+	}
+	if len(config) > 0 {
+		payload["config"] = toInterfaceMap(config)
+	}
+	return e.PublishEvent("capability.installed", payload, "capability", capabilityID)
+}
+
+// PublishCapabilityUninstalled publishes a capability.uninstalled event to MMA subscribers.
+// This is emitted when a capability provider is uninstalled (deployment removed or capability requirement removed).
+func (e *EventStreamServer) PublishCapabilityUninstalled(deploymentID, capabilityID, providerID, reason string) error {
+	payload := map[string]interface{}{
+		"deployment_id": deploymentID,
+		"capability_id": capabilityID,
+		"provider_id":   providerID,
+		"reason":        reason,
+	}
+	return e.PublishEvent("capability.uninstalled", payload, "capability", capabilityID)
+}
+
 // SendTestEvents sends a series of test events for development/testing.
 // This helps verify the event stream is working end-to-end.
 func (e *EventStreamServer) SendTestEvents(ctx context.Context) error {

@@ -127,4 +127,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260128011058-8636f8732409 // indirect
 )
 
-replace github.com/ambientlabscomputing/underleaf/capability_registry_service => ../capability_registry_service/service
+replace github.com/ambientlabscomputing/underleaf/capability_registry_service => ../ucrs/service

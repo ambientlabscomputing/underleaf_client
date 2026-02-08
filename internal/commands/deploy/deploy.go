@@ -14,4 +14,5 @@ func init() {
 	DeployCmd.AddCommand(PlanCmd)
 	DeployCmd.AddCommand(DiffCmd)
 	DeployCmd.AddCommand(ApplyCmd)
+	DeployCmd.AddCommand(CapabilitiesCmd)
 }

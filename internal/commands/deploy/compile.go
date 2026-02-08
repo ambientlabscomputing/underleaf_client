@@ -40,44 +40,75 @@ Examples:
 
 		deps.Printer.PrintSuccess(fmt.Sprintf("✅ Loaded deployment: %s (v%d)", deployment.Slug, deployment.Version))
 		deps.Printer.Print(fmt.Sprintf("   ID: %s", deployment.ID))
-		deps.Printer.Print(fmt.Sprintf("   Services: %d, Networks: %d, Volumes: %d\n",
-			len(deployment.Services), len(deployment.Networks), len(deployment.Volumes)))
+		deps.Printer.Print(fmt.Sprintf("   Services: %d, Networks: %d, Volumes: %d, Capabilities: %d\n",
+			len(deployment.Services), len(deployment.Networks), len(deployment.Volumes), len(deployment.CapabilityRequirements)))
 
-		c := compiler.NewCompiler()
-		graph, err := c.Compile(deployment)
-		if err != nil {
-			deps.Printer.PrintError(fmt.Sprintf("Compilation failed: %v", err))
-			return err
+		// Show capability requirements if present
+		if len(deployment.CapabilityRequirements) > 0 {
+			deps.Printer.PrintSuccess(fmt.Sprintf("📋 Capability requirements: %d", len(deployment.CapabilityRequirements)))
+			for _, req := range deployment.CapabilityRequirements {
+				label := req.CapabilityID
+				if req.Alias != "" {
+					label = req.Alias + " (" + req.CapabilityID + ")"
+				}
+				version := "latest"
+				if req.VersionRange != "" {
+					version = req.VersionRange
+				}
+				deps.Printer.Print(fmt.Sprintf("   - %s @ %s", label, version))
+			}
+			deps.Printer.Print("")
 		}
 
-		deps.Printer.PrintSuccess(fmt.Sprintf("✅ Graph compiled: %d resources, %d edges",
-			len(graph.Nodes), len(graph.Edges)))
-		deps.Printer.Print(fmt.Sprintf("   Creation order: %s", formatResourceTypes(graph.CreationOrder)))
-		deps.Printer.Print(fmt.Sprintf("   Deletion order: %s\n", formatResourceTypes(graph.DeletionOrder)))
-
-		// Convert graph nodes map to slice for JSON serialization
-		nodes := make([]types.ResourceNode, 0, len(graph.Nodes))
-		for _, node := range graph.Nodes {
-			nodes = append(nodes, node)
+		// Compile container resources if present
+		var graph *types.CompiledGraph
+		if len(deployment.Services) > 0 || len(deployment.Networks) > 0 || len(deployment.Volumes) > 0 {
+			c := compiler.NewCompiler()
+			var compileErr error
+			graph, compileErr = c.Compile(deployment)
+			if compileErr != nil {
+				deps.Printer.PrintError(fmt.Sprintf("Compilation failed: %v", compileErr))
+				return compileErr
+			}
+			deps.Printer.PrintSuccess(fmt.Sprintf("✅ Graph compiled: %d resources, %d edges",
+				len(graph.Nodes), len(graph.Edges)))
+			deps.Printer.Print(fmt.Sprintf("   Creation order: %s", formatResourceTypes(graph.CreationOrder)))
+			deps.Printer.Print(fmt.Sprintf("   Deletion order: %s\n", formatResourceTypes(graph.DeletionOrder)))
+		} else {
+			deps.Printer.PrintInfo("   No container resources (capability-only recipe)")
 		}
 
-		// Convert edges map to serializable format
-		edgesSlice := make([]map[string]interface{}, 0, len(graph.Edges))
-		for from, toList := range graph.Edges {
-			edgesSlice = append(edgesSlice, map[string]interface{}{
-				"from": from,
-				"to":   toList,
-			})
-		}
-
+		// Build output
 		output := map[string]interface{}{
 			"deployment": deployment,
-			"compiled_service": map[string]interface{}{
+		}
+
+		if len(deployment.CapabilityRequirements) > 0 {
+			output["capability_requirements"] = deployment.CapabilityRequirements
+		}
+
+		if graph != nil {
+			// Convert graph nodes map to slice for JSON serialization
+			nodes := make([]types.ResourceNode, 0, len(graph.Nodes))
+			for _, node := range graph.Nodes {
+				nodes = append(nodes, node)
+			}
+
+			// Convert edges map to serializable format
+			edgesSlice := make([]map[string]interface{}, 0, len(graph.Edges))
+			for from, toList := range graph.Edges {
+				edgesSlice = append(edgesSlice, map[string]interface{}{
+					"from": from,
+					"to":   toList,
+				})
+			}
+
+			output["compiled_service"] = map[string]interface{}{
 				"nodes":          nodes,
 				"edges":          edgesSlice,
 				"creation_order": graph.CreationOrder,
 				"deletion_order": graph.DeletionOrder,
-			},
+			}
 		}
 
 		if compileOutput != "" {
