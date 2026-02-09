@@ -443,7 +443,7 @@ func (km *tpmKeyManager) sealToTPM(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("TPM Create failed: %w", err)
 	}
 
-	privBytes := rsp.OutPrivate.Bytes()
+	privBytes := rsp.OutPrivate.Buffer
 	pubBytes := rsp.OutPublic.Bytes()
 
 	blob := make([]byte, 1+4+len(privBytes)+len(pubBytes))
@@ -473,7 +473,7 @@ func (km *tpmKeyManager) unsealFromTPM(blob []byte) ([]byte, error) {
 	privBytes := blob[5 : 5+privLen]
 	pubBytes := blob[5+privLen:]
 
-	inPrivate := tpm2.BytesAs2B[tpm2.TPMTPrivate](privBytes)
+	inPrivate := tpm2.TPM2BPrivate{Buffer: privBytes}
 	inPublic := tpm2.BytesAs2B[tpm2.TPMTPublic](pubBytes)
 
 	load := tpm2.Load{
