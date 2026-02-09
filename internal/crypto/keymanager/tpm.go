@@ -443,14 +443,8 @@ func (km *tpmKeyManager) sealToTPM(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("TPM Create failed: %w", err)
 	}
 
-	privBytes, err := rsp.OutPrivate.Bytes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal private: %w", err)
-	}
-	pubBytes, err := rsp.OutPublic.Bytes()
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal public: %w", err)
-	}
+	privBytes := rsp.OutPrivate.Bytes()
+	pubBytes := rsp.OutPublic.Bytes()
 
 	blob := make([]byte, 1+4+len(privBytes)+len(pubBytes))
 	blob[0] = versionByte
@@ -479,15 +473,8 @@ func (km *tpmKeyManager) unsealFromTPM(blob []byte) ([]byte, error) {
 	privBytes := blob[5 : 5+privLen]
 	pubBytes := blob[5+privLen:]
 
-	var inPrivate tpm2.TPM2BPrivate
-	if err := inPrivate.Unmarshal(privBytes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal private: %w", err)
-	}
-
-	var inPublic tpm2.TPM2BPublic
-	if err := inPublic.Unmarshal(pubBytes); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal public: %w", err)
-	}
+	inPrivate := tpm2.BytesAs2B[tpm2.TPMTPrivate](privBytes)
+	inPublic := tpm2.BytesAs2B[tpm2.TPMTPublic](pubBytes)
 
 	load := tpm2.Load{
 		ParentHandle: tpm2.AuthHandle{
@@ -578,9 +565,12 @@ func (km *tpmKeyManager) initTPMInfo() error {
 		Metadata:  make(map[string]interface{}),
 	}
 
-	if rsp.CapabilityData.Data.TPMProperties != nil && len(rsp.CapabilityData.Data.TPMProperties.TPMProperty) > 0 {
-		mfr := rsp.CapabilityData.Data.TPMProperties.TPMProperty[0].Value
-		info.Metadata["manufacturer"] = fmt.Sprintf("0x%08x", mfr)
+	if rsp.CapabilityData.Data.TPMProperties != nil {
+		props, err := rsp.CapabilityData.Data.TPMProperties()
+		if err == nil && len(props.TPMProperty) > 0 {
+			mfr := props.TPMProperty[0].Value
+			info.Metadata["manufacturer"] = fmt.Sprintf("0x%08x", mfr)
+		}
 	}
 
 	km.tpmInfo = info
