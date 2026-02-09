@@ -6,9 +6,11 @@ BINARY_AGENT=underleaf_agent
 VERSION?=dev
 API_BASE_URL?=http://localhost:8080/api/v1/servers
 EVENT_BUS_ENDPOINT?=ws://localhost:9000/ws
+UCRS_BASE_URL?=http://localhost:8080/api/v1/registry
 LDFLAGS=-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
 	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=$(API_BASE_URL) \
-	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.EventBusEndpoint=$(EVENT_BUS_ENDPOINT)"
+	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.EventBusEndpoint=$(EVENT_BUS_ENDPOINT) \
+	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.UCRSBaseURL=$(UCRS_BASE_URL)"
 
 ## help: Display this help message
 help:

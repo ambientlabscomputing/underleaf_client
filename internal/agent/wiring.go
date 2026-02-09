@@ -23,6 +23,7 @@ import (
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
+	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 	"github.com/moby/moby/client"
 )
 
@@ -490,7 +491,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			// Build capability configuration (all from local config)
 			homeDir, _ := os.UserHomeDir()
 			capConfig := capability.Config{
-				UCRSBaseURL:   getConfigValueStr(simpleConfig, "capability_registry.ucrs_base_url", "https://registry.underleaf.io"),
+				UCRSBaseURL:   getConfigValueStr(simpleConfig, "capability_registry.ucrs_base_url", defaults.UCRSBaseURL),
 				PublicKeyPath: getConfigValuePath(simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
 				CacheDir:      getConfigValuePath(simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
 				ProviderDir:   getConfigValuePath(simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),

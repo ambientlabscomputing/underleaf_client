@@ -279,10 +279,12 @@ underleaf_agent version
 # For production builds, config will show:
 # - API: https://api.underleafapp.com/api/v1/servers
 # - Event Bus: wss://events.underleafapp.com/ws
+# - UCRS: https://ucrs.underleafapp.com/api/v1/registry
 
 # For development builds, config will show:
 # - API: https://api.underleafdev.com/api/v1/servers
 # - Event Bus: wss://events.underleafdev.com/ws
+# - UCRS: https://ucrs.underleafdev.com/api/v1/registry
 ```
 
 ## Quick Start
@@ -552,13 +554,15 @@ go build -o underleaf_agent ./cmd/underleaf_agent
 make build-cli \
   VERSION=1.0.0 \
   API_BASE_URL=https://api.underleafapp.com/api/v1/servers \
-  EVENT_BUS_ENDPOINT=wss://events.underleafapp.com/ws
+  EVENT_BUS_ENDPOINT=wss://events.underleafapp.com/ws \
+  UCRS_BASE_URL=https://api.underleafapp.com/api/v1/registry
 
 # Build with custom environment (development)
 make build-cli \
   VERSION=dev \
   API_BASE_URL=https://api.underleafdev.com/api/v1/servers \
-  EVENT_BUS_ENDPOINT=wss://events.underleafdev.com/ws
+  EVENT_BUS_ENDPOINT=wss://events.underleafdev.com/ws \
+  UCRS_BASE_URL=https://api.underleafdev.com/api/v1/registry
 ```
 
 **Check Build Configuration**
