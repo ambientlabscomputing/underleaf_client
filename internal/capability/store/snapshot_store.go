@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	ucrstypes "github.com/ambientlabscomputing/underleaf/capability_registry_service/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
 )
 
 // SnapshotStore handles persistence of registry snapshots

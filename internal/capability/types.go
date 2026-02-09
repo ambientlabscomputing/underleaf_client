@@ -3,7 +3,7 @@ package capability
 import (
 	"time"
 
-	ucrstypes "github.com/ambientlabscomputing/underleaf/capability_registry_service/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
 )
 
 // Re-export UCRS types for convenience

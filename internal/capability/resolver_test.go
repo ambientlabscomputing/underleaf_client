@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	ucrstypes "github.com/ambientlabscomputing/underleaf/capability_registry_service/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
 )
 
 func TestResolver_Resolve(t *testing.T) {
