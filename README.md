@@ -279,12 +279,12 @@ underleaf_agent version
 # For production builds, config will show:
 # - API: https://api.underleafapp.com/api/v1/servers
 # - Event Bus: wss://events.underleafapp.com/ws
-# - UCRS: https://ucrs.underleafapp.com/api/v1/registry
+# - UCRS: https://api.underleafapp.com/api/v1/registry
 
 # For development builds, config will show:
 # - API: https://api.underleafdev.com/api/v1/servers
 # - Event Bus: wss://events.underleafdev.com/ws
-# - UCRS: https://ucrs.underleafdev.com/api/v1/registry
+# - UCRS: https://api.underleafdev.com/api/v1/registry
 ```
 
 ## Quick Start

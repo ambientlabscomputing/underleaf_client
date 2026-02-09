@@ -14,5 +14,5 @@ var (
 	EventBusEndpoint = "ws://localhost:9000/ws"
 
 	// UCRSBaseURL is the default UCRS (Capability Registry) endpoint
-	UCRSBaseURL = "http://localhost:8090/api/v1/registry"
+	UCRSBaseURL = "http://localhost:8080/api/v1/registry"
 )
