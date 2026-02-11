@@ -113,6 +113,37 @@ func getConfigValueBool(config policy_manager.ConfigClient, key string, defaultV
 	return defaultValue
 }
 
+// getConfigValueWithFallback tries primary config (snapshot) first, then fallback (local), then default
+func getConfigValueWithFallback(primary, fallback policy_manager.ConfigClient, key string, defaultValue string) string {
+	if val := getConfigValueStr(primary, key, ""); val != "" {
+		return val
+	}
+	return getConfigValueStr(fallback, key, defaultValue)
+}
+
+// getConfigPathWithFallback tries primary config (snapshot) first, then fallback (local), then default
+func getConfigPathWithFallback(primary, fallback policy_manager.ConfigClient, key string, defaultValue string) string {
+	if val := getConfigValuePath(primary, key, ""); val != "" {
+		return val
+	}
+	return getConfigValuePath(fallback, key, defaultValue)
+}
+
+// getConfigIntWithFallback tries primary config (snapshot) first, then fallback (local), then default
+func getConfigIntWithFallback(primary, fallback policy_manager.ConfigClient, key string, defaultValue int) int {
+	if val, ok := getConfigValue(primary, key); ok {
+		switch v := val.(type) {
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case float64:
+			return int(v)
+		}
+	}
+	return getConfigValueInt(fallback, key, defaultValue)
+}
+
 // WireAgent sets up all agent dependencies
 func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize simple config to get credentials
@@ -476,9 +507,14 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		slog.Info("event publisher wired into deployment handler")
 	}
 
-	// Initialize capability manager if enabled (use simpleConfig for local settings)
+	// Initialize capability manager if enabled
+	// Read from snapshotClient (synced from Server API) with fallback to simpleConfig (local config.yaml)
 	var capabilityManager interface{}
-	capEnabled := getConfigValueBool(simpleConfig, "capability_registry.enabled", false)
+	capEnabled := getConfigValueBool(snapshotClient, "capability_registry.enabled", false)
+	if !capEnabled {
+		// Fallback: check local config in case snapshot hasn't synced yet
+		capEnabled = getConfigValueBool(simpleConfig, "capability_registry.enabled", false)
+	}
 	slog.Info("checking capability_registry config", "enabled", capEnabled)
 	if capEnabled {
 		slog.Info("initializing capability manager")
@@ -488,18 +524,18 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		if err != nil {
 			slog.Warn("failed to initialize Docker client for capability manager", "error", err)
 		} else {
-			// Build capability configuration (all from local config)
+			// Build capability configuration from synced snapshot, falling back to local config
 			homeDir, _ := os.UserHomeDir()
 			capConfig := capability.Config{
-				UCRSBaseURL:   getConfigValueStr(simpleConfig, "capability_registry.ucrs_base_url", defaults.UCRSBaseURL),
-				PublicKeyPath: getConfigValuePath(simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
-				CacheDir:      getConfigValuePath(simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
-				ProviderDir:   getConfigValuePath(simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
-				SyncInterval:  time.Duration(getConfigValueInt(simpleConfig, "capability_registry.sync_interval_seconds", 600)) * time.Second,
-				Network:       getConfigValueStr(simpleConfig, "provider_defaults.network", "underleaf-providers"),
-				MemoryLimit:   getConfigValueStr(simpleConfig, "provider_defaults.memory_limit", "512m"),
-				CPULimit:      getConfigValueStr(simpleConfig, "provider_defaults.cpu_limit", "1.0"),
-				TrustTier:     getConfigValueStr(simpleConfig, "provider_defaults.trust_tier_constraint", "certified+"),
+				UCRSBaseURL:   getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.ucrs_base_url", defaults.UCRSBaseURL),
+				PublicKeyPath: getConfigPathWithFallback(snapshotClient, simpleConfig, "capability_registry.public_key_path", "/etc/underleaf/ucrs_public_key.pem"),
+				CacheDir:      getConfigPathWithFallback(snapshotClient, simpleConfig, "capability_registry.cache_dir", filepath.Join(homeDir, ".underleaf", "capability_cache")),
+				ProviderDir:   getConfigPathWithFallback(snapshotClient, simpleConfig, "capability_registry.provider_dir", filepath.Join(homeDir, ".underleaf", "providers")),
+				SyncInterval:  time.Duration(getConfigIntWithFallback(snapshotClient, simpleConfig, "capability_registry.sync_interval_seconds", 600)) * time.Second,
+				Network:       getConfigValueWithFallback(snapshotClient, simpleConfig, "provider_defaults.network", "underleaf-providers"),
+				MemoryLimit:   getConfigValueWithFallback(snapshotClient, simpleConfig, "provider_defaults.memory_limit", "512m"),
+				CPULimit:      getConfigValueWithFallback(snapshotClient, simpleConfig, "provider_defaults.cpu_limit", "1.0"),
+				TrustTier:     getConfigValueWithFallback(snapshotClient, simpleConfig, "provider_defaults.trust_tier_constraint", "certified+"),
 			}
 
 			// Create capability manager
@@ -523,8 +559,12 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					slog.Info("recipe reconciler wired into deployment handler")
 
 					// Auto-install MMA if enabled and not already installed
-					if getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true) {
-						mmaProviderID := getConfigValueStr(simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
+					autoInstall := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mma", false)
+					if !autoInstall {
+						autoInstall = getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true)
+					}
+					if autoInstall {
+						mmaProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
 						go ensureMMAInstalled(ctx, mgr, mmaProviderID)
 					}
 				}

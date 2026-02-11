@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ambientlabscomputing/underleaf_client/pkg/defaults"
 )
@@ -43,7 +44,9 @@ func NewSnapshotPolicyClientWithManager(manager *SnapshotPolicyManager, store *S
 }
 
 // Get retrieves a value from either snapshot or local metadata
-// Keys starting with "local." are from local metadata, others from snapshot
+// Keys starting with "local." are from local metadata, others from snapshot.
+// Supports dot-path traversal for nested maps (e.g. "capability_registry.enabled"
+// resolves to payload["capability_registry"]["enabled"]).
 func (c *SnapshotPolicyClient) Get(key string) (interface{}, bool) {
 	data, err := c.store.LoadSnapshotWithMeta()
 	if err != nil {
@@ -56,8 +59,13 @@ func (c *SnapshotPolicyClient) Get(key string) (interface{}, bool) {
 		return c.getFromLocalMeta(&data.LocalMeta, localKey)
 	}
 
-	// Check snapshot payload
+	// Check snapshot payload — first try exact key match
 	if val, ok := data.Snapshot.Payload[key]; ok {
+		return val, true
+	}
+
+	// Try dot-path traversal for nested maps
+	if val, ok := getNestedValue(data.Snapshot.Payload, key); ok {
 		return val, true
 	}
 
@@ -74,6 +82,30 @@ func (c *SnapshotPolicyClient) Get(key string) (interface{}, bool) {
 	}
 
 	return nil, false
+}
+
+// getNestedValue traverses a nested map using a dot-separated key path.
+// For example, "capability_registry.enabled" looks up map["capability_registry"]["enabled"].
+func getNestedValue(m map[string]interface{}, key string) (interface{}, bool) {
+	parts := strings.Split(key, ".")
+	if len(parts) < 2 {
+		return nil, false
+	}
+
+	current := interface{}(m)
+	for _, part := range parts {
+		switch typed := current.(type) {
+		case map[string]interface{}:
+			val, ok := typed[part]
+			if !ok {
+				return nil, false
+			}
+			current = val
+		default:
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 // getFromLocalMeta retrieves value from local metadata by key path
