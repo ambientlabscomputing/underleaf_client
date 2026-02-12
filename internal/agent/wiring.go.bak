@@ -14,6 +14,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/kernel"
@@ -512,31 +513,45 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize kernel syscall server for UMC communication
 	var syscallServer *kernel.SyscallServer
 	syscallSocketPath := "/tmp/ua_kernel.sock"
-
-	// Key manager and secret store will be wired when seal management is initialized
-	// For now, the syscall server starts without them (identity/secret services will
-	// return errors until the subsystems are available)
+	
+	// Get key manager for identity operations
+	var keyMgr keymanager.KeyManager
+	if raftNode != nil && raftNode.SealManager() != nil {
+		keyMgr = raftNode.SealManager().KeyManager()
+	}
+	
+	// Get secret store from raft node
+	var secretStore *raft.SecretStore
+	if raftNode != nil {
+		secretStore = raftNode.Secrets()
+	}
+	
 	syscallCfg := kernel.Config{
 		SocketPath:       syscallSocketPath,
-		KeyManager:       nil, // TODO: Wire when SealManager is initialized
+		KeyManager:       keyMgr,
 		RaftNode:         raftNode,
-		SecretStore:      nil, // TODO: Wire when SecretStore is initialized
+		SecretStore:      secretStore,
 		ExecRunner:       runner,
 		BusClient:        busClient,
 		LifecycleManager: nil, // Will be set when capability manager is created
 		Supervisor:       nil, // Will be set when capability manager is created
 		NodeID:           nodeID,
-		OrgID:            "", // TODO: Get from config
+		OrgID:            "",      // TODO: Get from config
 		ClusterID:        clusterID,
 		Logger:           slog.Default(),
 	}
-
-	syscallServer = kernel.NewSyscallServer(syscallCfg)
-	if err := syscallServer.Start(); err != nil {
-		slog.Warn("failed to start kernel syscall server", "error", err)
+	
+	syscallServer, err = kernel.NewSyscallServer(syscallCfg)
+	if err != nil {
+		slog.Warn("failed to create kernel syscall server", "error", err)
 		syscallServer = nil
 	} else {
-		slog.Info("kernel syscall server started", "socket", syscallSocketPath)
+		if err := syscallServer.Start(); err != nil {
+			slog.Warn("failed to start kernel syscall server", "error", err)
+			syscallServer = nil
+		} else {
+			slog.Info("kernel syscall server started", "socket", syscallSocketPath)
+		}
 	}
 
 	// Initialize capability manager if enabled
@@ -631,7 +646,6 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		UpdateManager:     updateManager,
 		CommandDrainer:    drainer,
 		RaftNode:          raftNode,
-		SyscallServer:     syscallServer,
 		EventStreamServer: eventStreamServer,
 		CapabilityManager: capabilityManager,
 	}, nil
