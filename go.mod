@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ambientlabscomputing/event_bus_client v1.2.4
 	github.com/ambientlabscomputing/ucrs v1.2.0
-	github.com/ambientlabscomputing/umc_sdk v0.1.1
+	github.com/ambientlabscomputing/umc_sdk v0.1.2
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
