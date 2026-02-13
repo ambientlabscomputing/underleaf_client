@@ -238,6 +238,9 @@ func (m *BinaryLifecycleManager) GetStatus(provider *Provider, state *InstallSta
 func (m *BinaryLifecycleManager) expandArtifactURI(provider *Provider) string {
 	uri := provider.Artifact.URI
 
+	// Expand version template
+	uri = strings.ReplaceAll(uri, "{version}", provider.Version)
+
 	// If it's a template, expand it
 	if strings.Contains(uri, "{os}") || strings.Contains(uri, "{arch}") {
 		uri = strings.ReplaceAll(uri, "{os}", runtime.GOOS)
