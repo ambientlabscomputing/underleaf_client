@@ -13,6 +13,8 @@ github.com/ambientlabscomputing/event_bus_client v1.2.4 h1:WY+dhkY9uXlP94agB5BD4
 github.com/ambientlabscomputing/event_bus_client v1.2.4/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
 github.com/ambientlabscomputing/ucrs v1.2.0 h1:K1gnvzT4UCm/TG5dxX5fgt2K5//t9etBALcjbkTyBhw=
 github.com/ambientlabscomputing/ucrs v1.2.0/go.mod h1:eLdKbkbKX6XkZ3Xzcr5obVAYgypDDoyEdNvXfU7P9yg=
+github.com/ambientlabscomputing/umc_sdk v0.1.1 h1:ycb2nLbCfGoU+DZOBDjzTHftz201zdZ9QPePIEEWdDQ=
+github.com/ambientlabscomputing/umc_sdk v0.1.1/go.mod h1:A5ctwnNK884pusMpbVIDu/2bgLMp2W3aZxNu87ZWteA=
 github.com/armon/go-metrics v0.4.1 h1:hR91U9KYmb6bLBYLQjyM+3j+rcd/UhE+G78SFnF8gJA=
 github.com/armon/go-metrics v0.4.1/go.mod h1:E6amYzXo6aW1tqzoZGT755KkbgrJsSdpwZ+3JqfkOG4=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
