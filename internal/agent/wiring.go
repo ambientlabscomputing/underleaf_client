@@ -1559,72 +1559,39 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID
 	if providerID == "" {
 		providerID = "underleaf.mma"
 	}
-	slog.Info("checking MMA installation status", "provider_id", providerID)
+	slog.Info("ensuring MMA is installed and running", "provider_id", providerID)
 
-	// Check if MMA is already installed
-	installed, err := mgr.ListInstalledProviders(ctx)
-	if err != nil {
-		slog.Warn("failed to list installed providers", "error", err)
-		return
-	}
-
-	// Check if MMA is in the list
-	for _, provider := range installed {
-		if provider.ProviderID == providerID {
-			slog.Info("MMA is installed",
-				"provider_id", providerID,
-				"version", provider.Version,
-				"state", provider.State)
-			return
-		}
-	}
-
-	// MMA not installed
-	slog.Info("MMA not installed, attempting auto-install", "provider_id", providerID)
+	// InstallProviderByID is idempotent and handles all cases:
+	// - Already installed and running -> no-op
+	// - Already installed but not running -> starts it
+	// - Not installed -> installs and starts it
 	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
 	if err != nil {
-		slog.Error("failed to auto-install MMA", "provider_id", providerID, "error", err)
+		slog.Error("failed to ensure MMA is running", "provider_id", providerID, "error", err)
 		return
 	}
 
-	slog.Info("MMA auto-install completed", "provider_id", providerID, "state", endpoint.State)
+	slog.Info("MMA is running", "provider_id", providerID, "state", endpoint.State)
 }
 
-// ensureProviderInstalled checks if a provider is installed and installs it if not.
+// ensureProviderInstalled ensures a provider is installed and running.
 // This is a generic version that works for any provider (deployment_engine, cron_engine, etc.)
 func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string) {
 	if providerID == "" {
-		slog.Warn("empty provider ID, skipping auto-install", "friendly_name", friendlyName)
+		slog.Warn("empty provider ID, skipping", "friendly_name", friendlyName)
 		return
 	}
-	slog.Info("checking provider installation status", "provider_id", providerID, "name", friendlyName)
+	slog.Info("ensuring provider is installed and running", "provider_id", providerID, "name", friendlyName)
 
-	// Check if provider is already installed
-	installed, err := mgr.ListInstalledProviders(ctx)
-	if err != nil {
-		slog.Warn("failed to list installed providers", "error", err, "name", friendlyName)
-		return
-	}
-
-	// Check if provider is in the list
-	for _, provider := range installed {
-		if provider.ProviderID == providerID {
-			slog.Info("provider is already installed",
-				"provider_id", providerID,
-				"name", friendlyName,
-				"version", provider.Version,
-				"state", provider.State)
-			return
-		}
-	}
-
-	// Provider not installed
-	slog.Info("provider not installed, attempting auto-install", "provider_id", providerID, "name", friendlyName)
+	// InstallProviderByID is idempotent and handles all cases:
+	// - Already installed and running -> no-op
+	// - Already installed but not running -> starts it
+	// - Not installed -> installs and starts it
 	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
 	if err != nil {
-		slog.Error("failed to auto-install provider", "provider_id", providerID, "name", friendlyName, "error", err)
+		slog.Error("failed to ensure provider is running", "provider_id", providerID, "name", friendlyName, "error", err)
 		return
 	}
 
-	slog.Info("provider auto-install completed", "provider_id", providerID, "name", friendlyName, "state", endpoint.State)
+	slog.Info("provider is running", "provider_id", providerID, "name", friendlyName, "state", endpoint.State)
 }
