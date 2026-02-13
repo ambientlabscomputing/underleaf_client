@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
-	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
+	execpkg "github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/kernel"
 	"github.com/ambientlabscomputing/underleaf_client/internal/mdns"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
@@ -28,12 +29,19 @@ import (
 	"github.com/moby/moby/client"
 )
 
+// ManagedProcess represents a managed child process with graceful shutdown support
+type ManagedProcess struct {
+	Name    string
+	Process *exec.Cmd
+	PID     int
+}
+
 // Dependencies holds all agent dependencies
 type Dependencies struct {
 	Config            policy_manager.ConfigClient
 	PolicyManager     policy_manager.PolicyManager
 	Server            *Server
-	CommandHandler    *exec.CommandHandler
+	CommandHandler    *execpkg.CommandHandler
 	MetricsCollector  *MetricsCollector
 	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
 	BusClient         *bus.Client            // Event bus client for cleanup on shutdown
@@ -43,6 +51,8 @@ type Dependencies struct {
 	EventStreamServer *EventStreamServer     // UA→MMA event stream server
 	SyscallServer     *kernel.SyscallServer  // Kernel syscall server for UMCs
 	CapabilityManager interface{}            // Capability manager (type from internal/capability)
+	DeploymentEngine  *ManagedProcess        // Deployment engine UMC process
+	CronEngine        *ManagedProcess        // Cron engine UMC process (managed by deployment engine supervisor)
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -300,8 +310,8 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Initialize command execution system
 	commandSettings := getCommandSettingsFromConfig(snapshotClient)
-	runner := exec.NewLocalRunner(serverID.(string), commandSettings)
-	commandHandler := exec.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
+	runner := execpkg.NewLocalRunner(serverID.(string), commandSettings)
+	commandHandler := execpkg.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
 	commandHandler.SetDrainer(drainer)
 
 	// Initialize deployment handler
@@ -539,6 +549,62 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		slog.Info("kernel syscall server started", "socket", syscallSocketPath)
 	}
 
+	// Initialize and start deployment engine UMC
+	var deploymentEngine *ManagedProcess
+	if syscallServer != nil {
+		homeDir, _ := os.UserHomeDir()
+		// Deployment engine is installed in ~/.underleaf/bin/
+		deploymentEngineExe := filepath.Join(homeDir, ".underleaf", "bin", "deployment-engine-serve")
+		// Fallback paths in case standard location doesn't work
+		fallbackPaths := []string{
+			"/usr/local/bin/deployment-engine-serve",
+			filepath.Join(filepath.Dir(os.Args[0]), "..", "deployment_engine", "serve"),
+		}
+
+		var exePath string
+		if info, err := os.Stat(deploymentEngineExe); err == nil && !info.IsDir() {
+			exePath = deploymentEngineExe
+		} else {
+			// Try fallback paths
+			for _, p := range fallbackPaths {
+				if info, err := os.Stat(p); err == nil && !info.IsDir() {
+					exePath = p
+					break
+				}
+			}
+		}
+
+		if exePath != "" {
+			cmd := exec.Command(exePath)
+			cmd.Env = append(os.Environ(),
+				"KERNEL_SOCKET="+syscallSocketPath,
+				"LOG_LEVEL=info",
+				// Tell deployment engine to auto-start cron engine via supervisor
+				"AUTO_START_CRON_ENGINE=true",
+			)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Start(); err != nil {
+				slog.Warn("failed to start deployment engine", "error", err, "path", exePath)
+			} else {
+				deploymentEngine = &ManagedProcess{
+					Name:    "deployment-engine",
+					Process: cmd,
+					PID:     cmd.Process.Pid,
+				}
+				slog.Info("deployment engine started", "pid", cmd.Process.Pid, "socket", syscallSocketPath)
+			}
+		} else {
+			slog.Warn("deployment engine executable not found, skipping deployment engine startup")
+		}
+	} else {
+		slog.Warn("syscall server not started, skipping deployment engine startup")
+	}
+
+	// Note: Cron engine is now managed by deployment engine supervisor
+	// instead of being started directly here
+
 	// Initialize capability manager if enabled
 	// Read from snapshotClient (synced from Server API) with fallback to simpleConfig (local config.yaml)
 	var capabilityManager interface{}
@@ -599,6 +665,26 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 						mmaProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
 						go ensureMMAInstalled(ctx, mgr, mmaProviderID)
 					}
+
+					// Auto-install Deployment Engine if enabled and not already installed
+					autoInstallDE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_deployment_engine", false)
+					if !autoInstallDE {
+						autoInstallDE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_deployment_engine", true)
+					}
+					if autoInstallDE {
+						deProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.deployment_engine_provider_id", "underleaf.deployment-engine")
+						go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine")
+					}
+
+					// Auto-install Cron Engine if enabled and not already installed
+					autoInstallCE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_cron_engine", false)
+					if !autoInstallCE {
+						autoInstallCE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_cron_engine", true)
+					}
+					if autoInstallCE {
+						ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
+						go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine")
+					}
 				}
 			}
 		}
@@ -634,6 +720,8 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		SyscallServer:     syscallServer,
 		EventStreamServer: eventStreamServer,
 		CapabilityManager: capabilityManager,
+		DeploymentEngine:  deploymentEngine,
+		CronEngine:        nil, // Managed by deployment engine supervisor
 	}, nil
 }
 
@@ -675,8 +763,8 @@ func ensureLocalMetadata(store *policy_manager.Store, cliConfig policy_manager.C
 }
 
 // getCommandSettingsFromConfig extracts command settings from config snapshot
-func getCommandSettingsFromConfig(config policy_manager.ConfigClient) exec.CommandSettings {
-	settings := exec.DefaultCommandSettings()
+func getCommandSettingsFromConfig(config policy_manager.ConfigClient) execpkg.CommandSettings {
+	settings := execpkg.DefaultCommandSettings()
 
 	// Try to get commands config from payload
 	if commands, ok := config.Get("commands"); ok {
@@ -717,7 +805,7 @@ func getCommandSettingsFromConfig(config policy_manager.ConfigClient) exec.Comma
 }
 
 // subscribeToCommandEvents subscribes to command execution events
-func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handler *exec.CommandHandler, serverID string) {
+func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handler *execpkg.CommandHandler, serverID string) {
 	slog.Info("subscribing to command events", "server_id", serverID)
 
 	// Subscribe to command run requests with TargetType and TargetID filters
@@ -790,7 +878,7 @@ func subscribeToClusterMembershipEvents(ctx context.Context, busClient *bus.Clie
 }
 
 // watchConfigForCommandSettings watches for config updates and refreshes command settings
-func watchConfigForCommandSettings(ctx context.Context, manager policy_manager.PolicyManager, handler *exec.CommandHandler) {
+func watchConfigForCommandSettings(ctx context.Context, manager policy_manager.PolicyManager, handler *execpkg.CommandHandler) {
 	watchChan := manager.Watch()
 
 	for {
@@ -812,8 +900,8 @@ func watchConfigForCommandSettings(ctx context.Context, manager policy_manager.P
 }
 
 // extractCommandSettingsFromSnapshot extracts command settings from a config snapshot
-func extractCommandSettingsFromSnapshot(snapshot *policy_manager.PolicySnapshot) exec.CommandSettings {
-	settings := exec.DefaultCommandSettings()
+func extractCommandSettingsFromSnapshot(snapshot *policy_manager.PolicySnapshot) execpkg.CommandSettings {
+	settings := execpkg.DefaultCommandSettings()
 
 	if snapshot == nil || snapshot.Payload == nil {
 		return settings
@@ -1500,4 +1588,43 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID
 	}
 
 	slog.Info("MMA auto-install completed", "provider_id", providerID, "state", endpoint.State)
+}
+
+// ensureProviderInstalled checks if a provider is installed and installs it if not.
+// This is a generic version that works for any provider (deployment_engine, cron_engine, etc.)
+func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string) {
+	if providerID == "" {
+		slog.Warn("empty provider ID, skipping auto-install", "friendly_name", friendlyName)
+		return
+	}
+	slog.Info("checking provider installation status", "provider_id", providerID, "name", friendlyName)
+
+	// Check if provider is already installed
+	installed, err := mgr.ListInstalledProviders(ctx)
+	if err != nil {
+		slog.Warn("failed to list installed providers", "error", err, "name", friendlyName)
+		return
+	}
+
+	// Check if provider is in the list
+	for _, provider := range installed {
+		if provider.ProviderID == providerID {
+			slog.Info("provider is already installed",
+				"provider_id", providerID,
+				"name", friendlyName,
+				"version", provider.Version,
+				"state", provider.State)
+			return
+		}
+	}
+
+	// Provider not installed
+	slog.Info("provider not installed, attempting auto-install", "provider_id", providerID, "name", friendlyName)
+	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
+	if err != nil {
+		slog.Error("failed to auto-install provider", "provider_id", providerID, "name", friendlyName, "error", err)
+		return
+	}
+
+	slog.Info("provider auto-install completed", "provider_id", providerID, "name", friendlyName, "state", endpoint.State)
 }
