@@ -586,3 +586,27 @@ func detectTPMPath() string {
 	}
 	return "/dev/tpmrm0"
 }
+
+// SignWithIdentityKey creates an asymmetric signature using the TPM identity key
+func (km *tpmKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
+	// TODO: Implement TPM-backed ECDSA signing
+	// Full implementation requires:
+	// 1. Create/load an ECC signing key in TPM
+	// 2. Use TPM2_Sign command with the identity key
+	// 3. Return signature bytes
+	//
+	// For now, return not implemented error
+	return nil, fmt.Errorf("asymmetric signing not yet implemented in TPM key manager")
+}
+
+// ExportPublicKey exports the public key from the TPM identity key
+func (km *tpmKeyManager) ExportPublicKey() ([]byte, error) {
+	// TODO: Implement TPM public key export
+	// Full implementation requires:
+	// 1. Read public portion of TPM identity key
+	// 2. Convert to standard format (PEM/PKIX)
+	// 3. Return PEM bytes
+	//
+	// For now, return not implemented error
+	return nil, fmt.Errorf("public key export not yet implemented in TPM key manager")
+}

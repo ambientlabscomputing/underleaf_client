@@ -130,8 +130,23 @@ func (s *ClusterServer) JoinCluster(ctx context.Context, req *pb.JoinClusterRequ
 		}, nil
 	}
 
-	// TODO: Validate join_token for security and authorization
-	// For now, we'll allow any join request
+	// Validate join_token for security and authorization
+	if req.JoinToken == "" {
+		return &pb.JoinClusterResponse{
+			Success: false,
+			Error:   "join_token is required for security",
+		}, nil
+	}
+
+	// TODO: Validate join_token against stored token hashes in KV store
+	// Full implementation should:
+	// 1. Hash the provided token (SHA-256)
+	// 2. Look up `/cluster/{clusterID}/join_tokens/{token_hash}` in Raft KV
+	// 3. Check expiration time
+	// 4. Revoke token after successful join (single-use tokens)
+	//
+	// For now, we accept any non-empty token as a placeholder.
+	// This provides API enforcement without full hash validation.
 
 	// Use node_id from request; fall back to join_token for backward compatibility
 	var nodeID hashicorpraft.ServerID

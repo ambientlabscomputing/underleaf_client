@@ -36,32 +36,47 @@ func NewIdentityServer(km keymanager.KeyManager, nodeID, orgID, clusterID string
 
 // GetNodeIdentity returns the node's identity information.
 func (s *IdentityServer) GetNodeIdentity(ctx context.Context, req *pb.GetNodeIdentityRequest) (*pb.GetNodeIdentityResponse, error) {
-	// TODO: Export public key from keyManager once KeyManager interface has ExportPublicKey method
-	// TODO: Populate certificate_chain_pem after IssueLocalCertificate is wired to server_api CA
-	return &pb.GetNodeIdentityResponse{
+	resp := &pb.GetNodeIdentityResponse{
 		NodeId:    s.nodeID,
 		OrgId:     s.orgID,
 		ClusterId: s.clusterID,
-	}, nil
+	}
+
+	// Export public key if key manager supports it
+	if s.keyManager != nil {
+		pubKeyPEM, err := s.keyManager.ExportPublicKey()
+		if err == nil {
+			resp.PublicKeyPem = string(pubKeyPEM)
+		}
+		// If not implemented, leave empty - not an error condition
+	}
+
+	// TODO: Populate certificate_chain_pem after IssueLocalCertificate is wired to server_api CA
+	return resp, nil
 }
 
-// SignPayload creates an HMAC-like authentication tag for a payload.
+// SignPayload creates a signature for a payload.
 //
-// IMPORTANT: This uses symmetric AES-GCM encryption as an authentication mechanism,
-// NOT asymmetric signing. The output can only be verified by the same node that
-// created it (since it holds the master key). For cross-node signature verification,
-// use VerifyTrust with an ECDSA certificate instead.
-//
-// TODO: Add asymmetric signing support to KeyManager interface (SignWithIdentityKey)
-// so payloads can be verified by other nodes without sharing the master key.
+// Attempts to use asymmetric ECDSA signing via KeyManager.SignWithIdentityKey().
+// If not implemented, falls back to symmetric AES-GCM authentication (which can only
+// be verified by the same node that created it, not by other nodes).
 func (s *IdentityServer) SignPayload(ctx context.Context, req *pb.SignPayloadRequest) (*pb.SignPayloadResponse, error) {
 	if s.keyManager == nil {
 		return nil, fmt.Errorf("key manager not available")
 	}
 
-	// Use key manager's Encrypt to create an authenticated ciphertext.
-	// This serves as a MAC (the ciphertext can be decrypted back to verify integrity)
-	// but is NOT a digital signature — cannot be verified without the master key.
+	// Try asymmetric signing first (preferred for cross-node verification)
+	signature, err := s.keyManager.SignWithIdentityKey(req.Payload)
+	if err == nil {
+		return &pb.SignPayloadResponse{
+			Signature: signature,
+			Algorithm: "ecdsa-sha256",
+		}, nil
+	}
+
+	// Fall back to symmetric authentication if asymmetric signing not implemented
+	// This uses AES-GCM to create an authenticated ciphertext that serves as a MAC.
+	// Note: This can only be verified by the same node (not cross-node verifiable).
 	authTag, err := s.keyManager.Encrypt(req.Payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create authentication tag: %w", err)
@@ -69,7 +84,7 @@ func (s *IdentityServer) SignPayload(ctx context.Context, req *pb.SignPayloadReq
 
 	return &pb.SignPayloadResponse{
 		Signature: authTag,
-		Algorithm: "aes-256-gcm-auth-tag", // Clearly label this as NOT asymmetric signing
+		Algorithm: "aes-256-gcm-auth-tag", // Clearly label as symmetric
 	}, nil
 }
 

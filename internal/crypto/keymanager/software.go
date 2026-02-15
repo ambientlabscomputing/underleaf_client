@@ -383,3 +383,28 @@ func (km *softwareKeyManager) deriveKeyInternal(context []byte, keyLength int) (
 	}
 	return derivedKey, nil
 }
+
+// SignWithIdentityKey creates an asymmetric signature using an ECDSA identity key
+func (km *softwareKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
+	// TODO: Implement ECDSA signing
+	// Full implementation requires:
+	// 1. Generate/load ECDSA private key (P-256 or P-384)
+	// 2. Store it securely (wrapped with master key)
+	// 3. Sign data using crypto/ecdsa
+	// 4. Return DER-encoded signature
+	//
+	// For now, return not implemented error
+	return nil, fmt.Errorf("asymmetric signing not yet implemented in software key manager")
+}
+
+// ExportPublicKey exports the public key corresponding to the identity key
+func (km *softwareKeyManager) ExportPublicKey() ([]byte, error) {
+	// TODO: Implement public key export
+	// Full implementation requires:
+	// 1. Extract public key from ECDSA private key
+	// 2. Marshal to PEM format (PKIX)
+	// 3. Return PEM bytes
+	//
+	// For now, return not implemented error
+	return nil, fmt.Errorf("public key export not yet implemented in software key manager")
+}

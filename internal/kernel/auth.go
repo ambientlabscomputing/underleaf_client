@@ -12,9 +12,9 @@ import (
 
 // PeerCredentials holds the Unix process credentials from SO_PEERCRED
 type PeerCredentials struct {
-	PID int32  // Process ID
-	UID uint32 // User ID
-	GID uint32 // Group ID
+	PID int // Process ID
+	UID int // User ID
+	GID int // Group ID
 }
 
 // getPeerCredentials extracts SO_PEERCRED from a Unix socket connection
@@ -24,29 +24,25 @@ func getPeerCredentials(ctx context.Context) (*PeerCredentials, error) {
 		return nil, fmt.Errorf("no peer found in context")
 	}
 
-	// Type assert to net.Conn to access underlying connection
-	conn, ok := p.Addr.(*net.UnixAddr)
+	// Check if the peer is a Unix socket connection
+	_, ok = p.Addr.(*net.UnixAddr)
 	if !ok {
 		return nil, fmt.Errorf("peer is not a Unix socket connection")
 	}
 
-	// Note: In a real implementation, we'd need to extract the raw connection
-	// from the gRPC transport to call GetsockoptUcred. This is a placeholder
-	// that demonstrates the concept. Full implementation requires accessing
-	// the underlying *net.UnixConn from the gRPC transport layer.
+	// Note: gRPC does not expose the underlying net.Conn directly.
+	// The extractRawConnCredentials function in platform-specific files
+	// (auth_linux.go, auth_darwin.go) shows how to extract credentials
+	// when you have access to the raw connection.
+	//
+	// For a complete implementation, you would need to:
+	// 1. Access the gRPC transport internals to get the net.Conn
+	// 2. Call extractRawConnCredentials with that connection
+	//
+	// For now, return an error indicating this needs full implementation.
+	// Currently, interceptors will log this error but still allow the call.
 
-	// For now, we'll use a simplified approach: accept all local connections
-	// since all UMCs run on the same machine under the same user.
-	// Production implementation should extract actual credentials.
-
-	slog.Debug("peer credential check", "addr", conn.String())
-
-	// Return stub credentials - in production, use syscall.GetsockoptUcred
-	return &PeerCredentials{
-		PID: 0, // Would extract from SO_PEERCRED
-		UID: 0, // Would extract from SO_PEERCRED
-		GID: 0, // Would extract from SO_PEERCRED
-	}, nil
+	return nil, fmt.Errorf("credential extraction requires access to raw connection (not exposed by gRPC peer API)")
 }
 
 // UnaryAuthInterceptor creates a gRPC interceptor that validates peer credentials
@@ -72,11 +68,18 @@ func UnaryAuthInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 				"pid", creds.PID,
 				"uid", creds.UID,
 			)
-		}
 
-		// Check method-specific ACLs
-		// For now, all authenticated peers can call all methods
-		// Future: implement granular ACLs per service/method
+			// Check method-specific ACLs
+			if err := validateMethodAccess(creds, info.FullMethod); err != nil {
+				logger.Warn("method access denied",
+					"method", info.FullMethod,
+					"pid", creds.PID,
+					"uid", creds.UID,
+					"error", err,
+				)
+				// For now, log but allow - strict enforcement would return error
+			}
+		}
 
 		// Call the actual handler
 		return handler(ctx, req)
@@ -107,6 +110,17 @@ func StreamAuthInterceptor(logger *slog.Logger) grpc.StreamServerInterceptor {
 				"pid", creds.PID,
 				"uid", creds.UID,
 			)
+
+			// Check method-specific ACLs
+			if err := validateMethodAccess(creds, info.FullMethod); err != nil {
+				logger.Warn("stream method access denied",
+					"method", info.FullMethod,
+					"pid", creds.PID,
+					"uid", creds.UID,
+					"error", err,
+				)
+				// For now, log but allow - strict enforcement would return error
+			}
 		}
 
 		// Call the actual handler
@@ -115,58 +129,41 @@ func StreamAuthInterceptor(logger *slog.Logger) grpc.StreamServerInterceptor {
 }
 
 // validateMethodAccess checks if the peer has access to the given method
-// This is a placeholder for future ACL implementation
+// Returns an error if access should be denied.
+//
+// ACL Rules:
+// - ProviderService.* → restricted to privileged UMCs (deployment_engine)
+// - ClusterService.* → restricted to raft members
+// - All other services → allow any authenticated UMC
+//
+// Note: Currently logs violations but does not enforce (strict enforcement requires
+// a UMC registry to map PIDs/UIDs to UMC identities). Enable strict enforcement by
+// uncommenting the return statements in the interceptors.
 func validateMethodAccess(creds *PeerCredentials, fullMethod string) error {
-	// For now, allow all access
-	// Future: implement per-method ACLs
-	//
-	// Example ACL logic:
-	// - ProviderService.* → only deployment_engine UMC
-	// - SecretService.* → any authenticated UMC
-	// - ClusterService.* → only raft members
-	// - ExecService.* → any authenticated UMC
-	// - IdentityService.* → any authenticated UMC
-	// - EventService.* → any authenticated UMC
+	// TODO: Implement UMC registry to map PID/UID to UMC identity
+	// For now, apply basic service-level rules based on method name patterns
 
+	// Check if accessing ProviderService methods
+	if len(fullMethod) > len("/ambient.umc.ProviderService/") &&
+		fullMethod[:len("/ambient.umc.ProviderService/")] == "/ambient.umc.ProviderService/" {
+		// ProviderService requires privileged access
+		// TODO: Check if PID/UID belongs to deployment_engine UMC
+		return fmt.Errorf("ProviderService methods restricted to deployment_engine UMC")
+	}
+
+	// Check if accessing ClusterService methods
+	if len(fullMethod) > len("/ambient.umc.ClusterService/") &&
+		fullMethod[:len("/ambient.umc.ClusterService/")] == "/ambient.umc.ClusterService/" {
+		// ClusterService requires raft member privileges
+		// TODO: Check if PID/UID belongs to a raft member
+		return fmt.Errorf("ClusterService methods restricted to raft members")
+	}
+
+	// All other services (ExecService, SecretService, IdentityService, EventService, KVStorageService)
+	// are accessible to any authenticated UMC
 	return nil
 }
 
-// extractRawConnCredentials is a helper to get peer credentials from Unix socket
-// This is a placeholder for the actual SO_PEERCRED implementation
-func extractRawConnCredentials(conn net.Conn) (*PeerCredentials, error) {
-	// This requires accessing the underlying file descriptor and calling:
-	// syscall.GetsockoptUcred(fd, syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-	//
-	// Example implementation for Linux:
-	//
-	// unixConn, ok := conn.(*net.UnixConn)
-	// if !ok {
-	// 	return nil, fmt.Errorf("not a Unix connection")
-	// }
-	//
-	// rawConn, err := unixConn.SyscallConn()
-	// if err != nil {
-	// 	return nil, err
-	// }
-	//
-	// var creds *syscall.Ucred
-	// var syscallErr error
-	// err = rawConn.Control(func(fd uintptr) {
-	// 	creds, syscallErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-	// })
-	//
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// if syscallErr != nil {
-	// 	return nil, syscallErr
-	// }
-	//
-	// return &PeerCredentials{
-	// 	PID: creds.Pid,
-	// 	UID: creds.Uid,
-	// 	GID: creds.Gid,
-	// }, nil
-
-	return nil, fmt.Errorf("SO_PEERCRED extraction not implemented - requires platform-specific code")
-}
+// extractRawConnCredentials is implemented in platform-specific files:
+// - auth_linux.go: Uses SO_PEERCRED to extract PID, UID, GID
+// - auth_darwin.go: Uses LOCAL_PEERCRED to extract UID, GID (PID not available on macOS)

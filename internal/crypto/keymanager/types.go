@@ -57,6 +57,14 @@ type KeyManager interface {
 	// Decrypt decrypts data encrypted with Encrypt
 	Decrypt(ciphertext []byte) ([]byte, error)
 
+	// SignWithIdentityKey creates an asymmetric signature using the node's identity key
+	// The signature can be verified by other nodes using the public key
+	SignWithIdentityKey(data []byte) ([]byte, error)
+
+	// ExportPublicKey exports the public key corresponding to the identity key
+	// Returns the public key in PEM format
+	ExportPublicKey() ([]byte, error)
+
 	// GetBackendInfo returns information about the active backend
 	GetBackendInfo() BackendInfo
 

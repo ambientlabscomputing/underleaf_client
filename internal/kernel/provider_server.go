@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	pb "github.com/ambientlabscomputing/umc_sdk/proto/ua_kernel/v1"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
@@ -75,14 +76,48 @@ func (s *ProviderServer) StartProvider(ctx context.Context, req *pb.StartProvide
 }
 
 // StopProvider stops a capability provider.
+// Stops all running versions of the provider with the given ID.
 func (s *ProviderServer) StopProvider(ctx context.Context, req *pb.StopProviderRequest) (*pb.StopProviderResponse, error) {
 	if s.lifecycleManager == nil {
 		return nil, status.Error(codes.Unavailable, "lifecycle manager not available")
 	}
 
-	// TODO: Implement version-aware stop
-	// StopProviderRequest doesn't carry version, need to enumerate active versions
-	return nil, status.Error(codes.Unimplemented, "stopping providers requires version specification (not yet implemented)")
+	// Enumerate all running versions of this provider
+	var versions []string
+	if s.supervisor != nil {
+		processes := s.supervisor.List()
+		for _, proc := range processes {
+			if proc.ProviderID == req.ProviderId {
+				versions = append(versions, proc.Version)
+			}
+		}
+	}
+
+	// If no running versions found, return success (idempotent)
+	if len(versions) == 0 {
+		return &pb.StopProviderResponse{
+			Success: true,
+		}, nil
+	}
+
+	// Stop all versions
+	var errors []string
+	for _, version := range versions {
+		if err := s.lifecycleManager.Stop(ctx, req.ProviderId, version); err != nil {
+			errors = append(errors, fmt.Sprintf("version %s: %v", version, err))
+		}
+	}
+
+	if len(errors) > 0 {
+		return &pb.StopProviderResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to stop some versions: %s", strings.Join(errors, "; ")),
+		}, nil
+	}
+
+	return &pb.StopProviderResponse{
+		Success: true,
+	}, nil
 }
 
 // GrantCapability grants a capability to a UMC.
