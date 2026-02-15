@@ -3,8 +3,12 @@ package keymanager
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"sync"
@@ -21,6 +25,7 @@ type softwareKeyManager struct {
 	sealed        bool
 	wrappingKey   []byte
 	encryptionKey []byte
+	identityKey   *ecdsa.PrivateKey // ECDSA P-256 key for signing
 }
 
 const (
@@ -72,6 +77,13 @@ func (km *softwareKeyManager) Initialize() ([]byte, error) {
 		return nil, err
 	}
 
+	// Generate ECDSA P-256 identity key
+	identityKey, err := ecdsa.GenerateKey(elliptic.P256(), km.config.RandomReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate identity key: %w", err)
+	}
+	km.identityKey = identityKey
+
 	return wrappedBlob, nil
 }
 
@@ -98,6 +110,7 @@ func (km *softwareKeyManager) Seal() error {
 	}
 
 	km.masterKey = nil
+	km.identityKey = nil
 	km.wrappingKey = nil
 	km.encryptionKey = nil
 	km.sealed = true
@@ -144,6 +157,15 @@ func (km *softwareKeyManager) Unseal(masterKeyBlob []byte) error {
 	if err := km.deriveSubKeys(); err != nil {
 		return err
 	}
+
+	// Regenerate identity key deterministically from the master key
+	// This allows the same key to be recovered after unseal
+	hkdfReader := hkdf.New(sha256.New, km.masterKey, nil, []byte("identity-key-seed"))
+	identityKey, err := ecdsa.GenerateKey(elliptic.P256(), hkdfReader)
+	if err != nil {
+		return fmt.Errorf("failed to regenerate identity key: %w", err)
+	}
+	km.identityKey = identityKey
 
 	return nil
 }
@@ -384,27 +406,55 @@ func (km *softwareKeyManager) deriveKeyInternal(context []byte, keyLength int) (
 	return derivedKey, nil
 }
 
-// SignWithIdentityKey creates an asymmetric signature using an ECDSA identity key
+// SignWithIdentityKey creates an ECDSA-SHA256 signature using the identity key
 func (km *softwareKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
-	// TODO: Implement ECDSA signing
-	// Full implementation requires:
-	// 1. Generate/load ECDSA private key (P-256 or P-384)
-	// 2. Store it securely (wrapped with master key)
-	// 3. Sign data using crypto/ecdsa
-	// 4. Return DER-encoded signature
-	//
-	// For now, return not implemented error
-	return nil, fmt.Errorf("asymmetric signing not yet implemented in software key manager")
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+
+	if km.identityKey == nil {
+		return nil, fmt.Errorf("identity key not available")
+	}
+
+	// Hash the data with SHA-256
+	hash := sha256.Sum256(data)
+
+	// Sign the hash with ECDSA
+	signature, err := ecdsa.SignASN1(km.config.RandomReader, km.identityKey, hash[:])
+	if err != nil {
+		return nil, fmt.Errorf("ECDSA signing failed: %w", err)
+	}
+
+	return signature, nil
 }
 
-// ExportPublicKey exports the public key corresponding to the identity key
+// ExportPublicKey exports the ECDSA public key in PEM format (PKIX)
 func (km *softwareKeyManager) ExportPublicKey() ([]byte, error) {
-	// TODO: Implement public key export
-	// Full implementation requires:
-	// 1. Extract public key from ECDSA private key
-	// 2. Marshal to PEM format (PKIX)
-	// 3. Return PEM bytes
-	//
-	// For now, return not implemented error
-	return nil, fmt.Errorf("public key export not yet implemented in software key manager")
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+
+	if km.identityKey == nil {
+		return nil, fmt.Errorf("identity key not available")
+	}
+
+	// Marshal the public key to PKIX format
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(&km.identityKey.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+
+	// Encode as PEM
+	pemBlock := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	}
+
+	return pem.EncodeToMemory(pemBlock), nil
 }

@@ -1121,33 +1121,6 @@ func watchConfigForSoftwareUpdates(ctx context.Context, policyManager *policy_ma
 	}
 }
 
-// DEPRECATED: subscribeToDeploymentEvents is no longer used as deployments are handled by deployment_engine UMC
-// subscribeToDeploymentEvents subscribes to deployment events from the event bus
-// func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, handler *deployment.DeploymentHandler, serverID string) {
-// 	slog.Info("subscribing to deployment events", "server_id", serverID)
-//
-// 	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
-// 		Topic:      bus.DeploymentsApplyRequest,
-// 		TargetType: "server",
-// 		TargetID:   serverID,
-// 	})
-// 	if err != nil {
-// 		slog.Error("failed to subscribe to deployment events", "error", err)
-// 		return
-// 	}
-//
-// 	for {
-// 		select {
-// 		case msg := <-subscription.HandlerChan:
-// 			slog.Debug("received deployment event", "topic", msg.Topic)
-// 			handler.HandleDeploymentEvent(ctx, []byte(msg.Content))
-// 		case <-ctx.Done():
-// 			slog.Info("stopping deployment event subscription")
-// 			return
-// 		}
-// 	}
-// }
-
 // getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
 // getRaftConfigFromSnapshot extracts Raft configuration from server-provided config
 // Config is populated by the control plane when a server is assigned to a cluster

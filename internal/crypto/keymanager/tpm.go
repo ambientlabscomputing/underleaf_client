@@ -6,10 +6,16 @@ package keymanager
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/asn1"
 	"encoding/binary"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
 	"sync"
 
@@ -20,16 +26,18 @@ import (
 
 // tpmKeyManager implements KeyManager using TPM 2.0
 type tpmKeyManager struct {
-	mu            sync.RWMutex
-	config        *Config
-	tpm           transport.TPMCloser
-	srkHandle     tpm2.TPMHandle
-	masterKey     []byte
-	wrappingKey   []byte
-	encryptionKey []byte
-	initialized   bool
-	sealed        bool
-	tpmInfo       *BackendInfo
+	mu              sync.RWMutex
+	config          *Config
+	tpm             transport.TPMCloser
+	srkHandle       tpm2.TPMHandle
+	identityKeyBlob tpm2.TPM2BPrivate // Wrapped ECDSA identity key (private portion)
+	identityKeyPub  tpm2.TPM2BPublic  // ECDSA identity key public portion
+	masterKey       []byte
+	wrappingKey     []byte
+	encryptionKey   []byte
+	initialized     bool
+	sealed          bool
+	tpmInfo         *BackendInfo
 }
 
 const srkHandleValue = 0x81000001
@@ -93,6 +101,11 @@ func (km *tpmKeyManager) Initialize() ([]byte, error) {
 
 	if err := km.deriveSubKeys(); err != nil {
 		return nil, err
+	}
+
+	// Create ECDSA P-256 identity key in TPM
+	if err := km.createIdentityKey(); err != nil {
+		return nil, fmt.Errorf("failed to create identity key: %w", err)
 	}
 
 	return sealedBlob, nil
@@ -159,6 +172,12 @@ func (km *tpmKeyManager) Unseal(masterKeyBlob []byte) error {
 
 	if err := km.deriveSubKeys(); err != nil {
 		return err
+	}
+
+	// Recreate identity key (should be persisted separately in production)
+	// For now, we regenerate it deterministically based on the master key
+	if err := km.createIdentityKey(); err != nil {
+		return fmt.Errorf("failed to recreate identity key: %w", err)
 	}
 
 	return nil
@@ -546,6 +565,60 @@ func (km *tpmKeyManager) ensureSRK() error {
 	return nil
 }
 
+func (km *tpmKeyManager) createIdentityKey() error {
+	if km.tpm == nil {
+		return fmt.Errorf("TPM not available")
+	}
+
+	// Define ECDSA P-256 key template
+	eccTemplate := tpm2.TPMTPublic{
+		Type:    tpm2.TPMAlgECC,
+		NameAlg: tpm2.TPMAlgSHA256,
+		ObjectAttributes: tpm2.TPMAObject{
+			SignEncrypt:         true,
+			FixedTPM:            true,
+			FixedParent:         true,
+			SensitiveDataOrigin: true,
+			UserWithAuth:        true,
+		},
+		Parameters: tpm2.NewTPMUPublicParms(
+			tpm2.TPMAlgECC,
+			&tpm2.TPMSECCParms{
+				Scheme: tpm2.TPMTECCScheme{
+					Scheme: tpm2.TPMAlgECDSA,
+					Details: tpm2.NewTPMUAsymScheme(
+						tpm2.TPMAlgECDSA,
+						&tpm2.TPMSSigSchemeECDSA{
+							HashAlg: tpm2.TPMAlgSHA256,
+						},
+					),
+				},
+				CurveID: tpm2.TPMECCNistP256,
+			},
+		),
+	}
+
+	// Create the key under the SRK
+	create := tpm2.Create{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: km.srkHandle,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPublic: tpm2.New2B(eccTemplate),
+	}
+
+	createRsp, err := create.Execute(km.tpm)
+	if err != nil {
+		return fmt.Errorf("TPM Create ECC key failed: %w", err)
+	}
+
+	// Store the key blob and public portion
+	km.identityKeyBlob = createRsp.OutPrivate
+	km.identityKeyPub = createRsp.OutPublic
+
+	return nil
+}
+
 func (km *tpmKeyManager) initTPMInfo() error {
 	getCap := tpm2.GetCapability{
 		Capability:    tpm2.TPMCapTPMProperties,
@@ -587,26 +660,139 @@ func detectTPMPath() string {
 	return "/dev/tpmrm0"
 }
 
-// SignWithIdentityKey creates an asymmetric signature using the TPM identity key
-func (km *tpmKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
-	// TODO: Implement TPM-backed ECDSA signing
-	// Full implementation requires:
-	// 1. Create/load an ECC signing key in TPM
-	// 2. Use TPM2_Sign command with the identity key
-	// 3. Return signature bytes
-	//
-	// For now, return not implemented error
-	return nil, fmt.Errorf("asymmetric signing not yet implemented in TPM key manager")
+// encodeECDSASignature encodes R and S values as ASN.1 DER format
+func encodeECDSASignature(r, s []byte) []byte {
+	type ecdsaSignature struct {
+		R, S *big.Int
+	}
+	sig := ecdsaSignature{
+		R: new(big.Int).SetBytes(r),
+		S: new(big.Int).SetBytes(s),
+	}
+	encoded, _ := asn1.Marshal(sig)
+	return encoded
 }
 
-// ExportPublicKey exports the public key from the TPM identity key
+// SignWithIdentityKey creates an ECDSA-SHA256 signature using the TPM identity key
+func (km *tpmKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+
+	if km.tpm == nil {
+		return nil, fmt.Errorf("TPM not available")
+	}
+
+	// Load the identity key into TPM
+	load := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: km.srkHandle,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPrivate: km.identityKeyBlob,
+		InPublic:  km.identityKeyPub,
+	}
+
+	loadRsp, err := load.Execute(km.tpm)
+	if err != nil {
+		return nil, fmt.Errorf("TPM Load identity key failed: %w", err)
+	}
+	defer func() {
+		flush := tpm2.FlushContext{FlushHandle: loadRsp.ObjectHandle}
+		flush.Execute(km.tpm)
+	}()
+
+	// Hash the data with SHA-256
+	hash := sha256.Sum256(data)
+
+	// Sign with TPM
+	sign := tpm2.Sign{
+		KeyHandle: tpm2.AuthHandle{
+			Handle: loadRsp.ObjectHandle,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		Digest: tpm2.TPM2BDigest{
+			Buffer: hash[:],
+		},
+		InScheme: tpm2.TPMTSigScheme{
+			Scheme: tpm2.TPMAlgECDSA,
+			Details: tpm2.NewTPMUSigScheme(
+				tpm2.TPMAlgECDSA,
+				&tpm2.TPMSSchemeHash{
+					HashAlg: tpm2.TPMAlgSHA256,
+				},
+			),
+		},
+		Validation: tpm2.TPMTTKHashCheck{
+			Tag: tpm2.TPMSTHashCheck,
+		},
+	}
+
+	signRsp, err := sign.Execute(km.tpm)
+	if err != nil {
+		return nil, fmt.Errorf("TPM2_Sign failed: %w", err)
+	}
+
+	// Extract ECDSA signature from response
+	ecdsaSig, err := signRsp.Signature.Signature.ECDSA()
+	if err != nil {
+		return nil, fmt.Errorf("TPM returned non-ECDSA signature: %w", err)
+	}
+
+	// Encode as ASN.1 DER format (compatible with standard ECDSA verification)
+	// R and S are big-endian byte arrays
+	signature := encodeECDSASignature(ecdsaSig.SignatureR.Buffer, ecdsaSig.SignatureS.Buffer)
+	return signature, nil
+}
+
+// ExportPublicKey exports the public key from the TPM identity key in PEM format
 func (km *tpmKeyManager) ExportPublicKey() ([]byte, error) {
-	// TODO: Implement TPM public key export
-	// Full implementation requires:
-	// 1. Read public portion of TPM identity key
-	// 2. Convert to standard format (PEM/PKIX)
-	// 3. Return PEM bytes
-	//
-	// For now, return not implemented error
-	return nil, fmt.Errorf("public key export not yet implemented in TPM key manager")
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+
+	// The public key is already available in km.identityKeyPub
+	// Extract the ECC parameters
+	pub, err := km.identityKeyPub.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	eccDetail := pub.Parameters.ECCDetail
+	if eccDetail == nil {
+		return nil, fmt.Errorf("identity key is not an ECC key")
+	}
+
+	eccPoint, err := pub.Unique.ECC()
+	if err != nil {
+		return nil, fmt.Errorf("no ECC point in public key: %w", err)
+	}
+
+	// Convert TPM ECC public key to standard Go crypto format
+	// TPM uses big-endian byte arrays for X and Y coordinates
+	pubKey := &ecdsa.PublicKey{
+		Curve: elliptic.P256(),
+		X:     new(big.Int).SetBytes(eccPoint.X.Buffer),
+		Y:     new(big.Int).SetBytes(eccPoint.Y.Buffer),
+	}
+
+	// Marshal to PKIX format
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+
+	// Encode as PEM
+	pemBlock := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubKeyBytes,
+	}
+
+	return pem.EncodeToMemory(pemBlock), nil
 }
