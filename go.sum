@@ -9,14 +9,10 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
-github.com/ambientlabscomputing/event_bus_client v1.2.4 h1:WY+dhkY9uXlP94agB5BD4MvgYHvsgkDB1Jzcp2SsHA0=
-github.com/ambientlabscomputing/event_bus_client v1.2.4/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
+github.com/ambientlabscomputing/event_bus_client v1.2.5 h1:sVsWP9HJ/8Uh/wamojzFYZLiy1cCxIKoqnmSNA4780c=
+github.com/ambientlabscomputing/event_bus_client v1.2.5/go.mod h1:82AoMGMt9Bptwdc2VDuHMaXrHOm0esFMdNJN2Oj4G6U=
 github.com/ambientlabscomputing/ucrs v1.2.0 h1:K1gnvzT4UCm/TG5dxX5fgt2K5//t9etBALcjbkTyBhw=
 github.com/ambientlabscomputing/ucrs v1.2.0/go.mod h1:eLdKbkbKX6XkZ3Xzcr5obVAYgypDDoyEdNvXfU7P9yg=
-github.com/ambientlabscomputing/umc_sdk v0.1.1 h1:ycb2nLbCfGoU+DZOBDjzTHftz201zdZ9QPePIEEWdDQ=
-github.com/ambientlabscomputing/umc_sdk v0.1.1/go.mod h1:A5ctwnNK884pusMpbVIDu/2bgLMp2W3aZxNu87ZWteA=
-github.com/ambientlabscomputing/umc_sdk v0.1.2 h1:hy4p4XvbtZC+MKiH/MP2Nhw7inI3Ztpj7qecPH/qFm0=
-github.com/ambientlabscomputing/umc_sdk v0.1.2/go.mod h1:A5ctwnNK884pusMpbVIDu/2bgLMp2W3aZxNu87ZWteA=
 github.com/armon/go-metrics v0.4.1 h1:hR91U9KYmb6bLBYLQjyM+3j+rcd/UhE+G78SFnF8gJA=
 github.com/armon/go-metrics v0.4.1/go.mod h1:E6amYzXo6aW1tqzoZGT755KkbgrJsSdpwZ+3JqfkOG4=
 github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z4=
