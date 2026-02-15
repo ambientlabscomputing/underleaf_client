@@ -6,6 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
@@ -103,6 +106,59 @@ func (l *Launcher) startDev(ctx context.Context) error {
 
 	// Stop components on exit
 	defer func() {
+		if deps.DeploymentEngine != nil {
+			logger.Info("stopping deployment engine", "pid", deps.DeploymentEngine.PID)
+			if deps.DeploymentEngine.Process != nil && deps.DeploymentEngine.Process.Process != nil {
+				// Send SIGTERM for graceful shutdown
+				if err := deps.DeploymentEngine.Process.Process.Signal(syscall.SIGTERM); err != nil {
+					logger.Warn("failed to send SIGTERM to deployment engine", "error", err)
+				}
+				// Wait for process to exit gracefully (with timeout)
+				done := make(chan error, 1)
+				go func() {
+					done <- deps.DeploymentEngine.Process.Wait()
+				}()
+				select {
+				case <-time.After(5 * time.Second):
+					logger.Warn("deployment engine did not shut down gracefully, killing process")
+					deps.DeploymentEngine.Process.Process.Kill()
+				case err := <-done:
+					if err != nil {
+						logger.Warn("deployment engine exit error", "error", err)
+					} else {
+						logger.Info("deployment engine stopped gracefully")
+					}
+				}
+			}
+		}
+		// Cron engine orphan protection: Clean up cron engine if deployment engine couldn't
+		// The deployment engine supervisor should have cleaned it up, but if the DE was
+		// killed forcefully (SIGKILL), the cron engine might be orphaned
+		cronPIDFile := "/tmp/cron_engine.pid"
+		if pidBytes, err := os.ReadFile(cronPIDFile); err == nil {
+			if pidStr := string(pidBytes); pidStr != "" {
+				if pid, err := strconv.Atoi(strings.TrimSpace(pidStr)); err == nil && pid > 0 {
+					logger.Info("cleaning up cron engine", "pid", pid)
+					// Check if process exists before sending signal
+					if proc, err := os.FindProcess(pid); err == nil {
+						// Send SIGTERM and wait briefly
+						if err := proc.Signal(syscall.SIGTERM); err == nil {
+							time.Sleep(1 * time.Second)
+						}
+						// Force kill if still running
+						proc.Signal(syscall.SIGKILL)
+					}
+					// Clean up PID file
+					os.Remove(cronPIDFile)
+				}
+			}
+		}
+		if deps.SyscallServer != nil {
+			logger.Info("stopping kernel syscall server")
+			if err := deps.SyscallServer.GracefulShutdown(); err != nil {
+				logger.Error("failed to stop syscall server", "err", err)
+			}
+		}
 		if deps.EventStreamServer != nil {
 			logger.Info("stopping UA event stream server")
 			if err := deps.EventStreamServer.Stop(); err != nil {

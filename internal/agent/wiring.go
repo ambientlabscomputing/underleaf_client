@@ -15,13 +15,17 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
-	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
+	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
+
+	// DEPRECATED: deployment and recipe packages moved to deployment_engine UMC
+	// "github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	execpkg "github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/kernel"
 	"github.com/ambientlabscomputing/underleaf_client/internal/mdns"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
-	"github.com/ambientlabscomputing/underleaf_client/internal/recipe"
+
+	// "github.com/ambientlabscomputing/underleaf_client/internal/recipe"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/updater"
 	"github.com/ambientlabscomputing/underleaf_client/internal/utils"
@@ -50,6 +54,7 @@ type Dependencies struct {
 	RaftNode          *raft.Node             // Raft cluster node for KV quorum
 	EventStreamServer *EventStreamServer     // UA→MMA event stream server
 	SyscallServer     *kernel.SyscallServer  // Kernel syscall server for UMCs
+	KeyManager        keymanager.KeyManager  // Key manager for crypto operations
 	CapabilityManager interface{}            // Capability manager (type from internal/capability)
 	DeploymentEngine  *ManagedProcess        // Deployment engine UMC process
 	CronEngine        *ManagedProcess        // Cron engine UMC process (managed by deployment engine supervisor)
@@ -314,14 +319,17 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	commandHandler := execpkg.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
 	commandHandler.SetDrainer(drainer)
 
-	// Initialize deployment handler
-	deploymentHandler := deployment.NewDeploymentHandler(serverID.(string), cplaneClient.Deployments)
-	deploymentHandler.SetDrainer(drainer)
+	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
+	// Deployments are now handled by the deployment_engine UMC via syscalls
+	// See: umcs/deployment_engine/ and internal/deployment/DEPRECATED.md
+	// deploymentHandler := deployment.NewDeploymentHandler(serverID.(string), cplaneClient.Deployments)
+	// deploymentHandler.SetDrainer(drainer)
 
 	// Subscribe to command events if event bus is available
 	if busClient != nil {
 		go subscribeToCommandEvents(ctx, busClient, commandHandler, serverID.(string))
-		go subscribeToDeploymentEvents(ctx, busClient, deploymentHandler, serverID.(string))
+		// DEPRECATED: Deployment events now handled by deployment_engine UMC
+		// go subscribeToDeploymentEvents(ctx, busClient, deploymentHandler, serverID.(string))
 		go subscribeToClusterMembershipEvents(ctx, busClient, policyManager, serverID.(string))
 	}
 
@@ -362,7 +370,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		}
 
 		var err error
-		raftNode, err = initializeRaftNode(ctx, raftConfig)
+		raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID)
 		if err != nil {
 			slog.Warn("failed to initialize raft node", "error", err)
 			// Don't fail agent startup if Raft fails - it's optional
@@ -424,7 +432,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			if raftConfig != nil {
 				slog.Info("found raft config in current snapshot, initializing now", "node_id", raftConfig.NodeID)
 
-				raftNode, err := initializeRaftNode(ctx, raftConfig)
+				// Note: syscallServer and keyManager haven't been created yet at this point
+				// SecretStore will be created later in the synchronous path after syscallServer setup
+				raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID)
 				if err != nil {
 					slog.Warn("failed to initialize raft node from snapshot", "error", err)
 				} else {
@@ -457,12 +467,15 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			} else {
 				slog.Info("no raft config in current snapshot, will monitor for cluster assignment")
 				// Watch for Raft configuration to appear (when server is added to cluster)
-				go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient)
+				// Note: syscallServer and keyManager will be passed as nil since they don't exist yet
+				// The watcher will initialize raft when config appears, and SecretStore will be
+				// created in the async path when leadership is ready
+				go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
 			}
 		} else {
 			slog.Info("could not check current snapshot, will monitor for cluster assignment")
 			// Watch for Raft configuration to appear (when server is added to cluster)
-			go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient)
+			go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
 		}
 	}
 
@@ -514,30 +527,68 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		slog.Info("UA event stream server started", "socket", socketPath, "cluster_id", clusterID, "node_id", nodeID)
 		// Inject event stream server into server for HTTP handlers to use
 		server.SetEventStreamServer(eventStreamServer)
+		// DEPRECATED: Deployment handler moved to deployment_engine UMC
 		// Wire event stream into deployment handler for capability event publishing
-		deploymentHandler.SetEventPublisher(eventStreamServer)
-		slog.Info("event publisher wired into deployment handler")
+		// deploymentHandler.SetEventPublisher(eventStreamServer)
+		// slog.Info("event publisher wired into deployment handler")
 	}
 
 	// Initialize kernel syscall server for UMC communication
 	var syscallServer *kernel.SyscallServer
 	syscallSocketPath := "/tmp/ua_kernel.sock"
 
-	// Key manager and secret store will be wired when seal management is initialized
-	// For now, the syscall server starts without them (identity/secret services will
-	// return errors until the subsystems are available)
+	// Create KeyManager for identity/signing operations
+	keyManagerCfg := keymanager.DefaultConfig()
+	keyManagerCfg.SoftwareFallback = true // Enable fallback if TPM unavailable
+	keyManager, err := keymanager.New(keyManagerCfg)
+	if err != nil {
+		slog.Warn("failed to create key manager", "error", err)
+		keyManager = nil
+	}
+
+	// Create SecretStore for secret management if Raft is available
+	var secretStore *raft.SecretStore
+	if raftNode != nil {
+		// SecretStore requires a SealManager, which requires KeyManager
+		if keyManager != nil {
+			// Create SecretStore with auto-init/unseal
+			// Note: Initialize() may fail if raft leadership isn't ready yet
+			// In that case, the leader-election goroutine will retry after leader is elected
+			secretStore, err = initAndUnsealSecretStore(ctx, raftNode, clusterID, nodeID, keyManager, slog.Default())
+			if err != nil {
+				slog.Warn("failed to create secret store in synchronous path", "error", err)
+				// Don't fail agent startup - secret store can be initialized later
+				// The async path (after leader election) will retry
+				secretStore = nil
+			}
+		} else {
+			slog.Warn("cannot create secret store: keyManager is nil")
+		}
+	} else {
+		slog.Info("raft node not available, secret store disabled")
+	}
+
+	// Get organization ID from config
+	orgID := getConfigValueStr(snapshotClient, "local.organization_id", "")
+	if orgID == "" {
+		// Fallback to simple config
+		orgID = getConfigValueStr(configClient, "local.organization_id", "")
+	}
+
 	syscallCfg := kernel.Config{
 		SocketPath:       syscallSocketPath,
-		KeyManager:       nil, // TODO: Wire when SealManager is initialized
+		KeyManager:       keyManager,
 		RaftNode:         raftNode,
-		SecretStore:      nil, // TODO: Wire when SecretStore is initialized
+		SecretStore:      secretStore,
 		ExecRunner:       runner,
 		BusClient:        busClient,
 		LifecycleManager: nil, // Will be set when capability manager is created
 		Supervisor:       nil, // Will be set when capability manager is created
 		NodeID:           nodeID,
-		OrgID:            "", // TODO: Get from config
+		OrgID:            orgID,
 		ClusterID:        clusterID,
+		APIClient:        cplaneClient.API(),
+		ServerID:         serverID.(string),
 		Logger:           slog.Default(),
 	}
 
@@ -547,6 +598,29 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		syscallServer = nil
 	} else {
 		slog.Info("kernel syscall server started", "socket", syscallSocketPath)
+		// If raftNode exists but secretStore is still nil (synchronous creation failed),
+		// retry asynchronously after a delay to allow leadership to stabilize
+		if raftNode != nil && secretStore == nil && keyManager != nil {
+			slog.Info("raft node exists but secret store is nil, will retry after leader election")
+			go func() {
+				// Wait for leader election
+				if err := raftNode.WaitForLeader(30 * time.Second); err != nil {
+					slog.Warn("leader election timeout while waiting to retry secret store creation", "error", err)
+					return
+				}
+				// Retry secret store creation with auto-init/unseal
+				slog.Info("retrying secret store creation after leader election")
+				retryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				store, err := initAndUnsealSecretStore(retryCtx, raftNode, clusterID, nodeID, keyManager, slog.Default())
+				if err != nil {
+					slog.Warn("failed to create secret store in async retry", "error", err)
+				} else {
+					syscallServer.UpdateSecretStore(store)
+					slog.Info("secret store created and wired in async retry after leader election")
+				}
+			}()
+		}
 	}
 
 	// Initialize and start deployment engine UMC
@@ -579,8 +653,6 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			cmd.Env = append(os.Environ(),
 				"KERNEL_SOCKET="+syscallSocketPath,
 				"LOG_LEVEL=info",
-				// Tell deployment engine to auto-start cron engine via supervisor
-				"AUTO_START_CRON_ENGINE=true",
 			)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
@@ -594,6 +666,25 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					PID:     cmd.Process.Pid,
 				}
 				slog.Info("deployment engine started", "pid", cmd.Process.Pid, "socket", syscallSocketPath)
+
+				// Wait for deployment engine to be ready and verify it can communicate
+				go func() {
+					healthURL := "http://localhost:8080/health"
+					maxRetries := 10
+					for i := 0; i < maxRetries; i++ {
+						time.Sleep(500 * time.Millisecond)
+						resp, err := http.Get(healthURL)
+						if err == nil && resp.StatusCode == http.StatusOK {
+							resp.Body.Close()
+							slog.Info("deployment engine health check passed", "url", healthURL)
+							return
+						}
+						if resp != nil {
+							resp.Body.Close()
+						}
+					}
+					slog.Warn("deployment engine health check failed after retries", "url", healthURL)
+				}()
 			}
 		} else {
 			slog.Warn("deployment engine executable not found, skipping deployment engine startup")
@@ -649,12 +740,20 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					capabilityManager = mgr
 					server.SetCapabilityManager(capabilityManager)
 
+					// Wire lifecycle manager and supervisor into syscall server
+					if syscallServer != nil {
+						syscallServer.WireCapabilityManager(mgr)
+						slog.Info("capability manager wired into kernel syscall server")
+					}
+
+					// DEPRECATED: Recipe reconciler and deployment handler moved to deployment_engine UMC
+					// Capability operations are now requested via UA-K syscalls
 					// Wire the recipe reconciler into the deployment handler
 					// so deployments with capability_requirements are handled
-					recipeDataDir := filepath.Join(homeDir, ".underleaf")
-					recipeReconciler := recipe.NewReconciler(capabilityManager.(*capability.Manager), recipeDataDir)
-					deploymentHandler.SetRecipeReconciler(recipeReconciler)
-					slog.Info("recipe reconciler wired into deployment handler")
+					// recipeDataDir := filepath.Join(homeDir, ".underleaf")
+					// recipeReconciler := recipe.NewReconciler(capabilityManager.(*capability.Manager), recipeDataDir)
+					// deploymentHandler.SetRecipeReconciler(recipeReconciler)
+					// slog.Info("recipe reconciler wired into deployment handler")
 
 					// Auto-install MMA if enabled and not already installed
 					autoInstall := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mma", false)
@@ -718,6 +817,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CommandDrainer:    drainer,
 		RaftNode:          raftNode,
 		SyscallServer:     syscallServer,
+		KeyManager:        keyManager,
 		EventStreamServer: eventStreamServer,
 		CapabilityManager: capabilityManager,
 		DeploymentEngine:  deploymentEngine,
@@ -1021,31 +1121,32 @@ func watchConfigForSoftwareUpdates(ctx context.Context, policyManager *policy_ma
 	}
 }
 
+// DEPRECATED: subscribeToDeploymentEvents is no longer used as deployments are handled by deployment_engine UMC
 // subscribeToDeploymentEvents subscribes to deployment events from the event bus
-func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, handler *deployment.DeploymentHandler, serverID string) {
-	slog.Info("subscribing to deployment events", "server_id", serverID)
-
-	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
-		Topic:      bus.DeploymentsApplyRequest,
-		TargetType: "server",
-		TargetID:   serverID,
-	})
-	if err != nil {
-		slog.Error("failed to subscribe to deployment events", "error", err)
-		return
-	}
-
-	for {
-		select {
-		case msg := <-subscription.HandlerChan:
-			slog.Debug("received deployment event", "topic", msg.Topic)
-			handler.HandleDeploymentEvent(ctx, []byte(msg.Content))
-		case <-ctx.Done():
-			slog.Info("stopping deployment event subscription")
-			return
-		}
-	}
-}
+// func subscribeToDeploymentEvents(ctx context.Context, busClient *bus.Client, handler *deployment.DeploymentHandler, serverID string) {
+// 	slog.Info("subscribing to deployment events", "server_id", serverID)
+//
+// 	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
+// 		Topic:      bus.DeploymentsApplyRequest,
+// 		TargetType: "server",
+// 		TargetID:   serverID,
+// 	})
+// 	if err != nil {
+// 		slog.Error("failed to subscribe to deployment events", "error", err)
+// 		return
+// 	}
+//
+// 	for {
+// 		select {
+// 		case msg := <-subscription.HandlerChan:
+// 			slog.Debug("received deployment event", "topic", msg.Topic)
+// 			handler.HandleDeploymentEvent(ctx, []byte(msg.Content))
+// 		case <-ctx.Done():
+// 			slog.Info("stopping deployment event subscription")
+// 			return
+// 		}
+// 	}
+// }
 
 // getRaftConfigFromSnapshot extracts Raft configuration from config snapshot
 // getRaftConfigFromSnapshot extracts Raft configuration from server-provided config
@@ -1183,8 +1284,69 @@ func getRaftConfigFromMap(raftMap map[string]interface{}) *raft.NodeConfig {
 	return cfg
 }
 
+// initAndUnsealSecretStore creates a SecretStore with automatic initialization and unsealing
+func initAndUnsealSecretStore(ctx context.Context, raftNode *raft.Node, clusterID, nodeID string, keyManager keymanager.KeyManager, logger *slog.Logger) (*raft.SecretStore, error) {
+	if raftNode == nil {
+		logger.Warn("cannot create secret store: raftNode is nil")
+		return nil, fmt.Errorf("raftNode is nil")
+	}
+	if keyManager == nil {
+		logger.Warn("cannot create secret store: keyManager is nil")
+		return nil, fmt.Errorf("keyManager is nil")
+	}
+
+	logger.Info("creating secret store", "clusterID", clusterID, "nodeID", nodeID)
+
+	// Create SealManager with default config (includes RandomReader)
+	kmConfig := keymanager.DefaultConfig()
+	kmConfig.BackendType = keymanager.BackendSoftware
+	kmConfig.SoftwareFallback = true
+	sealManager, err := raft.NewSealManager(raftNode, clusterID, nodeID, kmConfig)
+	if err != nil {
+		logger.Warn("failed to create seal manager", "error", err)
+		return nil, fmt.Errorf("failed to create seal manager: %w", err)
+	}
+
+	// Auto-initialize if not already initialized (fresh cluster)
+	if !sealManager.IsInitialized() {
+		logger.Info("seal manager not initialized, initializing now")
+		// Initialize with timeout to handle raft leadership wait
+		initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if _, err := sealManager.Initialize(initCtx); err != nil {
+			logger.Warn("failed to initialize seal manager", "error", err)
+			// Don't return error - seal manager exists but is sealed/uninitialized
+			// Can be initialized later via HTTP API or when leadership is ready
+		} else {
+			logger.Info("seal manager initialized successfully")
+		}
+	}
+
+	// Auto-unseal if sealed (returning node or post-initialization)
+	if sealManager.IsSealed() {
+		logger.Info("seal manager is sealed, attempting auto-unseal")
+		unsealCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := sealManager.AutoUnseal(unsealCtx); err != nil {
+			logger.Warn("failed to auto-unseal seal manager", "error", err)
+			// Don't return error - secret store can still be created
+			// Operations will fail with ErrSealed/ErrNotInitialized until unsealed
+		} else {
+			logger.Info("seal manager auto-unsealed successfully")
+		}
+	}
+
+	// Create SecretStore
+	secretStore := raft.NewSecretStore(raftNode, sealManager)
+	logger.Info("secret store created successfully",
+		"initialized", sealManager.IsInitialized(),
+		"sealed", sealManager.IsSealed())
+
+	return secretStore, nil
+}
+
 // initializeRaftNode creates and starts a Raft cluster node
-func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Node, error) {
+func initializeRaftNode(ctx context.Context, config *raft.NodeConfig, serverIDStr string, syscallServer *kernel.SyscallServer, keyManager keymanager.KeyManager, clusterID string) (*raft.Node, error) {
 	// Get logger from context - it's the best configured context
 	logger := slog.Default().With("component", "raft", "node_id", config.NodeID)
 
@@ -1209,6 +1371,21 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Nod
 		} else {
 			leader, _ := node.GetLeader()
 			logger.Info("raft leader elected", "leader", leader, "is_leader", node.IsLeader())
+
+			// Create SecretStore now that raft is ready (with init/unseal)
+			if syscallServer != nil && keyManager != nil {
+				secretStore, err := initAndUnsealSecretStore(context.Background(), node, clusterID, serverIDStr, keyManager, logger)
+				if err != nil {
+					logger.Warn("failed to create secret store after leader election", "error", err)
+				} else {
+					syscallServer.UpdateSecretStore(secretStore)
+					logger.Info("secret store initialized and wired after leader election")
+				}
+			} else {
+				logger.Warn("cannot create secret store after leader election: syscallServer or keyManager is nil",
+					"syscallServer_nil", syscallServer == nil,
+					"keyManager_nil", keyManager == nil)
+			}
 		}
 	}()
 
@@ -1216,7 +1393,7 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig) (*raft.Nod
 }
 
 // watchConfigForRaftInitialization monitors config changes and initializes Raft when server is added to cluster
-func watchConfigForRaftInitialization(ctx context.Context, manager policy_manager.PolicyManager, server *Server, port int, cplaneClient *controlplane.CPlaneClient) {
+func watchConfigForRaftInitialization(ctx context.Context, manager policy_manager.PolicyManager, server *Server, port int, cplaneClient *controlplane.CPlaneClient, serverID string, syscallServer *kernel.SyscallServer, keyManager keymanager.KeyManager) {
 	logger := slog.Default().With("component", "raft-init-watcher")
 	watchChan := manager.Watch()
 
@@ -1252,8 +1429,16 @@ func watchConfigForRaftInitialization(ctx context.Context, manager policy_manage
 				continue
 			}
 
-			// Initialize Raft node
-			raftNode, err := initializeRaftNode(ctx, raftConfig)
+			// Extract cluster_id for raft initialization
+			var clusterID string
+			if raftVal, ok := snapshot.Payload["raft"]; ok {
+				if raftMap, ok := raftVal.(map[string]interface{}); ok {
+					clusterID, _ = raftMap["cluster_id"].(string)
+				}
+			}
+
+			// Initialize Raft node (with syscallServer and keyManager for async SecretStore creation)
+			raftNode, err := initializeRaftNode(ctx, raftConfig, serverID, syscallServer, keyManager, clusterID)
 			if err != nil {
 				logger.Warn("failed to initialize raft node after cluster assignment", "error", err)
 				continue
@@ -1263,6 +1448,9 @@ func watchConfigForRaftInitialization(ctx context.Context, manager policy_manage
 
 			// Wire Raft node into server
 			server.SetRaftNode(raftNode)
+
+			// Note: SecretStore creation is handled in initializeRaftNode's leader-election goroutine
+			// It will auto-initialize and unseal when leadership is ready
 
 			// Initialize mDNS coordinator if enabled
 			mdnsCoordinator := initializeMDNSCoordinator(ctx, manager.(policy_manager.ConfigClient), cplaneClient, port, raftConfig)

@@ -338,3 +338,8 @@ func (m *Manager) UninstallProviderByID(ctx context.Context, providerID string, 
 
 	return len(targets), nil
 }
+
+// GetLifecycleManager returns the lifecycle manager (for kernel syscall wiring).
+func (m *Manager) GetLifecycleManager() *LifecycleManager {
+	return m.lifecycle
+}

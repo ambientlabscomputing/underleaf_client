@@ -65,6 +65,11 @@ func NewLifecycleManager(dockerClient *client.Client, providerStore *store.Provi
 	}, nil
 }
 
+// GetSupervisor returns the process supervisor (for kernel syscall wiring).
+func (lm *LifecycleManager) GetSupervisor() *ProcessSupervisor {
+	return lm.supervisor
+}
+
 // Install installs a provider (pulls OCI image or downloads binary)
 func (l *LifecycleManager) Install(ctx context.Context, provider *Provider) (*store.ProviderInstance, error) {
 	l.log.Info("installing provider",

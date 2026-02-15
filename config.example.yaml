@@ -132,6 +132,18 @@ payload:
     # MMA provider ID to auto-install (default: underleaf.mma)
     mma_provider_id: underleaf.mma
 
+    # Auto-install Deployment Engine on agent startup
+    auto_install_deployment_engine: true
+
+    # Deployment Engine provider ID to auto-install (default: underleaf.deployment-engine)
+    deployment_engine_provider_id: underleaf.deployment-engine
+
+    # Auto-install Cron Engine on agent startup (via deployment engine supervisor)
+    auto_install_cron_engine: true
+
+    # Cron Engine provider ID to auto-install (default: underleaf.cron-engine)
+    cron_engine_provider_id: underleaf.cron-engine
+
     # UCRS base URL for registry synchronization
     ucrs_base_url: https://registry.underleaf.io
 
