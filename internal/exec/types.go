@@ -23,6 +23,7 @@ type CommandRequest struct {
 type CommandResult struct {
 	TraceID   string    `json:"trace_id"`  // Job ID from the original request
 	ServerID  string    `json:"server_id"` // This server's unique identifier
+	PID       int       `json:"pid"`       // Process ID (0 if failed to start)
 	ExitCode  int       `json:"exit_code"` // Command exit code (0 = success)
 	Stdout    string    `json:"stdout"`    // Standard output from command
 	Stderr    string    `json:"stderr"`    // Standard error from command

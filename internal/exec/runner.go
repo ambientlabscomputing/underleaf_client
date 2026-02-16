@@ -106,6 +106,11 @@ func (r *LocalRunner) Execute(req CommandRequest) CommandResult {
 		return result
 	}
 
+	// Capture PID
+	if cmd.Process != nil {
+		result.PID = cmd.Process.Pid
+	}
+
 	// Wait for command to complete or context to timeout
 	done := make(chan error, 1)
 	go func() {

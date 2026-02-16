@@ -17,10 +17,17 @@ import (
 
 // trackedProcess holds information about a running process
 type trackedProcess struct {
-	PID       int
-	StartTime time.Time
-	Command   string
-	Args      []string
+	PID         int
+	StartTime   time.Time
+	Command     string
+	Args        []string
+	Completed   bool
+	ExitCode    int32
+	Stdout      string
+	Stderr      string
+	Error       string
+	DurationMs  uint64
+	CompletedAt time.Time
 }
 
 // ExecServer implements the ExecService for UMCs.
@@ -37,46 +44,60 @@ func NewExecServer(runner *exec.LocalRunner) *ExecServer {
 	}
 }
 
-// RunProcess executes a process with the given parameters.
-// Note: Execute() is blocking — the process is tracked while running so concurrent
-// StopProcess/InspectProcess calls work, then removed after completion.
+// RunProcess executes a process asynchronously with the given parameters.
+// The process runs in a goroutine and can be inspected/stopped while running.
 func (s *ExecServer) RunProcess(ctx context.Context, req *pb.RunProcessRequest) (*pb.RunProcessResponse, error) {
 	if s.runner == nil {
 		return nil, fmt.Errorf("exec runner not available")
 	}
 
-	cmdReq := exec.CommandRequest{
-		TraceID:    req.TraceId,
-		Command:    req.Command,
-		Args:       req.Args,
-		Env:        req.Env,
-		WorkingDir: req.WorkingDir,
-		Timeout:    int(req.TimeoutSeconds),
-		User:       req.User,
-	}
-
-	// Track the process before execution starts, so concurrent
-	// StopProcess/InspectProcess calls can find it while it's running.
+	// Track the process immediately
 	tracked := &trackedProcess{
 		StartTime: time.Now(),
 		Command:   req.Command,
 		Args:      req.Args,
+		Completed: false,
 	}
 	s.processes.Store(req.TraceId, tracked)
 
-	result := s.runner.Execute(cmdReq)
+	// Execute asynchronously
+	go func() {
+		cmdReq := exec.CommandRequest{
+			TraceID:    req.TraceId,
+			Command:    req.Command,
+			Args:       req.Args,
+			Env:        req.Env,
+			WorkingDir: req.WorkingDir,
+			Timeout:    int(req.TimeoutSeconds),
+			User:       req.User,
+		}
 
-	// Update PID if available (Execute populated it)
-	// Remove tracking after completion since the process is done
-	s.processes.Delete(req.TraceId)
+		// Execute and capture result
+		result := s.runner.Execute(cmdReq)
 
+		// Update tracked process with results
+		if value, ok := s.processes.Load(req.TraceId); ok {
+			t := value.(*trackedProcess)
+			t.PID = result.PID
+			t.Completed = true
+			t.ExitCode = int32(result.ExitCode)
+			t.Stdout = result.Stdout
+			t.Stderr = result.Stderr
+			t.Error = result.Error
+			t.DurationMs = uint64(result.Duration)
+			t.CompletedAt = time.Now()
+		}
+
+		// Auto-cleanup after 5 minutes to prevent memory leak
+		time.AfterFunc(5*time.Minute, func() {
+			s.processes.Delete(req.TraceId)
+		})
+	}()
+
+	// Return immediately with process ID
 	return &pb.RunProcessResponse{
-		ProcessId:  result.TraceID,
-		ExitCode:   int32(result.ExitCode),
-		Stdout:     result.Stdout,
-		Stderr:     result.Stderr,
-		Error:      result.Error,
-		DurationMs: uint64(result.Duration),
+		ProcessId: req.TraceId,
+		// Other fields will be available via InspectProcess
 	}, nil
 }
 
@@ -93,8 +114,31 @@ func (s *ExecServer) StopProcess(ctx context.Context, req *pb.StopProcessRequest
 
 	proc := value.(*trackedProcess)
 
+	// Check if already completed
+	if proc.Completed {
+		s.processes.Delete(req.ProcessId)
+		return &pb.StopProcessResponse{
+			Success: true,
+		}, nil
+	}
+
+	// Wait for PID to be set (process may still be starting)
+	if proc.PID == 0 {
+		// Give it a short window to start
+		retries := 10
+		for i := 0; i < retries && proc.PID == 0 && !proc.Completed; i++ {
+			time.Sleep(50 * time.Millisecond)
+		}
+		if proc.PID == 0 {
+			return &pb.StopProcessResponse{
+				Success: false,
+				Error:   "process has not started yet",
+			}, nil
+		}
+	}
+
 	// Find the process
-	process, err := os.FindProcess(proc.PID)
+	process, err := os.FindProcess(int(proc.PID))
 	if err != nil {
 		// Process doesn't exist
 		s.processes.Delete(req.ProcessId)
@@ -179,36 +223,19 @@ func (s *ExecServer) InspectProcess(ctx context.Context, req *pb.InspectProcessR
 
 	proc := value.(*trackedProcess)
 
-	// Check if process is still running
-	process, err := os.FindProcess(proc.PID)
-	if err != nil {
-		// Process doesn't exist
-		s.processes.Delete(req.ProcessId)
+	// Check if process has completed
+	if proc.Completed {
 		return &pb.InspectProcessResponse{
 			ProcessId:    req.ProcessId,
 			State:        pb.ProcessState_PROCESS_STATE_STOPPED,
 			Pid:          int32(proc.PID),
 			StartTime:    timestamppb.New(proc.StartTime),
 			RestartCount: 0,
-			HealthStatus: "not found",
+			HealthStatus: "completed",
 		}, nil
 	}
 
-	// Try to send signal 0 to check if process exists
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Process is dead
-		s.processes.Delete(req.ProcessId)
-		return &pb.InspectProcessResponse{
-			ProcessId:    req.ProcessId,
-			State:        pb.ProcessState_PROCESS_STATE_STOPPED,
-			Pid:          int32(proc.PID),
-			StartTime:    timestamppb.New(proc.StartTime),
-			RestartCount: 0,
-			HealthStatus: "terminated",
-		}, nil
-	}
-
-	// Process is running
+	// Process is still running
 	return &pb.InspectProcessResponse{
 		ProcessId:    req.ProcessId,
 		State:        pb.ProcessState_PROCESS_STATE_RUNNING,
