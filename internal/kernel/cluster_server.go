@@ -100,8 +100,105 @@ func (s *ClusterServer) ProposeClusterConfig(ctx context.Context, req *pb.Propos
 		return nil, status.Error(codes.Unavailable, "raft instance not available")
 	}
 
-	// TODO: Parse req.Nodes, compare with current config, apply changes
-	return nil, status.Error(codes.Unimplemented, "cluster configuration changes not yet fully implemented")
+	// Verify we're the leader (only leader can propose configuration changes)
+	if r.State() != hashicorpraft.Leader {
+		return &pb.ProposeClusterConfigResponse{
+			Accepted: false,
+			Error:    "only the cluster leader can propose configuration changes",
+		}, nil
+	}
+
+	// Get current cluster configuration
+	currentConfig, err := s.node.GetConfiguration()
+	if err != nil {
+		return &pb.ProposeClusterConfigResponse{
+			Accepted: false,
+			Error:    fmt.Sprintf("failed to get current configuration: %v", err),
+		}, nil
+	}
+
+	// Build a map of current nodes for comparison
+	currentNodes := make(map[string]string) // node ID -> address
+	for _, node := range currentConfig.Nodes {
+		currentNodes[string(node.ID)] = node.Address
+	}
+
+	// Build a set of requested nodes
+	requestedNodes := make(map[string]string) // node ID -> address
+	requestedSet := make(map[string]bool)     // for tracking changes
+	for _, node := range req.Nodes {
+		requestedNodes[node.NodeId] = node.Address
+		requestedSet[node.NodeId] = true
+	}
+
+	// Determine what nodes to add (in requested but not in current)
+	var nodesToAdd []hashicorpraft.Server
+	for nodeID, addr := range requestedNodes {
+		if _, exists := currentNodes[nodeID]; !exists {
+			nodesToAdd = append(nodesToAdd, hashicorpraft.Server{
+				ID:       hashicorpraft.ServerID(nodeID),
+				Address:  hashicorpraft.ServerAddress(addr),
+				Suffrage: hashicorpraft.Voter, // Default: add as voter
+			})
+		}
+	}
+
+	// Determine what nodes to remove (in current but not in requested)
+	var nodesToRemove []string
+	for nodeID := range currentNodes {
+		if !requestedSet[nodeID] {
+			nodesToRemove = append(nodesToRemove, nodeID)
+		}
+	}
+
+	// Apply configuration changes
+	var appliedIndex uint64
+	var lastErr error
+
+	// Remove nodes first
+	for _, nodeID := range nodesToRemove {
+		future := r.RemoveServer(hashicorpraft.ServerID(nodeID), 0, 0)
+		if err := future.Error(); err != nil {
+			lastErr = err
+			// Continue with other removals even if one fails
+		} else {
+			appliedIndex = future.Index()
+		}
+	}
+
+	// Then add nodes
+	for _, server := range nodesToAdd {
+		future := r.AddVoter(server.ID, server.Address, 0, 0)
+		if err := future.Error(); err != nil {
+			lastErr = err
+			// Continue with other additions even if one fails
+		} else {
+			appliedIndex = future.Index()
+		}
+	}
+
+	// If there were errors, report them
+	if lastErr != nil {
+		return &pb.ProposeClusterConfigResponse{
+			Accepted:     false,
+			Error:        fmt.Sprintf("configuration change partially failed: %v", lastErr),
+			AppliedIndex: appliedIndex,
+		}, nil
+	}
+
+	// If no changes were needed, that's also a success
+	if len(nodesToAdd) == 0 && len(nodesToRemove) == 0 {
+		return &pb.ProposeClusterConfigResponse{
+			Accepted:     true,
+			AppliedIndex: appliedIndex,
+		}, nil
+	}
+
+	// Configuration changes applied successfully
+	return &pb.ProposeClusterConfigResponse{
+		Accepted:     true,
+		AppliedIndex: appliedIndex,
+	}, nil
 }
 
 // JoinCluster adds a node to the cluster.
