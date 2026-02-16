@@ -1,9 +1,11 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/cluster"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
@@ -53,29 +55,63 @@ Requirements:
 			return fmt.Errorf("cluster name is required (--name)")
 		}
 
-		printer.Print("🚀 Creating new Raft cluster...\n")
+		printer.Print("🚀 Verifying cluster state...\n")
 
-		// TODO: Call local agent API to bootstrap Raft cluster
-		// For now, we'll generate the join token and display instructions
+		// Create agent client with effective port
+		effectivePort := getEffectiveAgentPort(cmd, agentPort)
+		client := agent.NewClient(effectivePort)
 
-		// Generate a cluster ID (in production, this would come from the agent after bootstrap)
-		clusterID := strings.ReplaceAll(createName, " ", "-")
-		clusterID = strings.ToLower(clusterID)
+		// Call agent API to verify cluster is bootstrapped
+		resp, err := client.DoRequest("GET", "/api/v1/raft/status", nil)
+		if err != nil {
+			logger.Error("failed to get cluster status", "error", err)
+			return fmt.Errorf("failed to verify cluster status: %w\n\nEnsure the agent is running and Raft is enabled in config", err)
+		}
 
-		// If no node ID provided, use hostname or generate one
-		if createNodeID == "" {
-			createNodeID = "node-1" // In production, get from agent config
+		var status map[string]interface{}
+		if err := json.Unmarshal(resp, &status); err != nil {
+			return fmt.Errorf("failed to parse cluster status: %w", err)
+		}
+
+		// Verify this node is the leader (only leaders can issue join tokens)
+		isLeader, _ := status["is_leader"].(bool)
+		if !isLeader {
+			role, _ := status["role"].(string)
+			return fmt.Errorf("this node is not the cluster leader (role: %s)\n\nJoin tokens must be generated from the leader node", role)
+		}
+
+		// Extract cluster/node information from status
+		var clusterID, nodeID string
+		if nodes, ok := status["nodes"].([]interface{}); ok && len(nodes) > 0 {
+			if nodeMap, ok := nodes[0].(map[string]interface{}); ok {
+				nodeID, _ = nodeMap["id"].(string)
+			}
+		}
+
+		// Fallback: generate cluster ID from name if not available
+		if clusterID == "" {
+			clusterID = strings.ReplaceAll(createName, " ", "-")
+			clusterID = strings.ToLower(clusterID)
+		}
+
+		// Fallback: use provided or default node ID if not extracted from status
+		if nodeID == "" {
+			if createNodeID != "" {
+				nodeID = createNodeID
+			} else {
+				nodeID = "node-1"
+			}
 		}
 
 		// Generate join token
-		token, err := cluster.GenerateJoinToken(clusterID, createNodeID, createCAFingerprint)
+		token, err := cluster.GenerateJoinToken(clusterID, nodeID, createCAFingerprint)
 		if err != nil {
 			return fmt.Errorf("failed to generate join token: %w", err)
 		}
 
-		logger.Info("cluster created", "cluster_id", clusterID, "root_node", createNodeID)
+		logger.Info("cluster join token generated", "cluster_id", clusterID, "root_node", nodeID)
 
-		printer.PrintSuccess("✓ Cluster created successfully\n")
+		printer.PrintSuccess("✓ Cluster verified and join token generated\n")
 
 		// Display cluster information
 		printer.Print("📋 Cluster Information:")
