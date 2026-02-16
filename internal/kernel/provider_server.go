@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	pb "github.com/ambientlabscomputing/umc_sdk/proto/ua_kernel/v1"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
@@ -189,6 +190,7 @@ func (s *ProviderServer) ListProviders(ctx context.Context, req *pb.ListProvider
 
 	if s.supervisor != nil {
 		processes := s.supervisor.List()
+
 		for _, proc := range processes {
 			// Map internal state to proto ProviderState enum
 			var state pb.ProviderState
@@ -205,15 +207,67 @@ func (s *ProviderServer) ListProviders(ctx context.Context, req *pb.ListProvider
 				state = pb.ProviderState_PROVIDER_STATE_UNSPECIFIED
 			}
 
-			providers = append(providers, &pb.ProviderInfo{
+			// Build provider info with fetched metadata
+			providerInfo := &pb.ProviderInfo{
 				ProviderId: proc.ProviderID,
 				Version:    proc.Version,
 				State:      state,
 				StartedAt:  timestamppb.New(proc.StartTime),
-				// TODO: Populate trust_tier from ACL KV store
-				// TODO: Populate capabilities from ACL KV store
-				// TODO: Populate installed_at from provider metadata
-			})
+			}
+
+			// Fetch metadata from KV store if available
+			if s.raftNode != nil {
+				kv := raft.NewKV(s.raftNode)
+
+				// Fetch trust_tier from KV store (/providers/{provider_id}/trust_tier)
+				tierKey := fmt.Sprintf("/providers/%s/trust_tier", proc.ProviderID)
+				tierEntry, err := kv.Get(tierKey, raft.ReadModeStale)
+				if err == nil && tierEntry != nil {
+					tierStr := string(tierEntry.Value)
+					// Map string value to TrustTier enum
+					switch tierStr {
+					case "verified":
+						providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_VERIFIED
+					case "trusted":
+						providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_TRUSTED
+					case "sandboxed":
+						providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_SANDBOXED
+					case "untrusted":
+						providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_UNTRUSTED
+					default:
+						providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_UNSPECIFIED
+					}
+				} else {
+					providerInfo.TrustTier = pb.TrustTier_TRUST_TIER_UNSPECIFIED // Default if not set
+				}
+
+				// Fetch installed_at from KV store (/providers/{provider_id}/installed_at)
+				installedKey := fmt.Sprintf("/providers/%s/installed_at", proc.ProviderID)
+				installedEntry, err := kv.Get(installedKey, raft.ReadModeStale)
+				if err == nil && installedEntry != nil {
+					// installedEntry.Value is expected to be RFC3339 timestamp string
+					if t, err := time.Parse(time.RFC3339, string(installedEntry.Value)); err == nil {
+						providerInfo.InstalledAt = timestamppb.New(t)
+					}
+				}
+
+				// Fetch capabilities from KV store (/providers/{provider_id}/capabilities/*)
+				// Use List with prefix to find all capabilities for this provider
+				capsPrefix := fmt.Sprintf("/providers/%s/capabilities/", proc.ProviderID)
+				capabilities, err := kv.List(capsPrefix, raft.ReadModeStale)
+				if err == nil && capabilities != nil {
+					providerInfo.Capabilities = make([]string, 0, len(capabilities))
+					for _, cap := range capabilities {
+						// Extract capability name from key (last path segment after prefix)
+						capName := strings.TrimPrefix(cap.Key, capsPrefix)
+						if capName != "" {
+							providerInfo.Capabilities = append(providerInfo.Capabilities, capName)
+						}
+					}
+				}
+			}
+
+			providers = append(providers, providerInfo)
 		}
 	}
 
