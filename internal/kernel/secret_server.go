@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,7 +40,8 @@ func (s *SecretServer) StoreSecret(ctx context.Context, req *pb.StoreSecretReque
 	for k, v := range req.Metadata {
 		data[k] = v
 	}
-	data["value"] = string(req.Value)
+	// Base64-encode binary data to preserve it through JSON serialization
+	data["value"] = base64.StdEncoding.EncodeToString(req.Value)
 
 	meta, err := s.secretStore.Put(ctx, req.Key, data, nil)
 	if err != nil {
@@ -68,6 +70,12 @@ func (s *SecretServer) GetSecret(ctx context.Context, req *pb.GetSecretRequest) 
 		return nil, fmt.Errorf("secret value is not a string")
 	}
 
+	// Base64-decode the value to restore original binary data
+	valueBytes, err := base64.StdEncoding.DecodeString(valueStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode secret value: %w", err)
+	}
+
 	// Map custom metadata, excluding the "value" field
 	metadata := make(map[string]string)
 	for k, v := range version.Metadata.CustomMeta {
@@ -75,7 +83,7 @@ func (s *SecretServer) GetSecret(ctx context.Context, req *pb.GetSecretRequest) 
 	}
 
 	return &pb.GetSecretResponse{
-		Value:     []byte(valueStr),
+		Value:     valueBytes,
 		Version:   fmt.Sprintf("%d", version.Metadata.Version),
 		Metadata:  metadata,
 		CreatedAt: timestamppb.New(version.Metadata.CreatedTime),
@@ -109,6 +117,15 @@ func (s *SecretServer) MountSecret(ctx context.Context, req *pb.MountSecretReque
 		}, nil
 	}
 
+	// Base64-decode the value to restore original binary data
+	valueBytes, err := base64.StdEncoding.DecodeString(valueStr)
+	if err != nil {
+		return &pb.MountSecretResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to decode secret value: %v", err),
+		}, nil
+	}
+
 	// Ensure target directory exists
 	targetDir := filepath.Dir(req.TargetPath)
 	if err := os.MkdirAll(targetDir, 0700); err != nil {
@@ -119,7 +136,7 @@ func (s *SecretServer) MountSecret(ctx context.Context, req *pb.MountSecretReque
 	}
 
 	// Write secret to file with restricted permissions
-	if err := os.WriteFile(req.TargetPath, []byte(valueStr), 0400); err != nil {
+	if err := os.WriteFile(req.TargetPath, valueBytes, 0400); err != nil {
 		return &pb.MountSecretResponse{
 			Success: false,
 			Error:   fmt.Sprintf("failed to write secret file: %v", err),
