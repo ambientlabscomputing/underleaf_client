@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ambientlabscomputing/mycelium_spine/sdk"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 )
 
@@ -35,7 +36,7 @@ func NewAPIClient(config policy_manager.ConfigClient, h *http.Client) *APIClient
 	}
 }
 
-func (c *APIClient) GET(path string, response interface{}) error {
+func (c *APIClient) GET(ctx context.Context, path string, response interface{}) error {
 	baseURL, ok := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -47,11 +48,16 @@ func (c *APIClient) GET(path string, response interface{}) error {
 	}
 
 	slog.Debug("API GET request", "base_url", baseURL, "path", path, "full_url", baseURL.(string)+path)
-	req, err := http.NewRequest("GET", baseURL.(string)+path, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL.(string)+path, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -79,7 +85,7 @@ func (c *APIClient) GET(path string, response interface{}) error {
 	return nil
 }
 
-func (c *APIClient) GETWithParams(path string, params url.Values, response interface{}) error {
+func (c *APIClient) GETWithParams(ctx context.Context, path string, params url.Values, response interface{}) error {
 	baseURL, ok := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -98,11 +104,16 @@ func (c *APIClient) GETWithParams(path string, params url.Values, response inter
 	}
 
 	slog.Debug("GETWithParams: making request", "fullURL", fullURL, "params", params.Encode())
-	req, err := http.NewRequest("GET", fullURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -130,7 +141,7 @@ func (c *APIClient) GETWithParams(path string, params url.Values, response inter
 	return nil
 }
 
-func (c *APIClient) POST(path string, payload interface{}, response interface{}) error {
+func (c *APIClient) POST(ctx context.Context, path string, payload interface{}, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -146,12 +157,17 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -184,7 +200,7 @@ func (c *APIClient) POST(path string, payload interface{}, response interface{})
 }
 
 // POSTRaw sends raw bytes (e.g., YAML) to the server without JSON marshaling
-func (c *APIClient) POSTRaw(path string, payloadBytes []byte, response interface{}) error {
+func (c *APIClient) POSTRaw(ctx context.Context, path string, payloadBytes []byte, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -196,12 +212,17 @@ func (c *APIClient) POSTRaw(path string, payloadBytes []byte, response interface
 	}
 
 	slog.Debug("APIClient POSTRaw", "url", baseURL.(string)+path, "payload_size", len(payloadBytes))
-	req, err := http.NewRequest("POST", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/x-yaml")
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -233,7 +254,7 @@ func (c *APIClient) POSTRaw(path string, payloadBytes []byte, response interface
 	return nil
 }
 
-func (c *APIClient) PUT(path string, payload interface{}, response interface{}) error {
+func (c *APIClient) PUT(ctx context.Context, path string, payload interface{}, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -248,12 +269,17 @@ func (c *APIClient) PUT(path string, payload interface{}, response interface{}) 
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("PUT", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "PUT", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -281,14 +307,19 @@ func (c *APIClient) PUT(path string, payload interface{}, response interface{}) 
 	return nil
 }
 
-func (c *APIClient) DELETE(path string, response interface{}) error {
+func (c *APIClient) DELETE(ctx context.Context, path string, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
-	req, err := http.NewRequest("DELETE", baseURL.(string)+path, nil)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", baseURL.(string)+path, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -316,7 +347,7 @@ func (c *APIClient) DELETE(path string, response interface{}) error {
 	return nil
 }
 
-func (c *APIClient) PATCH(path string, payload interface{}, response interface{}) error {
+func (c *APIClient) PATCH(ctx context.Context, path string, payload interface{}, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
 
@@ -331,12 +362,17 @@ func (c *APIClient) PATCH(path string, payload interface{}, response interface{}
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest("PATCH", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", baseURL.(string)+path, bytes.NewBuffer(payloadBytes))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
 
 	// Add X-Organization-ID header if org context is set
 	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
@@ -376,7 +412,7 @@ func (c *APIClient) GetServerConfig(ctx context.Context, serverID string) (map[s
 	}
 
 	var resp ServerResponse
-	if err := c.GET("/servers/servers/"+serverID, &resp); err != nil {
+	if err := c.GET(ctx, "/servers/servers/"+serverID, &resp); err != nil {
 		return nil, 0, fmt.Errorf("failed to get server config: %w", err)
 	}
 
@@ -409,10 +445,12 @@ func (c *APIClient) GetCACertificate(ctx context.Context) ([]byte, error) {
 	}
 
 	// Fetch CA certificate (this is a public endpoint, no auth required)
-	req, err := http.NewRequest("GET", baseURL.(string)+"/ca/certificate", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL.(string)+"/ca/certificate", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CA cert request: %w", err)
 	}
+
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -63,11 +64,11 @@ func NewPlanCmd() *cobra.Command {
 				NoChangeCount int `json:"no_change_count"`
 			}
 
-			err = deps.CPlaneClient.API().POSTRaw("/infra/plan", manifestBytes, &plan)
-			if err != nil {
-				deps.Printer.PrintError("Failed to compute plan: " + err.Error())
-				return fmt.Errorf("failed to compute plan: %w", err)
-			}
+		err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/plan", manifestBytes, &plan)
+		if err != nil {
+			deps.Printer.PrintError("Failed to compute plan: " + err.Error())
+			return fmt.Errorf("failed to compute plan: %w", err)
+		}
 
 			// Display plan
 			if outputFormat == "json" {

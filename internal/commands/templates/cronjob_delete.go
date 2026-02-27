@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -39,7 +40,7 @@ func deleteCronJob(deps *utils.DependencyManager, cronjobID string, force bool) 
 	}
 
 	var response map[string]interface{}
-	err := deps.CPlaneClient.API().DELETE("/cron-jobs/"+cronjobID, &response)
+	err := deps.CPlaneClient.API().DELETE(context.Background(), "/cron-jobs/"+cronjobID, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to delete cron job: " + err.Error())
 		return err

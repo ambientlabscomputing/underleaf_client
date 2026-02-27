@@ -319,7 +319,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	if spineClient != nil {
 		// Handle server-data-update (push config updates from control plane)
 		spineClient.Register("server-data-update", func(ctx context.Context, msg spine.Message) {
-			policyManager.HandlePushUpdate(msg.Payload)
+			policyManager.HandlePushUpdate(ctx, msg.Payload)
 		})
 
 		// Handle command run requests from server API
@@ -328,10 +328,10 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		})
 
 		// Handle cluster membership change events — force an immediate config reconcile
-		spineClient.Register("cluster.membership.changed", func(_ context.Context, msg spine.Message) {
+		spineClient.Register("cluster.membership.changed", func(ctx context.Context, msg spine.Message) {
 			slog.Info("cluster membership changed, triggering config reconcile",
 				"envelope_id", msg.EnvelopeID)
-			if err := policyManager.Reconcile(); err != nil {
+			if err := policyManager.Reconcile(ctx); err != nil {
 				slog.Warn("config reconcile after membership change failed", "error", err)
 			}
 		})

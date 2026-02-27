@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ambientlabscomputing/mycelium_spine/sdk"
+
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability/store"
 )
 
@@ -144,6 +146,9 @@ func (c *SyncClient) Sync(ctx context.Context) error {
 		req.Header.Set("If-None-Match", c.lastETag)
 	}
 	c.mu.RUnlock()
+
+	// Add trace ID header
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 
 	// Execute request
 	resp, err := c.httpClient.Do(req)

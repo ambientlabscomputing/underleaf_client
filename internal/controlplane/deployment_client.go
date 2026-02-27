@@ -36,7 +36,7 @@ func (c *DeploymentClient) ReportDeploymentResult(ctx context.Context, result de
 	)
 
 	var response DeploymentResultResponse
-	if err := c.api.POST("/deployments/results", result, &response); err != nil {
+	if err := c.api.POST(ctx, "/deployments/results", result, &response); err != nil {
 		return fmt.Errorf("failed to report deployment result: %w", err)
 	}
 
@@ -64,7 +64,7 @@ func (c *DeploymentClient) ReportDeploymentProgress(ctx context.Context, progres
 	)
 
 	var response DeploymentProgressResponse
-	if err := c.api.POST("/deployments/progress", progress, &response); err != nil {
+	if err := c.api.POST(ctx, "/deployments/progress", progress, &response); err != nil {
 		return fmt.Errorf("failed to report deployment progress: %w", err)
 	}
 

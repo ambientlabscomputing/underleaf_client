@@ -68,6 +68,7 @@ func init() {
 
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.StartCmd)
+	rootCmd.AddCommand(local.RegisterCmd) // deprecated alias — kept for backward compat
 	rootCmd.AddCommand(local.AuthCmd)
 	rootCmd.AddCommand(local.AgentCmd)
 	rootCmd.AddCommand(local.OrgCmd)

@@ -252,7 +252,7 @@ func waitForCompletion(ctx context.Context, deps *utils.DependencyManager, jobID
 // getJobStatus fetches job status from the API
 func getJobStatus(deps *utils.DependencyManager, jobID string) (map[string]interface{}, error) {
 	var job map[string]interface{}
-	err := deps.CPlaneClient.API().GET("/jobs/"+jobID, &job)
+	err := deps.CPlaneClient.API().GET(context.Background(), "/jobs/"+jobID, &job)
 	if err != nil {
 		return nil, err
 	}

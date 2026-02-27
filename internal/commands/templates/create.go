@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -123,7 +124,7 @@ func createTemplateFromFile(deps *utils.DependencyManager, filePath string) erro
 
 func createTemplate(deps *utils.DependencyManager, req CreateTemplateRequest) error {
 	var response Template
-	err := deps.CPlaneClient.API().POST("/templates", req, &response)
+	err := deps.CPlaneClient.API().POST(context.Background(), "/templates", req, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to create template: " + err.Error())
 		return err

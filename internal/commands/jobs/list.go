@@ -41,7 +41,7 @@ func listJobs(ctx context.Context, deps *utils.DependencyManager, limit int, sta
 		TotalCount int                      `json:"total_count"`
 	}
 
-	err := deps.CPlaneClient.API().GET(path, &response)
+	err := deps.CPlaneClient.API().GET(context.Background(), path, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to list jobs: " + err.Error())
 		return err

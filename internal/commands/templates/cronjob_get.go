@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -27,7 +28,7 @@ Examples:
 
 func getCronJob(deps *utils.DependencyManager, cronjobID string) error {
 	var cj CronJob
-	err := deps.CPlaneClient.API().GET("/cron-jobs/"+cronjobID, &cj)
+	err := deps.CPlaneClient.API().GET(context.Background(), "/cron-jobs/"+cronjobID, &cj)
 	if err != nil {
 		deps.Printer.PrintError("Failed to get cron job: " + err.Error())
 		return err

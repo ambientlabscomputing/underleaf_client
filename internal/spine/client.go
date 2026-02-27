@@ -151,6 +151,11 @@ func (c *Client) dispatchLoop(ctx context.Context) {
 func (c *Client) dispatch(ctx context.Context, env *umsv1.Envelope) {
 	msg := fromEnvelope(env)
 
+	// Inject trace ID into context for handlers to access
+	if msg.TraceID != "" {
+		ctx = sdk.WithTraceID(ctx, msg.TraceID)
+	}
+
 	c.handlersMu.RLock()
 	entries := c.handlers[env.Type]
 	// Copy slice so we don't hold the lock while calling handlers.

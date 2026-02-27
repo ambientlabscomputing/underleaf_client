@@ -29,7 +29,7 @@ func (c *ConfigClient) GetServerConfig(ctx context.Context, serverID string) (ma
 		} `json:"configuration"`
 	}
 
-	if err := c.api.GET("/servers/"+serverID, &response); err != nil {
+	if err := c.api.GET(ctx, "/servers/"+serverID, &response); err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch server: %w", err)
 	}
 

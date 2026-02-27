@@ -94,8 +94,9 @@ func (s *EventServer) SubscribeLocal(req *pb.SubscribeLocalRequest, stream pb.Ev
 	deregisters := make([]func(), 0, len(req.EventTypeFilter))
 	for _, eventType := range req.EventTypeFilter {
 		et := eventType // capture loop variable
-		deregister := s.spineClient.Register(et, func(_ context.Context, msg spine.Message) {
-			localEvent := spineMessageToLocalEvent(msg)
+		deregister := s.spineClient.Register(et, func(ctx context.Context, msg spine.Message) {
+			// Extract trace ID from the spine message context and embed in local event
+			localEvent := spineMessageToLocalEvent(ctx, msg)
 			// Non-blocking send: drop if the UMC is too slow rather than blocking the dispatch loop.
 			select {
 			case eventCh <- localEvent:
@@ -130,7 +131,8 @@ func (s *EventServer) SubscribeLocal(req *pb.SubscribeLocalRequest, stream pb.Ev
 }
 
 // spineMessageToLocalEvent converts a spine.Message to the pb.LocalEvent that UMCs expect.
-func spineMessageToLocalEvent(msg spine.Message) *pb.LocalEvent {
+// It preserves the trace ID from the spine message for downstream tracing.
+func spineMessageToLocalEvent(ctx context.Context, msg spine.Message) *pb.LocalEvent {
 	event := &pb.LocalEvent{
 		EventId:   msg.EnvelopeID,
 		EventType: msg.Type,

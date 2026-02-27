@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -48,7 +49,7 @@ func toggleCronJob(deps *utils.DependencyManager, cronjobID string, enabled bool
 	}
 
 	var response CronJob
-	err := deps.CPlaneClient.API().PATCH("/cron-jobs/"+cronjobID, payload, &response)
+	err := deps.CPlaneClient.API().PATCH(context.Background(), "/cron-jobs/"+cronjobID, payload, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to update cron job: " + err.Error())
 		return err

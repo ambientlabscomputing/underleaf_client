@@ -66,7 +66,7 @@ func (c *CommandClient) ReportResult(ctx context.Context, result exec.CommandRes
 	)
 
 	var response CommandResultResponse
-	if err := c.api.POST("/commands/results", req, &response); err != nil {
+	if err := c.api.POST(ctx, "/commands/results", req, &response); err != nil {
 		return fmt.Errorf("failed to report command result: %w", err)
 	}
 
@@ -111,7 +111,7 @@ func (c *CommandClient) DispatchCommand(ctx context.Context, req DispatchCommand
 	)
 
 	var response DispatchCommandResponse
-	if err := c.api.POST("/commands/run", req, &response); err != nil {
+	if err := c.api.POST(ctx, "/commands/run", req, &response); err != nil {
 		return nil, fmt.Errorf("failed to dispatch command: %w", err)
 	}
 

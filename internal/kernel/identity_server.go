@@ -156,7 +156,7 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 	var csrResponse struct {
 		Certificate string `json:"certificate"`
 	}
-	if err := s.apiClient.POSTRaw(path, csrPEM, &csrResponse); err != nil {
+	if err := s.apiClient.POSTRaw(ctx, path, csrPEM, &csrResponse); err != nil {
 		return nil, fmt.Errorf("failed to sign CSR with control plane: %w", err)
 	}
 

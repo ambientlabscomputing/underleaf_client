@@ -157,6 +157,9 @@ Flow:
 	4.	Mutual trust is established
 	5.	Node joins cluster
 
+**Post-Join Behavior (Config Reconciliation):**
+Once a node successfully joins a cluster, the Control Plane publishes a `cluster.membership.changed` event via Mycelium Spine. Upon receiving this event, the agent MUST immediately trigger a configuration reconciliation (`PolicyManager.Reconcile()`). This ensures the agent promptly fetches its updated configuration—which now includes the `raft` section with `bootstrap_peers`—allowing the local Raft node to initialize and participate in leader election without waiting for the next periodic sync interval.
+
 ⸻
 
 7.3 Assisted Discovery Join

@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -67,7 +68,7 @@ func listCronJobs(deps *utils.DependencyManager, limit int, enabledOnly bool) er
 	}
 
 	var response QueryCronJobsResponse
-	err := deps.CPlaneClient.API().GET(path, &response)
+	err := deps.CPlaneClient.API().GET(context.Background(), path, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to list cron jobs: " + err.Error())
 		return err

@@ -19,7 +19,7 @@ type PolicyManager interface {
 	// Reconcile triggers an immediate pull-based sync from the control plane.
 	// Safe to call concurrently; useful to force a refresh on external events
 	// such as cluster membership changes.
-	Reconcile() error
+	Reconcile(ctx context.Context) error
 }
 
 // SnapshotPolicyManager maintains a validated local policy snapshot from control plane
@@ -89,7 +89,7 @@ func (m *SnapshotPolicyManager) Start(ctx context.Context) error {
 	}
 
 	// Initial sync
-	if err := m.reconcile(); err != nil {
+	if err := m.reconcile(m.ctx); err != nil {
 		slog.Warn("initial reconciliation failed", "error", err)
 	}
 
@@ -167,8 +167,8 @@ func (m *SnapshotPolicyManager) Watch() <-chan *PolicySnapshot {
 
 // HandlePushUpdate processes a raw server-data-update payload received via Mycelium Spine.
 // It is safe to call from multiple goroutines (e.g. a spine handler goroutine).
-func (m *SnapshotPolicyManager) HandlePushUpdate(payload []byte) {
-	slog.Info("received push config update", "server_id", m.serverID)
+func (m *SnapshotPolicyManager) HandlePushUpdate(ctx context.Context, payload []byte) {
+	slog.InfoContext(ctx, "received push config update", "server_id", m.serverID)
 
 	var event struct {
 		ServerID string                 `json:"server_id"`
@@ -176,11 +176,11 @@ func (m *SnapshotPolicyManager) HandlePushUpdate(payload []byte) {
 		Config   map[string]interface{} `json:"config"`
 	}
 	if err := json.Unmarshal(payload, &event); err != nil {
-		slog.Error("failed to parse push config update", "error", err)
+		slog.ErrorContext(ctx, "failed to parse push config update", "error", err)
 		return
 	}
 	if err := m.updateSnapshot(event.Version, event.Config); err != nil {
-		slog.Error("failed to apply push config update", "error", err)
+		slog.ErrorContext(ctx, "failed to apply push config update", "error", err)
 	}
 }
 
@@ -194,7 +194,7 @@ func (m *SnapshotPolicyManager) periodicReconcile() {
 	for {
 		select {
 		case <-ticker.C:
-			if err := m.reconcile(); err != nil {
+			if err := m.reconcile(m.ctx); err != nil {
 				slog.Warn("reconciliation failed", "error", err)
 			}
 		case <-m.ctx.Done():
@@ -206,17 +206,17 @@ func (m *SnapshotPolicyManager) periodicReconcile() {
 // Reconcile fetches the latest config from the control plane immediately.
 // It is exported so callers (e.g. spine event handlers) can trigger an
 // on-demand sync without waiting for the periodic reconciler.
-func (m *SnapshotPolicyManager) Reconcile() error {
-	return m.reconcile()
+func (m *SnapshotPolicyManager) Reconcile(ctx context.Context) error {
+	return m.reconcile(ctx)
 }
 
 // reconcile fetches latest config from control plane
-func (m *SnapshotPolicyManager) reconcile() error {
+func (m *SnapshotPolicyManager) reconcile(ctx context.Context) error {
 	if m.controlPlane == nil {
 		return fmt.Errorf("no control plane client configured")
 	}
 
-	slog.Debug("reconciling config", "server_id", m.serverID)
+	slog.DebugContext(ctx, "reconciling config", "server_id", m.serverID)
 
 	config, version, err := m.controlPlane.GetServerConfig(m.ctx, m.serverID)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -45,7 +46,10 @@ Examples:
   ufctl start --name my-server
 
   # Use custom agent port
-  ufctl start --port 9090`,
+  ufctl start --port 9090
+
+  # Claim an existing server identity (e.g. after wiping local config)
+  ufctl start --existing`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
@@ -57,38 +61,106 @@ Examples:
 		existingID, hasID := deps.ConfigClient.Get("local.server_id")
 		existingName, hasName := deps.ConfigClient.Get("local.server_name")
 
+		useExisting, _ := cmd.Flags().GetBool("existing")
+
 		if !hasID || existingID == nil || !hasName || existingName == nil {
-			// Get server name
-			if serverName == "" {
-				hostname, _ := os.Hostname()
-				defaultName := fmt.Sprintf("server-%s", hostname)
-				var err error
-				serverName, err = ui.PromptInput("Enter a name for this server:", defaultName)
-				if err != nil {
-					return fmt.Errorf("failed to get server name: %w", err)
+			if useExisting {
+				// --existing: prompt for server name/ID, validate staleness, claim identity
+				if err := claimExistingServer(ctx, deps, nil); err != nil {
+					return err
+				}
+			} else {
+				// Normal registration path with name-collision detection
+				if serverName == "" {
+					hostname, _ := os.Hostname()
+					defaultName := fmt.Sprintf("server-%s", hostname)
+					var err error
+					serverName, err = ui.PromptInput("Enter a name for this server:", defaultName)
+					if err != nil {
+						return fmt.Errorf("failed to get server name: %w", err)
+					}
+				}
+				if serverName == "" {
+					return fmt.Errorf("server name is required")
+				}
+
+				// Check for a name collision before creating a new server record
+				registrationHandled := false
+				for {
+					existing, findErr := deps.ServerSvc.FindExistingServer(ctx, serverName)
+
+					if findErr == nil {
+						// A stale server with this name exists — offer to claim it
+						fmt.Println()
+						deps.Printer.PrintWarning(fmt.Sprintf("A server named '%s' already exists.", serverName))
+						deps.Printer.PrintInfo("  ID:   " + existing.ID)
+						if existing.LastCheckIn != nil && existing.LastCheckIn.Valid {
+							deps.Printer.PrintInfo("  Last check-in: " + existing.LastCheckIn.Time.Format("2006-01-02 15:04:05"))
+						} else {
+							deps.Printer.PrintInfo("  Last check-in: Never")
+						}
+						fmt.Println()
+
+						choices := []string{"Claim this existing server", "Register with a different name"}
+						selected, selErr := ui.RunSelection("What would you like to do?", choices)
+						if selErr != nil || len(selected) == 0 {
+							return fmt.Errorf("selection cancelled")
+						}
+
+						if selected[0] == "Claim this existing server" {
+							if claimErr := claimExistingServer(ctx, deps, existing); claimErr != nil {
+								return claimErr
+							}
+							registrationHandled = true
+							break
+						}
+
+						// User wants a different name — re-prompt
+						var repromptErr error
+						serverName, repromptErr = ui.PromptInput("Enter a different name for this server:", "")
+						if repromptErr != nil {
+							return fmt.Errorf("failed to get server name: %w", repromptErr)
+						}
+						if serverName == "" {
+							return fmt.Errorf("server name is required")
+						}
+						continue
+					}
+
+					// FindExistingServer returned an error
+					if strings.Contains(findErr.Error(), "within last 5 minutes") {
+						// Server is actively running — cannot claim, must use a different name
+						fmt.Println()
+						deps.Printer.PrintWarning(fmt.Sprintf("Server '%s' is currently active (checked in recently).", serverName))
+						deps.Printer.PrintInfo("Decommission the running server first, or choose a different name.")
+						fmt.Println()
+						var repromptErr error
+						serverName, repromptErr = ui.PromptInput("Enter a different name for this server:", "")
+						if repromptErr != nil {
+							return fmt.Errorf("failed to get server name: %w", repromptErr)
+						}
+						if serverName == "" {
+							return fmt.Errorf("server name is required")
+						}
+						continue
+					}
+
+					// "no server found" — name is clean, proceed with normal registration
+					break
+				}
+
+				if !registrationHandled {
+					if err := deps.ServerSvc.RegisterServer(ctx, serverName); err != nil {
+						return fmt.Errorf("failed to register server: %w", err)
+					}
+					serverIDRaw, _ := deps.ConfigClient.Get("local.server_id")
+					serverID, ok := serverIDRaw.(string)
+					if !ok || serverID == "" {
+						return fmt.Errorf("failed to get server ID after registration")
+					}
+					_ = downloadAndSaveConfigSnapshot(ctx, &deps.Printer, serverID)
 				}
 			}
-
-			if serverName == "" {
-				return fmt.Errorf("server name is required")
-			}
-
-			// Register the server silently
-			err := deps.ServerSvc.RegisterServer(ctx, serverName)
-			if err != nil {
-				return fmt.Errorf("failed to register server: %w", err)
-			}
-
-			// Get the server ID from config after registration
-			serverIDRaw, _ := deps.ConfigClient.Get("local.server_id")
-			serverID, ok := serverIDRaw.(string)
-			if !ok || serverID == "" {
-				return fmt.Errorf("failed to get server ID after registration")
-			}
-
-			// Download config snapshot silently
-			_ = downloadAndSaveConfigSnapshot(ctx, &deps.Printer, serverID)
-			// Silently ignore config snapshot errors
 		}
 
 		// Step 2: Setup mTLS certificate silently
@@ -203,4 +275,5 @@ Examples:
 func init() {
 	StartCmd.Flags().StringP("name", "n", "", "Server name (auto-generated if not provided)")
 	StartCmd.Flags().IntP("port", "p", 8080, "Agent port")
+	StartCmd.Flags().Bool("existing", false, "Claim an existing server identity instead of creating a new one")
 }

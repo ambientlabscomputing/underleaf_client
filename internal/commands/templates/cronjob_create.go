@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -112,7 +113,7 @@ func createCronJobFromFile(deps *utils.DependencyManager, filePath string) error
 
 func createCronJob(deps *utils.DependencyManager, req CreateCronJobRequest) error {
 	var response CronJob
-	err := deps.CPlaneClient.API().POST("/cron-jobs", req, &response)
+	err := deps.CPlaneClient.API().POST(context.Background(), "/cron-jobs", req, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to create cron job: " + err.Error())
 		return err

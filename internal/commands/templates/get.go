@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -30,7 +31,7 @@ Examples:
 
 func getTemplate(deps *utils.DependencyManager, templateID string) error {
 	var template Template
-	err := deps.CPlaneClient.API().GET("/templates/"+templateID, &template)
+	err := deps.CPlaneClient.API().GET(context.Background(), "/templates/"+templateID, &template)
 	if err != nil {
 		deps.Printer.PrintError("Failed to get template: " + err.Error())
 		return err

@@ -9,11 +9,12 @@
 
 - 🚀 **Remote Command Execution** - Execute commands across multiple servers with real-time status updates
 - 📊 **Job Management** - Track and monitor command execution jobs with detailed per-server results
-- 🔄 **Event-Driven Architecture** - Real-time event bus integration for instant command delivery
+- 🔄 **Mycelium Spine Integration** - gRPC-based control fabric for low-latency command/control and targeted messaging
+- 🧩 **UA-Managed Components (UMCs)** - Extensible userland architecture running on top of the Underleaf Agent Kernel (UA-K)
 - 🛠️ **Local Agent Mode** - Run agent locally for development and testing
 - 📝 **Rich CLI Output** - Beautiful terminal UI with tables, spinners, and colored output
 - 🔐 **Secure Authentication** - JWT-based authentication with Auth0 integration
-- ⚙️ **Configuration Management** - Centralized config distribution via event bus
+- ⚙️ **Configuration Management** - Centralized config distribution via Mycelium Spine
 
 ## Installation
 
@@ -278,12 +279,12 @@ underleaf_agent version
 
 # For production builds, config will show:
 # - API: https://api.underleafapp.com/api/v1/servers
-# - Event Bus: wss://events.underleafapp.com/ws
+# - Spine: spine.underleafapp.com:443
 # - UCRS: https://api.underleafapp.com/api/v1/registry
 
 # For development builds, config will show:
 # - API: https://api.underleafdev.com/api/v1/servers
-# - Event Bus: wss://events.underleafdev.com/ws
+# - Spine: spine.underleafdev.com:443
 # - UCRS: https://api.underleafdev.com/api/v1/registry
 ```
 
@@ -304,9 +305,8 @@ api:
   base_url: http://localhost:8080/api/v1/servers
 auth:
   token: ""  # Will be set after login
-event_bus:
-  endpoint: ws://localhost:9000
-  commit_interval: 5s
+mycelium_spine:
+  endpoint: localhost:9090
 local:
   server_id: ""  # Will be set after registration
   server_name: my-server
@@ -388,7 +388,9 @@ ufctl agent logs
 - Configuration management
 
 **underleaf_agent** - Server-side agent binary
-- Receives commands via event bus
+- **UA-K (Underleaf Agent Kernel)**: The minimal trusted core that owns identity, execution authority, cluster truth, and secrets.
+- **UMCs (UA-Managed Components)**: Userland subsystems (like Deployment Engine, Cron Scheduler, MMA) installed and supervised by UA-K.
+- Receives commands via Mycelium Spine
 - Executes commands with timeout/env controls
 - Reports results back to control plane
 - Manages local configuration snapshots
@@ -398,15 +400,18 @@ ufctl agent logs
 ```mermaid
 graph LR
     A[ufctl] -->|HTTP| B[Control Plane]
-    B -->|Publish Command| C[Event Bus]
-    C -->|Subscribe| D[Agent]
-    D -->|Execute & Report| C
+    B -->|gRPC Publish| C[Mycelium Spine]
+    C -->|gRPC Stream| D[UA-K]
+    D -->|Syscalls| E[UMCs]
+    E -->|Execute & Report| D
+    D -->|gRPC Publish| C
     C -->|Listen Results| B
     
     style A fill:#4CAF50
     style B fill:#2196F3
     style C fill:#FF9800
     style D fill:#9C27B0
+    style E fill:#E91E63
 ```
 
 ## CLI Commands
@@ -462,9 +467,8 @@ api:
   base_url: http://localhost:8080/api/v1/servers  # Control plane API URL
 auth:
   token: eyJhbGc...                                # JWT authentication token (from login)
-event_bus:
-  endpoint: ws://localhost:9000                    # Event bus WebSocket endpoint
-  commit_interval: 5s                              # Offset commit interval
+mycelium_spine:
+  endpoint: localhost:9090                         # gRPC endpoint for Mycelium Spine
 local:
   server_id: 62db5115-b200-469f-bc8b-4ce7         # This server's ID (for agent mode)
   server_name: my-server                           # Human-readable server name
@@ -475,15 +479,15 @@ version: 0.0.0
 
 The agent uses the same configuration file format. When running as an agent:
 - `local.server_id` identifies this server
-- `event_bus.endpoint` specifies where to connect
-- Configuration updates are received automatically via the event bus
+- `mycelium_spine.endpoint` specifies where to connect
+- Configuration updates are received automatically via Mycelium Spine
 
 ### Environment Variables
 
 ```bash
 UNDERLEAF_API_URL=http://localhost:8080/api/v1
 UNDERLEAF_TOKEN=your-jwt-token
-UNDERLEAF_EVENT_BUS=ws://localhost:9000
+UNDERLEAF_SPINE_ENDPOINT=localhost:9090
 UNDERLEAF_SERVER_ID=your-server-id
 ```
 
@@ -501,7 +505,7 @@ graph TD
     
     Root --> Internal[internal/]
     Internal --> AgentPkg[agent/ - Agent server and lifecycle]
-    Internal --> Bus[bus/ - Event bus client wrapper]
+    Internal --> Spine[spine/ - Mycelium Spine client wrapper]
     Internal --> CLI[cli/ - CLI root command and flags]
     Internal --> Commands[commands/ - CLI subcommands]
     Commands --> Jobs[jobs/ - Job management]
@@ -554,14 +558,14 @@ go build -o underleaf_agent ./cmd/underleaf_agent
 make build-cli \
   VERSION=1.0.0 \
   API_BASE_URL=https://api.underleafapp.com/api/v1/servers \
-  EVENT_BUS_ENDPOINT=wss://events.underleafapp.com/ws \
+  SPINE_ENDPOINT=spine.underleafapp.com:443 \
   UCRS_BASE_URL=https://api.underleafapp.com/api/v1/registry
 
 # Build with custom environment (development)
 make build-cli \
   VERSION=dev \
   API_BASE_URL=https://api.underleafdev.com/api/v1/servers \
-  EVENT_BUS_ENDPOINT=wss://events.underleafdev.com/ws \
+  SPINE_ENDPOINT=spine.underleafdev.com:443 \
   UCRS_BASE_URL=https://api.underleafdev.com/api/v1/registry
 ```
 
@@ -627,24 +631,26 @@ ufctl agent stop
 tail -f /var/log/underleaf_agent/agent.log
 ```
 
-## Event Bus Integration
+## Mycelium Spine Integration
 
-The system uses an event bus for real-time communication:
+The system uses Mycelium Spine, a gRPC-based control fabric, for real-time communication:
 
-### Topics
+### QoS Classes
 
-- `commands.run.server.request` - Command execution requests
-- `server-data-update` - Server status and data updates
-- `config.snapshot.update` - Configuration updates
+- `COMMAND` - High-priority, low-latency execution requests
+- `CONTROL` - Configuration updates and cluster membership changes
+- `TELEMETRY` - High-throughput metrics and logs
 
 ### Message Flow
 
 1. CLI dispatches command via HTTP to control plane
-2. Control plane publishes to event bus
-3. Agent(s) receive and execute command
-4. Agent reports result via HTTP POST
-5. Control plane updates job status
-6. CLI polls job status for completion
+2. Control plane publishes to Mycelium Spine via gRPC
+3. UA-K receives command via bidirectional gRPC stream
+4. UA-K delegates execution to the appropriate UMC (e.g., Deployment Engine)
+5. UMC executes command and reports result to UA-K
+6. UA-K publishes result back to Mycelium Spine
+7. Control plane updates job status
+8. CLI polls job status for completion
 
 ## Troubleshooting
 
@@ -657,8 +663,8 @@ ufctl agent status
 # View agent logs
 ufctl agent logs
 
-# Check event bus connection
-# Look for "event bus client started" in logs
+# Check Mycelium Spine connection
+# Look for "spine client started" in logs
 
 # Verify configuration
 ufctl config

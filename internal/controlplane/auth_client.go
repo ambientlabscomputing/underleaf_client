@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/ambientlabscomputing/mycelium_spine/sdk"
 )
 
 // DeviceAuthResponse represents the response from the device authorization endpoint
@@ -66,6 +68,7 @@ func (c *CPlaneAuthClient) StartDeviceFlow(ctx context.Context) (*DeviceAuthResp
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 	req = req.WithContext(ctx)
 
 	resp, err := c.apiClient.httpClient.Do(req)
@@ -111,6 +114,7 @@ func (c *CPlaneAuthClient) PollForToken(ctx context.Context, deviceCode string) 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 	req = req.WithContext(ctx)
 
 	resp, err := c.apiClient.httpClient.Do(req)

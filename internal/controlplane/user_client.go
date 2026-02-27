@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/ambientlabscomputing/mycelium_spine/sdk"
 )
 
 // OrgMembership represents a user's membership in an organization (summary view)
@@ -97,6 +99,7 @@ func (c *CPlaneUserClient) GetMe(ctx context.Context) (*GetMeResponse, error) {
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 	req = req.WithContext(ctx)
 
 	resp, err := c.apiClient.httpClient.Do(req)
@@ -143,6 +146,7 @@ func (c *CPlaneUserClient) GetMySettings(ctx context.Context) (*UserSettings, er
 	}
 
 	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 	req = req.WithContext(ctx)
 
 	resp, err := c.apiClient.httpClient.Do(req)
@@ -200,6 +204,7 @@ func (c *CPlaneUserClient) AutoProvisionOrganization(ctx context.Context) (*Orga
 
 	req.Header.Set("Authorization", "Bearer "+token.(string))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
 	req = req.WithContext(ctx)
 
 	resp, err := c.apiClient.httpClient.Do(req)

@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -46,13 +47,13 @@ func NewValidateCmd() *cobra.Command {
 				Errors []string `json:"errors"`
 			}
 
-			err = deps.CPlaneClient.API().POSTRaw("/infra/validate", manifestBytes, &result)
-			if err != nil {
-				deps.Printer.PrintError("Failed to validate manifest: " + err.Error())
-				return fmt.Errorf("failed to validate: %w", err)
-			}
+		err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/validate", manifestBytes, &result)
+		if err != nil {
+			deps.Printer.PrintError("Failed to validate manifest: " + err.Error())
+			return fmt.Errorf("failed to validate: %w", err)
+		}
 
-			if result.Valid {
+		if result.Valid {
 				deps.Printer.PrintSuccess("✓ Manifest is valid")
 				return nil
 			} else {

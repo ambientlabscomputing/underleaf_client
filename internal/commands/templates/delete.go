@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -39,7 +40,7 @@ func deleteTemplate(deps *utils.DependencyManager, templateID string, force bool
 	}
 
 	var response map[string]interface{}
-	err := deps.CPlaneClient.API().DELETE("/templates/"+templateID, &response)
+	err := deps.CPlaneClient.API().DELETE(context.Background(), "/templates/"+templateID, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to delete template: " + err.Error())
 		return err

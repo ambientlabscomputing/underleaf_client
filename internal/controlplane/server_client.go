@@ -28,7 +28,7 @@ func (c *ServerClient) RegisterServer(ctx context.Context, name string, platform
 		"platform": platform,
 	}
 	var response interface{}
-	if err := c.api.POST("/servers", newServerRequest, &response); err != nil {
+	if err := c.api.POST(ctx, "/servers", newServerRequest, &response); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -36,7 +36,7 @@ func (c *ServerClient) RegisterServer(ctx context.Context, name string, platform
 
 func (c *ServerClient) GetServer(ctx context.Context, serverID string) (interface{}, error) {
 	var response interface{}
-	if err := c.api.GET("/servers/"+serverID, &response); err != nil {
+	if err := c.api.GET(ctx, "/servers/"+serverID, &response); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -68,7 +68,7 @@ func (c *ServerClient) ListServersWithParams(ctx context.Context, params servert
 		Results []interface{} `json:"results"`
 		Total   int           `json:"total_count"`
 	}
-	if err := c.api.GETWithParams("/servers", queryParams, &response); err != nil {
+	if err := c.api.GETWithParams(ctx, "/servers", queryParams, &response); err != nil {
 		return nil, err
 	}
 	return response.Results, nil
@@ -76,7 +76,7 @@ func (c *ServerClient) ListServersWithParams(ctx context.Context, params servert
 
 func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (interface{}, error) {
 	var response interface{}
-	if err := c.api.PATCH("/servers/"+serverID, updates, &response); err != nil {
+	if err := c.api.PATCH(ctx, "/servers/"+serverID, updates, &response); err != nil {
 		return nil, err
 	}
 	return response, nil
@@ -84,7 +84,7 @@ func (c *ServerClient) UpdateServer(ctx context.Context, serverID string, update
 
 func (c *ServerClient) GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error) {
 	var response servertypes.ServerMetrics
-	if err := c.api.GET(fmt.Sprintf("/servers/%s/metrics", serverID), &response); err != nil {
+	if err := c.api.GET(ctx, fmt.Sprintf("/servers/%s/metrics", serverID), &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -92,7 +92,7 @@ func (c *ServerClient) GetServerMetrics(ctx context.Context, serverID string) (*
 
 func (c *ServerClient) UpdateServerMetrics(ctx context.Context, serverID string, metrics servertypes.MetricsUpdateRequest) error {
 	var response interface{}
-	if err := c.api.PUT(fmt.Sprintf("/servers/%s/metrics", serverID), metrics, &response); err != nil {
+	if err := c.api.PUT(ctx, fmt.Sprintf("/servers/%s/metrics", serverID), metrics, &response); err != nil {
 		return err
 	}
 	return nil
@@ -103,7 +103,7 @@ func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID stri
 	payload := map[string]servertypes.DockerDataUpdateRequest{
 		"docker_data": dockerData,
 	}
-	if err := c.api.PATCH(fmt.Sprintf("/servers/%s", serverID), payload, &response); err != nil {
+	if err := c.api.PATCH(ctx, fmt.Sprintf("/servers/%s", serverID), payload, &response); err != nil {
 		return err
 	}
 	return nil
@@ -111,7 +111,7 @@ func (c *ServerClient) UpdateServerDockerData(ctx context.Context, serverID stri
 
 func (c *ServerClient) UpdateServerProviders(ctx context.Context, serverID string, providers servertypes.ProvidersUpdateRequest) error {
 	var response interface{}
-	if err := c.api.PUT(fmt.Sprintf("/servers/%s/providers", serverID), providers, &response); err != nil {
+	if err := c.api.PUT(ctx, fmt.Sprintf("/servers/%s/providers", serverID), providers, &response); err != nil {
 		return err
 	}
 	return nil
@@ -127,7 +127,7 @@ func (c *ServerClient) GetMetricsHistory(ctx context.Context, serverID string, p
 	}
 
 	var response servertypes.MetricsHistoryResponse
-	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/metrics/history", serverID), queryParams, &response); err != nil {
+	if err := c.api.GETWithParams(ctx, fmt.Sprintf("/servers/%s/metrics/history", serverID), queryParams, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -152,7 +152,7 @@ func (c *ServerClient) GetServerActivity(ctx context.Context, serverID string, p
 	}
 
 	var response servertypes.ActivityResponse
-	if err := c.api.GETWithParams(fmt.Sprintf("/servers/%s/activity", serverID), queryParams, &response); err != nil {
+	if err := c.api.GETWithParams(ctx, fmt.Sprintf("/servers/%s/activity", serverID), queryParams, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -164,7 +164,7 @@ func (c *ServerClient) UpdateClusterMemberStatus(ctx context.Context, clusterID,
 		"role":      role,
 		"leader_id": leaderID,
 	}
-	if err := c.api.POST(fmt.Sprintf("/clusters/%s/members/%s/heartbeat", clusterID, serverID), payload, &response); err != nil {
+	if err := c.api.POST(ctx, fmt.Sprintf("/clusters/%s/members/%s/heartbeat", clusterID, serverID), payload, &response); err != nil {
 		return err
 	}
 	return nil

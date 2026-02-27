@@ -70,7 +70,7 @@ func triggerTemplate(ctx context.Context, deps *utils.DependencyManager, templat
 
 	// First, get the template to show what we're about to do
 	var template Template
-	err := deps.CPlaneClient.API().GET("/templates/"+templateID, &template)
+	err := deps.CPlaneClient.API().GET(context.Background(), "/templates/"+templateID, &template)
 	if err != nil {
 		deps.Printer.PrintError("Failed to get template: " + err.Error())
 		return err
@@ -89,7 +89,7 @@ func triggerTemplate(ctx context.Context, deps *utils.DependencyManager, templat
 
 	// Trigger the template
 	var response TriggerTemplateResponse
-	err = deps.CPlaneClient.API().POST("/templates/"+templateID+"/trigger", req, &response)
+	err = deps.CPlaneClient.API().POST(context.Background(), "/templates/"+templateID+"/trigger", req, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to trigger template: " + err.Error())
 		return err
@@ -141,11 +141,9 @@ func waitForJobCompletion(ctx context.Context, deps *utils.DependencyManager, jo
 				Payload   map[string]interface{} `json:"payload"`
 			}
 
-			err := deps.CPlaneClient.API().GET("/jobs/"+jobID, &job)
-			if err != nil {
+			if err := deps.CPlaneClient.API().GET(context.Background(), "/jobs/"+jobID, &job); err != nil {
 				continue // Retry on error
 			}
-
 			switch job.Status {
 			case "completed":
 				showJobResults(deps, job.ID, job.Results)

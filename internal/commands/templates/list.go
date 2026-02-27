@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -64,7 +65,7 @@ func listTemplates(deps *utils.DependencyManager, limit int, nameFilter string) 
 	}
 
 	var response QueryTemplatesResponse
-	err := deps.CPlaneClient.API().GET(path, &response)
+	err := deps.CPlaneClient.API().GET(context.Background(), path, &response)
 	if err != nil {
 		deps.Printer.PrintError("Failed to list templates: " + err.Error())
 		return err
