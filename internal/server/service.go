@@ -7,9 +7,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 )
 
@@ -28,16 +27,14 @@ type Service interface {
 	DownloadServerConfig(ctx context.Context, server *servertypes.Server) error
 }
 type ServerService struct {
-	cplane   *controlplane.CPlaneClient
-	config   policy_manager.ConfigClient
-	eventBus bus.EventClient
+	cplane *controlplane.CPlaneClient
+	config policy_manager.ConfigClient
 }
 
-func NewServerService(cplaneClient *controlplane.CPlaneClient, configClient policy_manager.ConfigClient, eventBusClient bus.EventClient) *ServerService {
+func NewServerService(cplaneClient *controlplane.CPlaneClient, configClient policy_manager.ConfigClient) *ServerService {
 	return &ServerService{
-		cplane:   cplaneClient,
-		config:   configClient,
-		eventBus: eventBusClient,
+		cplane: cplaneClient,
+		config: configClient,
 	}
 }
 

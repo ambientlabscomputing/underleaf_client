@@ -6,45 +6,64 @@ import (
 	"fmt"
 	"sync"
 
+	umsv1 "github.com/ambientlabscomputing/mycelium_spine/proto/ums/v1"
 	pb "github.com/ambientlabscomputing/umc_sdk/proto/ua_kernel/v1"
-	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
+	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// EventServer implements the EventService for UMCs.
+// EventServer implements the gRPC EventService for UMCs.
+// It bridges UMC pub/sub calls to Mycelium Spine.
+//
+// The UMC-facing gRPC API (EmitEvent / SubscribeLocal) is unchanged.
+// Internally:
+//   - EmitEvent marshals the UMC payload and publishes to Spine.
+//   - SubscribeLocal registers a spine handler for each requested event type
+//     and streams received messages back to the UMC.
 type EventServer struct {
 	pb.UnimplementedEventServiceServer
-	busClient   *bus.Client
-	subscribers map[string][]chan *pb.LocalEvent
-	mu          sync.RWMutex
+	spineClient *spine.Client
+	serverID    string
+	orgID       string
+	mu          sync.Mutex
 }
 
-// NewEventServer creates a new event server.
-func NewEventServer(busClient *bus.Client) *EventServer {
+// NewEventServer creates a new event server backed by a spine.Client.
+func NewEventServer(spineClient *spine.Client, serverID, orgID string) *EventServer {
 	return &EventServer{
-		busClient:   busClient,
-		subscribers: make(map[string][]chan *pb.LocalEvent),
+		spineClient: spineClient,
+		serverID:    serverID,
+		orgID:       orgID,
 	}
 }
 
-// EmitEvent publishes an event to the event bus.
+// EmitEvent publishes a UMC-generated event to Mycelium Spine.
+// The event is routed to the same server so that other UMCs subscribed via
+// SubscribeLocal receive it through the shared spine subscription.
 func (s *EventServer) EmitEvent(ctx context.Context, req *pb.EmitEventRequest) (*pb.EmitEventResponse, error) {
-	if s.busClient == nil {
-		return nil, fmt.Errorf("event bus client not available")
+	if s.spineClient == nil {
+		return nil, fmt.Errorf("spine client not available")
 	}
 
-	selector := bus.SelectorFields{
-		Topic:      req.EventType,
-		TargetType: req.EntityKind,
-		TargetID:   req.EntityId,
-		TraceID:    req.TraceId,
-	}
-
-	err := s.busClient.Publish(ctx, selector, req.Payload)
+	// Marshal the structpb.Struct payload to JSON bytes.
+	payload, err := json.Marshal(req.Payload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to publish event: %w", err)
+		return nil, fmt.Errorf("failed to marshal event payload: %w", err)
+	}
+
+	// Route the event back to this server so subscribed UMCs receive it.
+	targets := []*umsv1.Target{
+		{
+			TargetType: umsv1.TargetType_TARGET_TYPE_SERVER,
+			TargetId:   s.serverID,
+			OrgId:      s.orgID,
+		},
+	}
+
+	if err := s.spineClient.Publish(ctx, req.EventType, payload, targets, umsv1.QoS_QOS_CONTROL, s.orgID); err != nil {
+		return nil, fmt.Errorf("failed to publish event to spine: %w", err)
 	}
 
 	return &pb.EmitEventResponse{
@@ -53,118 +72,79 @@ func (s *EventServer) EmitEvent(ctx context.Context, req *pb.EmitEventRequest) (
 	}, nil
 }
 
-// SubscribeLocal subscribes to events matching a filter.
+// SubscribeLocal subscribes a UMC to one or more event types.
+// Handlers are registered on the shared spine.Client; each incoming envelope
+// of a matching type is converted to a pb.LocalEvent and streamed to the UMC.
+// All handlers are deregistered when the UMC disconnects.
 func (s *EventServer) SubscribeLocal(req *pb.SubscribeLocalRequest, stream pb.EventService_SubscribeLocalServer) error {
+	if s.spineClient == nil {
+		return fmt.Errorf("spine client not available")
+	}
+
 	bufferSize := int(req.BufferSizeHint)
 	if bufferSize <= 0 {
 		bufferSize = 100
 	}
-	ch := make(chan *pb.LocalEvent, bufferSize)
+
+	// Buffered channel to bridge from spine handlers to this stream's send loop.
+	eventCh := make(chan *pb.LocalEvent, bufferSize)
 	ctx := stream.Context()
 
-	// Register subscriber for each event type (for internal events)
-	s.mu.Lock()
+	// Register a handler for each requested event type.
+	deregisters := make([]func(), 0, len(req.EventTypeFilter))
 	for _, eventType := range req.EventTypeFilter {
-		s.subscribers[eventType] = append(s.subscribers[eventType], ch)
-	}
-	s.mu.Unlock()
-
-	// Subscribe to external bus for each event type
-	var busSubscriptions []bus.ClientSubscription
-	if s.busClient != nil {
-		for _, eventType := range req.EventTypeFilter {
-			selector := bus.SelectorFields{
-				Topic: eventType,
+		et := eventType // capture loop variable
+		deregister := s.spineClient.Register(et, func(_ context.Context, msg spine.Message) {
+			localEvent := spineMessageToLocalEvent(msg)
+			// Non-blocking send: drop if the UMC is too slow rather than blocking the dispatch loop.
+			select {
+			case eventCh <- localEvent:
+			default:
 			}
-			busSub, err := s.busClient.Subscribe(ctx, selector)
-			if err != nil {
-				// Log but don't fail - internal events still work
-				fmt.Printf("Warning: failed to subscribe to event bus for %s: %v\n", eventType, err)
-			} else {
-				busSubscriptions = append(busSubscriptions, busSub)
-			}
-		}
+		})
+		deregisters = append(deregisters, deregister)
 	}
 
-	// Launch goroutines to bridge external bus events to internal channel
-	doneChan := make(chan struct{})
-	var bridgeWg sync.WaitGroup
-	for _, busSub := range busSubscriptions {
-		bridgeWg.Add(1)
-		go func(sub bus.ClientSubscription) {
-			defer bridgeWg.Done()
-			for {
-				select {
-				case <-doneChan:
-					return
-				case <-ctx.Done():
-					return
-				case busMsg := <-sub.HandlerChan:
-					// Convert event_bus_client.Message to pb.LocalEvent
-					localEvent := &pb.LocalEvent{
-						EventId:   busMsg.ID,
-						EventType: busMsg.Topic,
-					}
-
-					// Parse content as JSON and convert to google.protobuf.Struct
-					if busMsg.Content != "" {
-						var contentMap map[string]interface{}
-						if err := json.Unmarshal([]byte(busMsg.Content), &contentMap); err == nil {
-							if payload, err := structpb.NewStruct(contentMap); err == nil {
-								localEvent.Payload = payload
-							}
-						}
-					}
-
-					// Map optional pointer fields
-					if busMsg.TargetType != nil {
-						localEvent.EntityKind = *busMsg.TargetType
-					}
-					if busMsg.TargetID != nil {
-						localEvent.EntityId = *busMsg.TargetID
-					}
-
-					// Send to internal channel (non-blocking)
-					select {
-					case ch <- localEvent:
-					case <-ctx.Done():
-						return
-					default:
-						// Channel full, skip event to avoid blocking
-					}
-				}
-			}
-		}(busSub)
-	}
-
-	// Unregister on exit
+	// Deregister all handlers when the UMC stream closes.
 	defer func() {
-		close(doneChan)
-		bridgeWg.Wait()
-
-		s.mu.Lock()
-		for _, eventType := range req.EventTypeFilter {
-			subs := s.subscribers[eventType]
-			for i, subCh := range subs {
-				if subCh == ch {
-					s.subscribers[eventType] = append(subs[:i], subs[i+1:]...)
-					break
-				}
-			}
+		for _, dr := range deregisters {
+			dr()
 		}
-		s.mu.Unlock()
-		close(ch)
+		close(eventCh)
 	}()
 
-	// Stream events to the client
+	// Stream events to the UMC.
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case event := <-ch:
+		case event, ok := <-eventCh:
+			if !ok {
+				return nil
+			}
 			if err := stream.Send(event); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// spineMessageToLocalEvent converts a spine.Message to the pb.LocalEvent that UMCs expect.
+func spineMessageToLocalEvent(msg spine.Message) *pb.LocalEvent {
+	event := &pb.LocalEvent{
+		EventId:   msg.EnvelopeID,
+		EventType: msg.Type,
+	}
+
+	// Attempt to parse the payload as a JSON object → structpb.Struct.
+	if len(msg.Payload) > 0 {
+		var m map[string]interface{}
+		if err := json.Unmarshal(msg.Payload, &m); err == nil {
+			if s, err := structpb.NewStruct(m); err == nil {
+				event.Payload = s
+			}
+		}
+	}
+
+	return event
 }

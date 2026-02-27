@@ -4,9 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
@@ -59,12 +58,7 @@ func NewDependencyManager(ctx context.Context) *DependencyManager {
 
 	cPlane := controlplane.NewCPlaneClient(&configClient, httpClient)
 
-	// Event bus disabled for CLI to avoid race conditions in event_bus_client library
-	// The CLI only makes REST API calls and doesn't need real-time event subscriptions
-	// Event bus is only needed for the agent which runs continuously
-	var appEventClient bus.EventClient = nil
-
-	service := server.NewServerService(cPlane, configClient, appEventClient)
+	service := server.NewServerService(cPlane, configClient)
 	return &DependencyManager{
 		Printer:      *printer,
 		ConfigClient: configClient,

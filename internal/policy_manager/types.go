@@ -22,18 +22,17 @@ type PolicySnapshot struct {
 
 // LocalMetadata represents local-only configuration not synced from control plane
 type LocalMetadata struct {
-	ServerID   string                 `json:"server_id"`
-	ServerName string                 `json:"server_name"`
-	AuthToken  string                 `json:"auth_token"`
-	APIBaseURL string                 `json:"api_base_url"`
-	EventBus   EventBusConfig         `json:"event_bus"`
-	Extra      map[string]interface{} `json:"extra,omitempty"` // Any additional local-only values
+	ServerID      string                 `json:"server_id"`
+	ServerName    string                 `json:"server_name"`
+	AuthToken     string                 `json:"auth_token"`
+	APIBaseURL    string                 `json:"api_base_url"`
+	MyceliumSpine MyceliumSpineConfig    `json:"mycelium_spine"`
+	Extra         map[string]interface{} `json:"extra,omitempty"` // Any additional local-only values
 }
 
-// EventBusConfig holds event bus connection details
-type EventBusConfig struct {
-	Endpoint       string `json:"endpoint"`
-	CommitInterval string `json:"commit_interval"`
+// MyceliumSpineConfig holds Mycelium Spine gRPC connection details
+type MyceliumSpineConfig struct {
+	Endpoint string `json:"endpoint"`
 }
 
 // SnapshotWithMeta combines policy snapshot and local metadata for unified access

@@ -175,9 +175,9 @@ func (l *Launcher) startDev(ctx context.Context) error {
 				logger.Error("failed to stop raft node", "err", err)
 			}
 		}
-		if deps.BusClient != nil {
-			if err := deps.BusClient.Stop(); err != nil {
-				logger.Error("failed to stop bus client", "err", err)
+		if deps.SpineClient != nil {
+			if err := deps.SpineClient.Stop(); err != nil {
+				logger.Error("failed to stop Spine client", "err", err)
 			}
 		}
 		if deps.PolicyManager != nil {

@@ -9,12 +9,12 @@ import (
 	"time"
 
 	pb "github.com/ambientlabscomputing/umc_sdk/proto/ua_kernel/v1"
-	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
+	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 	"google.golang.org/grpc"
 )
 
@@ -35,7 +35,7 @@ type Config struct {
 	RaftNode         *raft.Node
 	SecretStore      *raft.SecretStore
 	ExecRunner       *exec.LocalRunner
-	BusClient        *bus.Client
+	SpineClient      *spine.Client
 	LifecycleManager *capability.LifecycleManager
 	Supervisor       *capability.ProcessSupervisor
 	NodeID           string
@@ -62,7 +62,7 @@ func NewSyscallServer(config Config) *SyscallServer {
 
 	pb.RegisterExecServiceServer(server, NewExecServer(config.ExecRunner))
 	pb.RegisterClusterServiceServer(server, NewClusterServer(config.RaftNode))
-	pb.RegisterEventServiceServer(server, NewEventServer(config.BusClient))
+	pb.RegisterEventServiceServer(server, NewEventServer(config.SpineClient, config.ServerID, config.OrgID))
 
 	// Keep reference to provider server for late wiring
 	providerServer := NewProviderServer(config.LifecycleManager, config.Supervisor, config.RaftNode)

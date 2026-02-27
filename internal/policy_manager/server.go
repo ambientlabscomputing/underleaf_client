@@ -122,13 +122,11 @@ func (c *SnapshotPolicyClient) getFromLocalMeta(meta *LocalMetadata, key string)
 			return meta.APIBaseURL, true
 		}
 		return defaults.APIBaseURL, true
-	case "event_bus.endpoint":
-		if meta.EventBus.Endpoint != "" {
-			return meta.EventBus.Endpoint, true
+	case "mycelium_spine.endpoint":
+		if meta.MyceliumSpine.Endpoint != "" {
+			return meta.MyceliumSpine.Endpoint, true
 		}
-		return defaults.EventBusEndpoint, true
-	case "event_bus.commit_interval":
-		return meta.EventBus.CommitInterval, meta.EventBus.CommitInterval != ""
+		return defaults.SpineEndpoint, true
 	default:
 		// Check extra fields
 		if val, ok := meta.Extra[key]; ok {
@@ -168,13 +166,9 @@ func (c *SnapshotPolicyClient) Set(key string, value interface{}) error {
 		if v, ok := value.(string); ok {
 			meta.APIBaseURL = v
 		}
-	case "event_bus.endpoint":
+	case "mycelium_spine.endpoint":
 		if v, ok := value.(string); ok {
-			meta.EventBus.Endpoint = v
-		}
-	case "event_bus.commit_interval":
-		if v, ok := value.(string); ok {
-			meta.EventBus.CommitInterval = v
+			meta.MyceliumSpine.Endpoint = v
 		}
 	default:
 		// Store in extra
@@ -209,10 +203,8 @@ func (c *SnapshotPolicyClient) Delete(key string) error {
 		meta.AuthToken = ""
 	case "api.base_url":
 		meta.APIBaseURL = ""
-	case "event_bus.endpoint":
-		meta.EventBus.Endpoint = ""
-	case "event_bus.commit_interval":
-		meta.EventBus.CommitInterval = ""
+	case "mycelium_spine.endpoint":
+		meta.MyceliumSpine.Endpoint = ""
 	default:
 		// Delete from extra
 		if meta.Extra != nil {
@@ -246,8 +238,7 @@ func (c *SnapshotPolicyClient) Config() Configuration {
 	merged["local.server_name"] = data.LocalMeta.ServerName
 	merged["local.auth.token"] = data.LocalMeta.AuthToken
 	merged["local.api.base_url"] = data.LocalMeta.APIBaseURL
-	merged["local.event_bus.endpoint"] = data.LocalMeta.EventBus.Endpoint
-	merged["local.event_bus.commit_interval"] = data.LocalMeta.EventBus.CommitInterval
+	merged["local.mycelium_spine.endpoint"] = data.LocalMeta.MyceliumSpine.Endpoint
 
 	// Add extra fields
 	for k, v := range data.LocalMeta.Extra {

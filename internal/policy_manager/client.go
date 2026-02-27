@@ -131,7 +131,7 @@ func NewCLIConfigClient() *CLIConfigClient {
 	if err != nil {
 		// Set build-time defaults if not already configured
 		v.Set("api.base_url", defaults.APIBaseURL)
-		v.Set("event_bus.endpoint", defaults.EventBusEndpoint)
+		v.Set("mycelium_spine.endpoint", defaults.SpineEndpoint)
 
 		// Determine canonical config path from existing config or create in ~/.underleaf
 		if existingPath := v.ConfigFileUsed(); existingPath != "" {

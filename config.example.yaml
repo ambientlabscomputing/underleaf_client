@@ -21,15 +21,18 @@ payload:
     token: your-jwt-token-here
     # Example token format: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
 
-  # Event Bus Configuration
-  event_bus:
-    # WebSocket endpoint for event bus
-    endpoint: ws://localhost:9000
-    # Use WSS in production:
-    # endpoint: wss://eventbus.underleaf.example.com
-    
-    # How often to commit message offsets (consumer group tracking)
-    commit_interval: 5s
+  # Mycelium Spine Configuration (gRPC message bus)
+  mycelium_spine:
+    # gRPC endpoint for Mycelium Spine
+    endpoint: localhost:9090
+    # Use a real host in production:
+    # endpoint: spine.underleaf.example.com:9090
+
+    # Optional: mTLS configuration
+    # tls:
+    #   cert_path: ~/.underleaf/client.crt
+    #   key_path:  ~/.underleaf/client.key
+    #   ca_path:   ~/.underleaf/ca.crt
 
   # Local Server Configuration (for agent mode)
   local:

@@ -11,11 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ambientlabscomputing/event_bus_client"
-	"github.com/ambientlabscomputing/underleaf_client/internal/bus"
+	"crypto/tls"
+	"crypto/x509"
+
+	spinesdk "github.com/ambientlabscomputing/mycelium_spine/sdk"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 
 	// DEPRECATED: deployment and recipe packages moved to deployment_engine UMC
 	// "github.com/ambientlabscomputing/underleaf_client/internal/deployment"
@@ -48,7 +51,7 @@ type Dependencies struct {
 	CommandHandler    *execpkg.CommandHandler
 	MetricsCollector  *MetricsCollector
 	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
-	BusClient         *bus.Client            // Event bus client for cleanup on shutdown
+	SpineClient       *spine.Client          // Mycelium Spine client for cleanup on shutdown
 	UpdateManager     *updater.UpdateManager // Update manager for auto-updates
 	CommandDrainer    *CommandDrainer        // Command drainer for graceful updates
 	RaftNode          *raft.Node             // Raft cluster node for KV quorum
@@ -218,68 +221,56 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	cplaneClient := controlplane.NewCPlaneClient(&configClient, httpClient)
 	cpConfigAdapter := policy_manager.NewControlPlaneConfigAdapter(cplaneClient.Config)
 
-	// Initialize event bus client for push updates and command events
-	var eventBusAdapter *policy_manager.EventBusAdapter
-	var busClient *bus.Client
-	endpoint, hasEndpoint := getConfigValue(configClient, "event_bus.endpoint")
-	if hasEndpoint && endpoint != "" {
-		commitInterval, _ := getConfigValue(configClient, "event_bus.commit_interval")
-		if commitInterval == "" || commitInterval == nil {
-			commitInterval = "5s"
-		}
+	// Initialize Mycelium Spine client for push updates and command events.
+	var spineClient *spine.Client
+	spineEndpoint, hasSpineEndpoint := getConfigValue(configClient, "mycelium_spine.endpoint")
+	if hasSpineEndpoint && spineEndpoint != "" {
+		slog.Info("initializing Mycelium Spine client", "endpoint", spineEndpoint, "server_id", serverID)
 
-		slog.Info("initializing event bus client", "endpoint", endpoint, "server_id", serverID)
-
-		// Prepare event bus client options
-		ebOpts := event_bus_client.EventClientOpts{
-			Endpoint:       endpoint.(string),
-			CommitInterval: commitInterval.(string),
-			GroupID:        serverID.(string),
-		}
-
-		// Use mTLS if certificate is available, otherwise use JWT token
-		if hasCert && hasKey && certPath != "" && keyPath != "" {
-			slog.Info("configuring event bus client with mTLS authentication")
-			ebOpts.CertPath = certPath.(string)
-			ebOpts.KeyPath = keyPath.(string)
-		} else {
-			slog.Info("configuring event bus client with JWT authentication")
-			ebOpts.AuthToken = token.(string)
-		}
-
-		ebClient, err := event_bus_client.NewEventClient(ebOpts)
+		// Build TLS config by fetching the server_api CA dynamically.
+		// The spine server cert is signed by server_api's CA — same trust anchor
+		// the agent already uses for mTLS. This mirrors the mDNS fingerprint pattern.
+		var spineTLS *tls.Config
+		spineAPIClient := controlplane.NewAPIClient(configClient, http.DefaultClient)
+		caCertPEM, err := spineAPIClient.GetCACertificate(ctx)
 		if err != nil {
-			slog.Warn("failed to create event bus client", "error", err)
+			slog.Warn("failed to fetch CA certificate for Spine TLS, spine will connect insecure", "error", err)
 		} else {
-			// Enable verbose mode to debug WebSocket communication
-			ebClient.SetVerbose(true)
+			pool := x509.NewCertPool()
+			pool.AppendCertsFromPEM(caCertPEM)
+			spineTLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+			slog.Info("Mycelium Spine TLS configured with server_api CA")
+		}
 
-			var busErr error
-			busClient, busErr = bus.NewClient(ebClient)
-			if busErr != nil {
-				slog.Warn("failed to create bus client wrapper", "error", busErr)
+		// Get org ID for spine subscription (needed early, before policyManager exists)
+		spineOrgID := getConfigValueStr(configClient, "local.organization_id", "")
+
+		sdkCfg := spinesdk.ClientConfig{
+			ServerID:      serverID.(string),
+			OrgID:         spineOrgID,
+			TLSConfig:     spineTLS,
+			AutoReconnect: true,
+			OnReconnect: func() {
+				slog.Info("Mycelium Spine reconnected")
+			},
+		}
+		sdkClient, err := spinesdk.NewClient(spineEndpoint.(string), sdkCfg)
+		if err != nil {
+			slog.Warn("failed to create Spine SDK client", "error", err)
+		} else {
+			var publisherOpts []spinesdk.PublisherOption
+			if spineTLS != nil {
+				publisherOpts = append(publisherOpts, spinesdk.WithTLS(spineTLS))
+			}
+			publisher, err := spinesdk.NewPublisher(spineEndpoint.(string), publisherOpts...)
+			if err != nil {
+				slog.Warn("failed to create Spine publisher", "error", err)
 			} else {
-				slog.Info("starting event bus client in background")
-
-				// Use background context for event bus - it should live for entire agent process
-				// Not tied to the Start command context which may be cancelled
-				busCtx := context.Background()
-
-				// Start event bus client in background - don't block agent startup
-				go func() {
-					if err := busClient.Start(busCtx, serverID.(string)); err != nil {
-						slog.Warn("failed to start event bus client", "error", err)
-					} else {
-						slog.Info("event bus client started successfully")
-					}
-				}()
-
-				// Set up event bus adapter immediately - it will work once connection is established
-				eventBusAdapter = policy_manager.NewEventBusAdapter(busClient)
+				spineClient = spine.NewClient(sdkClient, publisher, serverID.(string), spineOrgID)
 			}
 		}
 	} else {
-		slog.Info("event bus not configured, push updates disabled")
+		slog.Info("mycelium_spine not configured, push updates disabled")
 	}
 
 	// Initialize config store
@@ -296,7 +287,6 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	policyManager := policy_manager.NewSnapshotPolicyManager(policy_manager.SnapshotPolicyManagerConfig{
 		Store:             store,
 		ControlPlane:      cpConfigAdapter,
-		EventBus:          eventBusAdapter,
 		ServerID:          serverID.(string),
 		ReconcileInterval: 0, // use defaults
 		MaxAge:            0, // use defaults
@@ -325,12 +315,32 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// deploymentHandler := deployment.NewDeploymentHandler(serverID.(string), cplaneClient.Deployments)
 	// deploymentHandler.SetDrainer(drainer)
 
-	// Subscribe to command events if event bus is available
-	if busClient != nil {
-		go subscribeToCommandEvents(ctx, busClient, commandHandler, serverID.(string))
-		// DEPRECATED: Deployment events now handled by deployment_engine UMC
-		// go subscribeToDeploymentEvents(ctx, busClient, deploymentHandler, serverID.(string))
-		go subscribeToClusterMembershipEvents(ctx, busClient, policyManager, serverID.(string))
+	// Register Mycelium Spine handlers (replaces event bus subscriptions)
+	if spineClient != nil {
+		// Handle server-data-update (push config updates from control plane)
+		spineClient.Register("server-data-update", func(ctx context.Context, msg spine.Message) {
+			policyManager.HandlePushUpdate(msg.Payload)
+		})
+
+		// Handle command run requests from server API
+		spineClient.Register("commands.run.server.request", func(ctx context.Context, msg spine.Message) {
+			commandHandler.HandleCommandEvent(ctx, msg.Payload)
+		})
+
+		// Handle cluster membership change events — force an immediate config reconcile
+		spineClient.Register("cluster.membership.changed", func(_ context.Context, msg spine.Message) {
+			slog.Info("cluster membership changed, triggering config reconcile",
+				"envelope_id", msg.EnvelopeID)
+			if err := policyManager.Reconcile(); err != nil {
+				slog.Warn("config reconcile after membership change failed", "error", err)
+			}
+		})
+
+		// Start the spine client (connects and begins dispatch loop)
+		if err := spineClient.Start(ctx); err != nil {
+			slog.Warn("failed to start Mycelium Spine client", "error", err)
+			spineClient = nil
+		}
 	}
 
 	// Watch for config updates to refresh command settings
@@ -581,7 +591,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		RaftNode:         raftNode,
 		SecretStore:      secretStore,
 		ExecRunner:       runner,
-		BusClient:        busClient,
+		SpineClient:      spineClient,
 		LifecycleManager: nil, // Will be set when capability manager is created
 		Supervisor:       nil, // Will be set when capability manager is created
 		NodeID:           nodeID,
@@ -812,7 +822,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CommandHandler:    commandHandler,
 		MetricsCollector:  metricsCollector,
 		ClusterReporter:   clusterReporter,
-		BusClient:         busClient, // Store bus client for cleanup
+		SpineClient:       spineClient, // Store spine client for cleanup
 		UpdateManager:     updateManager,
 		CommandDrainer:    drainer,
 		RaftNode:          raftNode,
@@ -850,12 +860,8 @@ func ensureLocalMetadata(store *policy_manager.Store, cliConfig policy_manager.C
 		meta.APIBaseURL = apiURL.(string)
 	}
 
-	if ebEndpoint, ok := cliConfig.Get("event_bus.endpoint"); ok && ebEndpoint != "" {
-		meta.EventBus.Endpoint = ebEndpoint.(string)
-	}
-
-	if ebCommit, ok := cliConfig.Get("event_bus.commit_interval"); ok && ebCommit != "" {
-		meta.EventBus.CommitInterval = ebCommit.(string)
+	if spineEndpoint, ok := cliConfig.Get("mycelium_spine.endpoint"); ok && spineEndpoint != "" {
+		meta.MyceliumSpine.Endpoint = spineEndpoint.(string)
 	}
 
 	// Save updated metadata
@@ -902,79 +908,6 @@ func getCommandSettingsFromConfig(config policy_manager.ConfigClient) execpkg.Co
 	)
 
 	return settings
-}
-
-// subscribeToCommandEvents subscribes to command execution events
-func subscribeToCommandEvents(ctx context.Context, busClient *bus.Client, handler *execpkg.CommandHandler, serverID string) {
-	slog.Info("subscribing to command events", "server_id", serverID)
-
-	// Subscribe to command run requests with TargetType and TargetID filters
-	// Server API publishes with TargetType="server" and TargetID=serverID
-	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
-		Topic:      bus.CommandsRunRequest,
-		TargetType: "server",
-		TargetID:   serverID,
-	})
-	if err != nil {
-		slog.Error("failed to subscribe to command events", "error", err)
-		return
-	}
-
-	slog.Info("subscribed to command events successfully", "topic", bus.CommandsRunRequest)
-
-	// Handle incoming command messages
-	for {
-		select {
-		case msg := <-subscription.HandlerChan:
-			slog.Debug("received command event message")
-			handler.HandleCommandEvent(ctx, []byte(msg.Content))
-		case <-ctx.Done():
-			slog.Info("stopping command event subscription")
-			return
-		}
-	}
-}
-
-// subscribeToClusterMembershipEvents subscribes to cluster membership change events
-func subscribeToClusterMembershipEvents(ctx context.Context, busClient *bus.Client, policyManager policy_manager.PolicyManager, serverID string) {
-	slog.Info("subscribing to cluster membership events", "server_id", serverID)
-
-	// Subscribe to cluster membership change notifications
-	subscription, err := busClient.Subscribe(ctx, bus.SelectorFields{
-		Topic:      bus.ClusterMembershipChanged,
-		TargetType: "server",
-		TargetID:   serverID,
-	})
-	if err != nil {
-		slog.Error("failed to subscribe to cluster membership events", "error", err)
-		return
-	}
-
-	slog.Info("subscribed to cluster membership events successfully", "topic", bus.ClusterMembershipChanged)
-
-	// Handle incoming membership change messages
-	for {
-		select {
-		case msg := <-subscription.HandlerChan:
-			// Safely handle content preview
-			contentPreview := msg.Content
-			if len(contentPreview) > 100 {
-				contentPreview = contentPreview[:100] + "..."
-			}
-			slog.Info("received cluster membership change event",
-				"topic", msg.Topic,
-				"content_preview", contentPreview)
-
-			// Config sync will happen automatically via the config version bump
-			// The backend bumps config version for all cluster members when membership changes
-			// The watchConfigForRaftUpdates handler will detect changes and update Raft
-			// This event serves as immediate notification that changes are coming
-
-		case <-ctx.Done():
-			slog.Info("stopping cluster membership event subscription")
-			return
-		}
-	}
 }
 
 // watchConfigForCommandSettings watches for config updates and refreshes command settings
