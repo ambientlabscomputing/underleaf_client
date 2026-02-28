@@ -4,8 +4,8 @@ go 1.25.5
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ambientlabscomputing/mycelium_spine v0.0.0
-	github.com/ambientlabscomputing/mycelium_spine/sdk v0.0.0
+	github.com/ambientlabscomputing/mycelium_spine v1.0.0
+	github.com/ambientlabscomputing/mycelium_spine/sdk v1.0.0
 	github.com/ambientlabscomputing/ucrs v1.2.0
 	github.com/ambientlabscomputing/umc_sdk v0.1.2
 	github.com/charmbracelet/bubbles v0.21.0
@@ -126,9 +126,3 @@ require (
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
 )
-
-replace github.com/ambientlabscomputing/umc_sdk => ../umcs/umc_sdk
-
-replace github.com/ambientlabscomputing/mycelium_spine => ../mycelium_spine
-
-replace github.com/ambientlabscomputing/mycelium_spine/sdk => ../mycelium_spine/sdk
