@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/sdk/types"
 )
 
 func TestResolver_Resolve(t *testing.T) {

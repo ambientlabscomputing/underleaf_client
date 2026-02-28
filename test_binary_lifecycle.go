@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/sdk/types"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability/store"
 )

@@ -3,7 +3,7 @@ package capability
 import (
 	"time"
 
-	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/sdk/types"
 )
 
 // Re-export UCRS types for convenience

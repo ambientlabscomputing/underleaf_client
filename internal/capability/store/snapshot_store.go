@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	ucrstypes "github.com/ambientlabscomputing/ucrs/types"
+	ucrstypes "github.com/ambientlabscomputing/ucrs/sdk/types"
 )
 
 // SnapshotStore handles persistence of registry snapshots
