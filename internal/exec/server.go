@@ -13,7 +13,7 @@ type CommandDrainer interface {
 	Count() int
 }
 
-// CommandHandler handles incoming command execution requests from the event bus
+// CommandHandler handles incoming command execution requests from the Mycelium Spine
 type CommandHandler struct {
 	runner       Runner
 	resultSender ResultSender
@@ -40,7 +40,7 @@ func (h *CommandHandler) SetDrainer(drainer CommandDrainer) {
 	h.drainer = drainer
 }
 
-// HandleCommandEvent processes a command execution event from the event bus
+// HandleCommandEvent processes a command execution event from the Mycelium Spine
 // This is called when a "commands.run.request" event is received
 func (h *CommandHandler) HandleCommandEvent(ctx context.Context, payload []byte) {
 	slog.Debug("received command event", "payload_size", len(payload))

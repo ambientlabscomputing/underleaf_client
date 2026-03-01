@@ -56,7 +56,7 @@ Examples:
 
 		// Show capability requirements if present
 		if len(deployment.CapabilityRequirements) > 0 {
-			deps.Printer.PrintInfo(fmt.Sprintf("📋 Capability requirements: %d (will be resolved when applied via event bus)", len(deployment.CapabilityRequirements)))
+			deps.Printer.PrintInfo(fmt.Sprintf("📋 Capability requirements: %d (will be resolved when applied via Mycelium Spine)", len(deployment.CapabilityRequirements)))
 			for _, req := range deployment.CapabilityRequirements {
 				label := req.CapabilityID
 				if req.Alias != "" {

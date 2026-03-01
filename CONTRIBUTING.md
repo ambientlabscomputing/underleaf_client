@@ -21,7 +21,7 @@ Thank you for your interest in contributing to Underleaf Client! This document p
 
 - Go 1.24 or higher
 - Access to a running Underleaf control plane (for integration tests)
-- Event bus server (for event-driven features)
+- Mycelium Spine server (for event-driven features)
 
 ### Building
 

@@ -1,4 +1,4 @@
-.PHONY: build test clean install fmt vet lint run-cli run-agent help e2e-test
+.PHONY: build test clean install fmt vet lint run-cli run-agent help e2e-test e2e
 
 # Variables
 BINARY_CLI=ufctl
@@ -81,6 +81,11 @@ test-coverage:
 e2e-test: build
 	@echo "Running E2E tests..."
 	@./scripts/e2e-test.sh
+
+## e2e: Run CLI e2e tests (requires local stack: API on :8080, Spine on :9090)
+e2e:
+	@echo "Running CLI E2E tests (set E2E_AUTH_TOKEN for auth-dependent tests)..."
+	@go test -v -tags e2e -timeout 120s ./e2e/
 
 ## vet: Run go vet
 vet:

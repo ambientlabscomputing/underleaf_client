@@ -59,7 +59,7 @@ type DeploymentProgress struct {
 	Timestamp    string                 `json:"timestamp"`
 }
 
-// DeploymentHandler handles incoming deployment events from the event bus
+// DeploymentHandler handles incoming deployment events from the Mycelium Spine
 type DeploymentHandler struct {
 	serverID         string
 	resultSender     ResultSender
@@ -99,7 +99,7 @@ type DeploymentEventPayload struct {
 	Deployment types.AppDeployment `json:"deployment"`
 }
 
-// HandleDeploymentEvent processes a deployment event from the event bus
+// HandleDeploymentEvent processes a deployment event from the Mycelium Spine
 // This is called when a "deployments.apply.server.request" event is received
 func (h *DeploymentHandler) HandleDeploymentEvent(ctx context.Context, payload []byte) {
 	slog.Debug("received deployment event", "payload_size", len(payload))

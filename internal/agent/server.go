@@ -345,7 +345,7 @@ func (s *Server) handleUpdateConfig(c *gin.Context) {
 		return
 	}
 
-	// Config updates are handled by the config_manager via event bus
+	// Config updates are handled by the config_manager via Mycelium Spine
 	// This endpoint is reserved for future local override functionality
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": "local config updates not yet supported",

@@ -84,6 +84,22 @@ func NewDefaultConfigClient() ConfigClient {
 	return NewCLIConfigClient()
 }
 
+// NewCLIConfigClientFromPath creates a CLIConfigClient backed by a specific config
+// file path. The directory must already exist. Used primarily for testing and
+// special bootstrapping scenarios.
+func NewCLIConfigClientFromPath(configPath string) *CLIConfigClient {
+	v := viper.New()
+	v.SetConfigFile(configPath)
+	v.SetConfigType("yaml")
+	// Best-effort read; start with an empty config if the file doesn't exist yet.
+	_ = v.ReadInConfig()
+	v.Set("local.config_path", configPath)
+	return &CLIConfigClient{
+		viper:      v,
+		configPath: configPath,
+	}
+}
+
 func (c *CLIConfigClient) ConfigClientInfo() map[string]interface{} {
 	configPath := c.viper.ConfigFileUsed()
 	if configPath == "" {

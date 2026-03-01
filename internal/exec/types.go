@@ -5,7 +5,7 @@ import (
 )
 
 // CommandRequest represents a command to be executed on the server
-// This is received via the event bus from the control plane
+// This is received via the Mycelium Spine from the control plane
 // NOTE: Field names must match ServerCommand from server_api for JSON compatibility
 type CommandRequest struct {
 	ServerID   string            `json:"server_id"` // Target server ID (for filtering)

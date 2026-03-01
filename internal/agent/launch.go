@@ -96,7 +96,7 @@ func (l *Launcher) startDev(ctx context.Context) error {
 	}
 	defer l.removePID()
 
-	// Wire up all dependencies (config manager, event bus, etc.)
+	// Wire up all dependencies (config manager, Mycelium Spine, etc.)
 	deps, err := WireAgent(ctx, l.port)
 	if err != nil {
 		logger.Error("failed to wire agent dependencies", "err", err)

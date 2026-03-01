@@ -18,7 +18,7 @@ Note: This is distinct from the Raft-based KV store which handles runtime state 
 
 #### 2. **LocalMetadata** (`types.go`)
 - Local-only configuration not synced from control plane
-- Contains: `ServerID`, `ServerName`, `AuthToken`, `APIBaseURL`, `EventBus` config
+- Contains: `ServerID`, `ServerName`, `AuthToken`, `APIBaseURL`, `MyceliumSpine` config
 - Mutable, updated by CLI commands (e.g., `ufctl auth login`)
 
 #### 3. **Store** (`store.go`)
