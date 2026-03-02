@@ -38,6 +38,11 @@ func NewStore(basePath string, isAgent bool) *Store {
 	}
 }
 
+// SnapshotPath returns the path to the snapshot file managed by this store.
+func (s *Store) SnapshotPath() string {
+	return s.snapshotPath
+}
+
 // SaveSnapshot atomically saves a config snapshot
 func (s *Store) SaveSnapshot(snapshot *PolicySnapshot) error {
 	s.mu.Lock()

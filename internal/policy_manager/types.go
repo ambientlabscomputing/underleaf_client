@@ -10,14 +10,19 @@ import (
 // PolicySnapshot represents a versioned, validated policy snapshot from control plane
 type PolicySnapshot struct {
 	// Core versioned policy from control plane (the Server.Config field)
-	Version   int                    `json:"version"`
-	Payload   map[string]interface{} `json:"payload"`
-	Hash      string                 `json:"hash"`      // SHA256 of payload for integrity
-	Timestamp time.Time              `json:"timestamp"` // When snapshot was created
-	ServerID  string                 `json:"server_id"` // Which server this policy belongs to
+	Version   int                    `json:"version"    yaml:"version"`
+	Payload   map[string]interface{} `json:"payload"    yaml:"payload"`
+	Hash      string                 `json:"hash"       yaml:"hash"`      // SHA256 of payload for integrity
+	Timestamp time.Time              `json:"timestamp"  yaml:"timestamp"` // When snapshot was created
+	ServerID  string                 `json:"server_id"  yaml:"server_id"` // Which server this policy belongs to
+
+	// ConfigVersion tracks the schema version of this file for config migrations.
+	// This is distinct from Version (the server-side monotonic policy counter).
+	// It is managed exclusively by the config migration system.
+	ConfigVersion int `json:"config_version,omitempty" yaml:"config_version,omitempty"`
 
 	// Local metadata (not part of versioned snapshot, stored separately)
-	LocalMeta LocalMetadata `json:"-"` // Don't serialize with snapshot
+	LocalMeta LocalMetadata `json:"-" yaml:"-"` // Don't serialize with snapshot
 }
 
 // LocalMetadata represents local-only configuration not synced from control plane

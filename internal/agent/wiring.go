@@ -16,6 +16,7 @@ import (
 
 	spinesdk "github.com/ambientlabscomputing/mycelium_spine/sdk"
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
+	"github.com/ambientlabscomputing/underleaf_client/internal/config"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
@@ -168,6 +169,25 @@ func getConfigIntWithFallback(primary, fallback policy_manager.ConfigClient, key
 func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize simple config to get credentials
 	simpleConfig := policy_manager.NewCLIConfigClient()
+
+	// Run config migration on the local config file before any subsystem reads it.
+	// This is the primary hook for schema migrations: it detects the file's
+	// config_version, applies all pending Up() (or Down() on rollback) migrations
+	// atomically, then reloads Viper so the rest of startup sees the new schema.
+	{
+		migrator := config.NewMigrator(config.DefaultRegistry)
+		if applied, err := migrator.MigrateLocalConfig(simpleConfig.ConfigPath()); err != nil {
+			// Config migration failure is fatal: starting with an unknown or
+			// partially-migrated config risks data corruption or misbehaviour.
+			panic(fmt.Sprintf("config migration failed: %v", err))
+		} else if applied {
+			// Reload Viper so it picks up any changes written by the migrator.
+			if err := simpleConfig.Reload(); err != nil {
+				panic(fmt.Sprintf("config reload after migration failed: %v", err))
+			}
+		}
+	}
+
 	var configClient policy_manager.ConfigClient = simpleConfig
 
 	// Get server ID from local metadata (with backward compatibility)
@@ -276,6 +296,20 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize config store
 	basePath := policy_manager.GetBasePath(true) // true = agent
 	store := policy_manager.NewStore(basePath, true)
+
+	// Migrate the snapshot file before the policy manager loads it from disk.
+	// This handles snapshot schema changes across binary versions, including
+	// automatic rollback when a binary downgrades (Down() migrations run when
+	// config_version in the file exceeds the binary's ExpectedConfigVersion).
+	{
+		migrator := config.NewMigrator(config.DefaultRegistry)
+		if _, err := migrator.MigrateSnapshot(store.SnapshotPath()); err != nil {
+			// Non-fatal: if the snapshot can't be migrated we log and continue;
+			// the policy manager will re-fetch a fresh snapshot from the control plane.
+			slog.Error("snapshot migration failed, policy manager will re-sync from control plane",
+				"error", err)
+		}
+	}
 
 	// Ensure local metadata is populated from CLI config
 	// This syncs values from config.yaml into the snapshot's localmeta

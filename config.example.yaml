@@ -2,6 +2,10 @@
 # Copy this file to config.yaml and update with your values
 # Location: ~/.underleaf/config.yaml or ./config.yaml
 
+# config_version tracks the schema version of this file.
+# Managed automatically by the underleaf agent migration system. Do not edit.
+config_version: 1
+
 version: 0.0.0
 
 payload:

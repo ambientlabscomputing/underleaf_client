@@ -204,6 +204,17 @@ func NewCLIConfigClient() *CLIConfigClient {
 	}
 }
 
+// ConfigPath returns the canonical path to the config file this client manages.
+func (c *CLIConfigClient) ConfigPath() string {
+	return c.configPath
+}
+
+// Reload re-reads the config file from disk, picking up any changes made since
+// the client was created (e.g. by the config migrator).
+func (c *CLIConfigClient) Reload() error {
+	return c.viper.ReadInConfig()
+}
+
 // Get retrieves a configuration value by key
 func (c *CLIConfigClient) Get(key string) (interface{}, bool) {
 	if !c.viper.IsSet(key) {
