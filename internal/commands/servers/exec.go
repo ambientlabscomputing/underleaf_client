@@ -8,6 +8,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
+	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -67,8 +68,11 @@ Examples:
 			EnvVars: envMap,
 		}
 
-		// Apply selector
-		applyCommandSelector(&req, selector)
+		// Apply selector (resolves name → ID when needed)
+		if err := applyCommandSelector(ctx, deps, &req, selector); err != nil {
+			deps.Printer.PrintError(err.Error())
+			return err
+		}
 
 		// Show what we're about to do
 		showExecPlan(deps.Printer, selector, command, timeout, detach)
@@ -130,8 +134,15 @@ func parseExecArgs(args []string) (string, []string, error) {
 	return selector, command, nil
 }
 
-// applyCommandSelector applies the selector to the dispatch request
-func applyCommandSelector(req *controlplane.DispatchCommandRequest, selector string) {
+// serverLookup is the subset of the server service needed to resolve a name or ID.
+type serverLookup interface {
+	GetServer(ctx context.Context, serverID string) (servertypes.Server, error)
+	ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]servertypes.Server, error)
+}
+
+// applyCommandSelector applies the selector to the dispatch request.
+// For single-server selectors it resolves a server name to its ID when needed.
+func applyCommandSelector(ctx context.Context, deps *utils.DependencyManager, req *controlplane.DispatchCommandRequest, selector string) error {
 	switch {
 	case selector == "all":
 		req.AllServers = true
@@ -140,9 +151,41 @@ func applyCommandSelector(req *controlplane.DispatchCommandRequest, selector str
 		parts := strings.SplitN(selector, "=", 2)
 		req.Tags = map[string]string{parts[0]: parts[1]}
 	default:
-		// Assume it's a server ID
-		req.ServerIDs = []string{selector}
+		// Could be a server ID or a server name — resolve to an ID.
+		serverID, err := resolveServerID(ctx, &deps.ServerSvc, selector)
+		if err != nil {
+			return err
+		}
+		req.ServerIDs = []string{serverID}
 	}
+	return nil
+}
+
+// resolveServerID resolves a server name or ID to a server ID.
+// It first attempts a direct lookup by ID; if that fails it searches by name.
+func resolveServerID(ctx context.Context, svc serverLookup, nameOrID string) (string, error) {
+	// Try direct lookup by ID first (fast path)
+	srv, err := svc.GetServer(ctx, nameOrID)
+	if err == nil {
+		return srv.ID, nil
+	}
+
+	// Fall back to searching by name
+	servers, err := svc.ListServersWithParams(ctx, servertypes.ListServersParams{
+		Search: nameOrID,
+		Limit:  100,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to search for server '%s': %w", nameOrID, err)
+	}
+
+	for _, s := range servers {
+		if s.Name == nameOrID {
+			return s.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no server found with name or ID '%s'", nameOrID)
 }
 
 // showExecPlan displays what will be executed
