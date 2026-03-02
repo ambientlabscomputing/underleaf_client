@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 
 	umsv1 "github.com/ambientlabscomputing/mycelium_spine/proto/ums/v1"
@@ -121,7 +122,19 @@ func (c *Client) Start(ctx context.Context) error {
 
 // dispatchLoop reads DeliverFrames from the subscriber, converts each envelope
 // to a Message, routes it to registered handlers, and acks if required.
+// It is resilient to transient errors and handler panics — individual failures
+// are logged but the loop continues running.
 func (c *Client) dispatchLoop(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("spine: dispatchLoop recovered from panic — restarting",
+				"panic", r,
+				"stack", string(debug.Stack()))
+			// Restart the dispatch loop so the agent keeps receiving commands.
+			go c.dispatchLoop(ctx)
+		}
+	}()
+
 	deliveries := c.subscriber.Deliveries()
 	errors := c.subscriber.Errors()
 
@@ -132,23 +145,45 @@ func (c *Client) dispatchLoop(ctx context.Context) {
 
 		case err, ok := <-errors:
 			if !ok {
+				slog.Warn("spine: error channel closed, dispatch loop exiting")
 				return
 			}
 			slog.Warn("spine: subscriber error", "error", err)
 
 		case frame, ok := <-deliveries:
 			if !ok {
+				slog.Warn("spine: delivery channel closed, dispatch loop exiting")
 				return
 			}
 			for _, env := range frame.Envelopes {
-				c.dispatch(ctx, env)
+				c.safeDispatch(ctx, env)
 			}
 		}
 	}
 }
 
+// safeDispatch wraps dispatch with a recover to prevent a single bad envelope
+// or handler panic from crashing the entire agent process.
+func (c *Client) safeDispatch(ctx context.Context, env *umsv1.Envelope) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("spine: handler panic recovered",
+				"panic", r,
+				"envelope_type", env.GetType(),
+				"envelope_id", env.GetEnvelopeId(),
+				"stack", string(debug.Stack()))
+		}
+	}()
+	c.dispatch(ctx, env)
+}
+
 // dispatch routes a single envelope to its registered handlers and acks it.
 func (c *Client) dispatch(ctx context.Context, env *umsv1.Envelope) {
+	if env == nil {
+		slog.Warn("spine: skipping nil envelope")
+		return
+	}
+
 	msg := fromEnvelope(env)
 
 	// Inject trace ID into context for handlers to access

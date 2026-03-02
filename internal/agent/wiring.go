@@ -19,6 +19,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/config"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/logcollector"
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 
 	// DEPRECATED: deployment and recipe packages moved to deployment_engine UMC
@@ -343,6 +344,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	commandHandler := execpkg.NewCommandHandler(runner, cplaneClient.Commands, serverID.(string))
 	commandHandler.SetDrainer(drainer)
 
+	// Initialize log collector — reads the structured agent log and uploads to server API
+	logCollector := logcollector.New(cplaneClient.Logs)
+
 	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
 	// Deployments are now handled by the deployment_engine UMC via syscalls
 	// See: umcs/deployment_engine/ and internal/deployment/DEPRECATED.md
@@ -359,6 +363,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		// Handle command run requests from server API
 		spineClient.Register("commands.run.server.request", func(ctx context.Context, msg spine.Message) {
 			commandHandler.HandleCommandEvent(ctx, msg.Payload)
+		})
+
+		// Handle log collection requests from server API
+		spineClient.Register("logs.collect.server.request", func(ctx context.Context, msg spine.Message) {
+			logCollector.HandleEvent(ctx, msg.Payload)
 		})
 
 		// Handle cluster membership change events — force an immediate config reconcile
@@ -378,7 +387,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	// Watch for config updates to refresh command settings
-	go watchConfigForCommandSettings(ctx, policyManager, commandHandler)
+	safeGo("watchConfigForCommandSettings", func() {
+		watchConfigForCommandSettings(ctx, policyManager, commandHandler)
+	})
 
 	// Publish hostname and IP address to control plane
 	if err := publishNetworkInfo(ctx, cplaneClient.Servers, serverID.(string)); err != nil {
@@ -446,7 +457,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			}
 
 			// Watch for Raft configuration changes (peer updates)
-			go watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
+			safeGo("watchConfigForRaftUpdates", func() {
+				watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
+			})
 
 			// Initialize and start cluster status reporter
 			clusterReporter = NewClusterStatusReporter(
@@ -495,8 +508,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 					}
 
 					// Watch for peer updates
-					go watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
-
+					safeGo("watchConfigForRaftUpdates", func() {
+						watchConfigForRaftUpdates(ctx, policyManager, raftNode, nil)
+					})
 					// Initialize cluster reporter
 					clusterReporter = NewClusterStatusReporter(
 						serverID.(string),
@@ -514,12 +528,16 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 				// Note: syscallServer and keyManager will be passed as nil since they don't exist yet
 				// The watcher will initialize raft when config appears, and SecretStore will be
 				// created in the async path when leadership is ready
-				go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
+				safeGo("watchConfigForRaftInitialization", func() {
+					watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
+				})
 			}
 		} else {
 			slog.Info("could not check current snapshot, will monitor for cluster assignment")
 			// Watch for Raft configuration to appear (when server is added to cluster)
-			go watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
+			safeGo("watchConfigForRaftInitialization", func() {
+				watchConfigForRaftInitialization(ctx, policyManager, server, port, cplaneClient, serverID.(string), nil, nil)
+			})
 		}
 	}
 
@@ -539,7 +557,9 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	} else {
 		slog.Info("update manager started successfully")
 		// Watch for software_version changes in config
-		go watchConfigForSoftwareUpdates(ctx, policyManager, updateManager)
+		safeGo("watchConfigForSoftwareUpdates", func() {
+			watchConfigForSoftwareUpdates(ctx, policyManager, updateManager)
+		})
 	}
 
 	// Initialize UA→MMA event stream server
@@ -1403,7 +1423,9 @@ func watchConfigForRaftInitialization(ctx context.Context, manager policy_manage
 			}
 
 			// Start watching for peer updates
-			go watchConfigForRaftUpdates(ctx, manager, raftNode, logger)
+			safeGo("watchConfigForRaftUpdates", func() {
+				watchConfigForRaftUpdates(ctx, manager, raftNode, logger)
+			})
 
 			// Exit this watcher - Raft is now initialized
 			logger.Info("raft initialization watcher exiting, peer update watcher started")

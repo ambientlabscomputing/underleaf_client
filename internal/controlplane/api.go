@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"sync"
@@ -310,6 +311,14 @@ func (c *APIClient) PUT(ctx context.Context, path string, payload interface{}, r
 func (c *APIClient) DELETE(ctx context.Context, path string, response interface{}) error {
 	baseURL, _ := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
+
+	if baseURL == nil {
+		return fmt.Errorf("api.base_url not configured")
+	}
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "DELETE", baseURL.(string)+path, nil)
 	if err != nil {
 		return err
@@ -517,4 +526,70 @@ func (c *APIClient) InvalidateCACertificateCache() {
 	c.caCertFetchedAt = time.Time{}
 
 	slog.Info("CA certificate cache invalidated")
+}
+
+// POSTMultipartToURL uploads a file via multipart/form-data to a full URL.
+// fields is a map of additional form fields to include in the request.
+// fileField is the name of the file form field.
+// fileName is the filename to use in the Content-Disposition header.
+// fileData is the raw file bytes.
+func (c *APIClient) POSTMultipartToURL(ctx context.Context, fullURL string, fields map[string]string, fileField, fileName string, fileData []byte) error {
+	token, _ := c.config.Get("auth.token")
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+
+	// Write additional fields first
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return fmt.Errorf("failed to write form field %q: %w", k, err)
+		}
+	}
+
+	// Write the file
+	fw, err := mw.CreateFormFile(fileField, fileName)
+	if err != nil {
+		return fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := fw.Write(fileData); err != nil {
+		return fmt.Errorf("failed to write file data: %w", err)
+	}
+
+	if err := mw.Close(); err != nil {
+		return fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	// Add X-Trace-ID header if present in context
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
+
+	// Add X-Organization-ID header if org context is set
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("multipart upload failed with status %s: %s", resp.Status, string(respBody))
+	}
+
+	slog.Debug("POSTMultipartToURL success", "url", fullURL, "status", resp.StatusCode)
+	return nil
 }

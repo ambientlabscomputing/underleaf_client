@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
@@ -70,6 +71,13 @@ func (r *ClusterStatusReporter) Stop() {
 
 func (r *ClusterStatusReporter) run(ctx context.Context) {
 	defer close(r.doneCh)
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("cluster status reporter panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 
 	// Report status immediately on start
 	r.reportStatus(ctx)

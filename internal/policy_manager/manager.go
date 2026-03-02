@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -187,6 +188,13 @@ func (m *SnapshotPolicyManager) HandlePushUpdate(ctx context.Context, payload []
 // periodicReconcile performs periodic pull-based sync
 func (m *SnapshotPolicyManager) periodicReconcile() {
 	defer m.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("periodic reconcile panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 
 	ticker := time.NewTicker(m.reconcileInterval)
 	defer ticker.Stop()

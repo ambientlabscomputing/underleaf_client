@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -129,6 +130,13 @@ func (m *MetricsCollector) Stop() {
 
 func (m *MetricsCollector) run(ctx context.Context) {
 	defer close(m.doneCh)
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("metrics collector panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 
 	// Send raft info on first run if available
 	if m.raftAddress != "" || m.caFingerprint != "" {
