@@ -59,7 +59,12 @@ func LoadPrivateKeyFromFile(path string) (*ecdsa.PrivateKey, error) {
 	// Parse PKCS8 private key
 	keyInterface, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %w", err)
+		// Fall back to EC private key format (PEM type "EC PRIVATE KEY")
+		ecKey, ecErr := x509.ParseECPrivateKey(block.Bytes)
+		if ecErr != nil {
+			return nil, fmt.Errorf("failed to parse private key: %w", err)
+		}
+		return ecKey, nil
 	}
 
 	// Type assert to ECDSA

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +44,7 @@ be used for mTLS authentication.`,
 
 		// Get certificate paths
 		basePath := policy_manager.GetBasePath(false)
-		_, csrPath, certPath := crypto.GetCertPaths(basePath, serverID)
+		keyPath, csrPath, certPath := crypto.GetCertPaths(basePath, serverID)
 
 		// Check if CSR exists
 		if _, err := os.Stat(csrPath); os.IsNotExist(err) {
@@ -126,8 +126,9 @@ be used for mTLS authentication.`,
 
 		deps.Printer.PrintSuccess(fmt.Sprintf("Certificate saved to: %s", certPath))
 
-		// Update config with certificate path
+		// Update config with certificate and key paths
 		deps.ConfigClient.Set("local.mtls.certificate_path", certPath)
+		deps.ConfigClient.Set("local.mtls.private_key_path", keyPath)
 
 		deps.Printer.PrintSuccess("\n✓ Certificate successfully signed and saved!")
 		deps.Printer.PrintInfo("\nNext steps:")

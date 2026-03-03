@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	pb "github.com/ambientlabscomputing/umc_sdk/proto/ua_kernel/v1"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
@@ -20,6 +21,9 @@ type IdentityServer struct {
 	clusterID  string
 	apiClient  *controlplane.APIClient
 	serverID   string
+
+	mu              sync.RWMutex // protects issuedCertChain
+	issuedCertChain []string     // last certificate chain issued by IssueLocalCertificate
 }
 
 // NewIdentityServer creates a new identity server.
@@ -51,7 +55,11 @@ func (s *IdentityServer) GetNodeIdentity(ctx context.Context, req *pb.GetNodeIde
 		// If not implemented, leave empty - not an error condition
 	}
 
-	// TODO: Populate certificate_chain_pem after IssueLocalCertificate is wired to server_api CA
+	// Return the certificate chain from the last IssueLocalCertificate call
+	s.mu.RLock()
+	resp.CertificateChainPem = s.issuedCertChain
+	s.mu.RUnlock()
+
 	return resp, nil
 }
 
@@ -152,6 +160,9 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 	}
 
 	// POST CSR to server_api /servers/:id/csr endpoint using POSTRaw
+	// Note: POSTRaw sets Content-Type to application/x-yaml by default, but the
+	// server_api endpoint reads raw bytes anyway and doesn't validate Content-Type.
+	// For proper HTTP semantics, the server should ideally accept application/x-pem-file.
 	path := fmt.Sprintf("/api/v1/servers/%s/csr", s.serverID)
 	var csrResponse struct {
 		Certificate string `json:"certificate"`
@@ -167,6 +178,11 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse signed certificate: %w", err)
 	}
+
+	// Store certificate for GetNodeIdentity to return
+	s.mu.Lock()
+	s.issuedCertChain = []string{string(certPEM)}
+	s.mu.Unlock()
 
 	return &pb.IssueLocalCertificateResponse{
 		CertificatePem: string(certPEM),

@@ -599,7 +599,7 @@ func (c *APIClient) POSTMultipartToURL(ctx context.Context, fullURL string, fiel
 // Exposure API Methods
 
 // CreateExposure creates a new public exposure for a deployment service
-func (c *APIClient) CreateExposure(ctx context.Context, deploymentID, serviceName string, targetPort int, hostname string) (interface{}, error) {
+func (c *APIClient) CreateExposure(ctx context.Context, deploymentID, serviceName string, targetPort int, hostname, serverID string) (interface{}, error) {
 	payload := map[string]interface{}{
 		"deployment_id": deploymentID,
 		"service_name":  serviceName,
@@ -607,6 +607,9 @@ func (c *APIClient) CreateExposure(ctx context.Context, deploymentID, serviceNam
 	}
 	if hostname != "" {
 		payload["hostname"] = hostname
+	}
+	if serverID != "" {
+		payload["server_id"] = serverID
 	}
 
 	var response interface{}

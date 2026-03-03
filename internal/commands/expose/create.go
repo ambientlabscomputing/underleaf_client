@@ -52,7 +52,9 @@ Examples:
 			Render("\n🌐 Creating public exposure...\n"))
 
 		// Call API
-		resp, err := deps.CPlaneClient.API().CreateExposure(ctx, createDeploymentID, createServiceName, createTargetPort, createHostname)
+		serverIDVal, _ := deps.ConfigClient.Get("local.server_id")
+		serverID, _ := serverIDVal.(string)
+		resp, err := deps.CPlaneClient.API().CreateExposure(ctx, createDeploymentID, createServiceName, createTargetPort, createHostname, serverID)
 		if err != nil {
 			deps.Printer.PrintError(fmt.Sprintf("Failed to create exposure: %v", err))
 			return err

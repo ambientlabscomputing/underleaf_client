@@ -12,6 +12,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/types"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 )
 
@@ -297,14 +298,44 @@ func (r *Runner) createContainer(ctx context.Context, name string, config types.
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	// Parse port bindings (format: "hostPort:containerPort" or "hostPort:containerPort/proto")
+	exposedPorts := network.PortSet{}
+	portBindings := network.PortMap{}
+	for _, p := range config.Ports {
+		parts := strings.SplitN(p, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		hostPort := parts[0]
+		containerPortStr := parts[1]
+		// Default to tcp if no protocol specified
+		if !strings.Contains(containerPortStr, "/") {
+			containerPortStr += "/tcp"
+		}
+		containerPort, err := network.ParsePort(containerPortStr)
+		if err != nil {
+			return fmt.Errorf("invalid port spec %q: %w", p, err)
+		}
+		exposedPorts[containerPort] = struct{}{}
+		portBindings[containerPort] = []network.PortBinding{{HostPort: hostPort}}
+	}
+
+	// Volume bind mounts are passed through as-is ("name:/path" or "/host:/container")
+	binds := config.Volumes
+
 	resp, err := r.dockerClient.ContainerCreate(
 		ctx,
 		client.ContainerCreateOptions{
 			Name: name,
 			Config: &container.Config{
-				Image:  config.Image,
-				Env:    env,
-				Labels: config.Labels,
+				Image:        config.Image,
+				Env:          env,
+				Labels:       config.Labels,
+				ExposedPorts: exposedPorts,
+			},
+			HostConfig: &container.HostConfig{
+				PortBindings: portBindings,
+				Binds:        binds,
 			},
 		},
 	)
