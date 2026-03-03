@@ -593,3 +593,73 @@ func (c *APIClient) POSTMultipartToURL(ctx context.Context, fullURL string, fiel
 	slog.Debug("POSTMultipartToURL success", "url", fullURL, "status", resp.StatusCode)
 	return nil
 }
+
+// Exposure API Methods
+
+// CreateExposure creates a new public exposure for a deployment service
+func (c *APIClient) CreateExposure(ctx context.Context, deploymentID, serviceName string, targetPort int, hostname string) (interface{}, error) {
+	payload := map[string]interface{}{
+		"deployment_id": deploymentID,
+		"service_name":  serviceName,
+		"target_port":   targetPort,
+	}
+	if hostname != "" {
+		payload["hostname"] = hostname
+	}
+
+	var response interface{}
+	if err := c.POST(ctx, "/exposures", payload, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// GetExposure retrieves a single exposure by ID
+func (c *APIClient) GetExposure(ctx context.Context, exposureID string) (interface{}, error) {
+	var response interface{}
+	if err := c.GET(ctx, "/exposures/"+exposureID, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// QueryExposures lists exposures with optional filters
+func (c *APIClient) QueryExposures(ctx context.Context, deploymentID, serverID, status string, limit, offset int) (interface{}, error) {
+	params := url.Values{}
+	if deploymentID != "" {
+		params.Set("deployment_id", deploymentID)
+	}
+	if serverID != "" {
+		params.Set("server_id", serverID)
+	}
+	if status != "" {
+		params.Set("status", status)
+	}
+	if limit > 0 {
+		params.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if offset > 0 {
+		params.Set("offset", fmt.Sprintf("%d", offset))
+	}
+
+	var response interface{}
+	if err := c.GETWithParams(ctx, "/exposures", params, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// RevokeExposure revokes a public exposure by ID
+func (c *APIClient) RevokeExposure(ctx context.Context, exposureID string) error {
+	var response interface{}
+	return c.DELETE(ctx, "/exposures/"+exposureID, &response)
+}
+
+// GetDeploymentExposures retrieves all exposures for a deployment
+func (c *APIClient) GetDeploymentExposures(ctx context.Context, deploymentID string) (interface{}, error) {
+	var response interface{}
+	if err := c.GET(ctx, "/deployments/"+deploymentID+"/exposures", &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}

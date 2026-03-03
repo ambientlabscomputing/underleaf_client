@@ -347,6 +347,11 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize log collector — reads the structured agent log and uploads to server API
 	logCollector := logcollector.New(cplaneClient.Logs)
 
+	// Declare Raft and EventStream variables early for use in Spine handler closures
+	// These will be initialized later in the code, but closures capture them by reference
+	var raftNode *raft.Node
+	var eventStreamServer *EventStreamServer
+
 	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
 	// Deployments are now handled by the deployment_engine UMC via syscalls
 	// See: umcs/deployment_engine/ and internal/deployment/DEPRECATED.md
@@ -379,6 +384,35 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			}
 		})
 
+		// Handle exposure bind requests from server API
+		// These are forwarded to MMA via UA events for tunnel provisioning
+		spineClient.Register("exposure.bind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleExposureBindRequested(ctx, msg, raftNode, eventStreamServer); err != nil {
+				slog.Warn("failed to handle exposure bind request", "error", err)
+			}
+		})
+
+		// Handle exposure unbind requests from server API
+		spineClient.Register("exposure.unbind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleExposureUnbindRequested(ctx, msg, raftNode, eventStreamServer); err != nil {
+				slog.Warn("failed to handle exposure unbind request", "error", err)
+			}
+		})
+
+		// Handle exposure bind completion events emitted by MMA via kernel
+		spineClient.Register("exposure.bind.completed", func(ctx context.Context, msg spine.Message) {
+			if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Exposures); err != nil {
+				slog.Warn("failed to handle exposure bind completed", "error", err)
+			}
+		})
+
+		// Handle exposure unbind completion events emitted by MMA via kernel
+		spineClient.Register("exposure.unbind.completed", func(ctx context.Context, msg spine.Message) {
+			if err := HandleExposureUnbindCompleted(ctx, msg, raftNode); err != nil {
+				slog.Warn("failed to handle exposure unbind completed", "error", err)
+			}
+		})
+
 		// Start the spine client (connects and begins dispatch loop)
 		if err := spineClient.Start(ctx); err != nil {
 			slog.Warn("failed to start Mycelium Spine client", "error", err)
@@ -402,8 +436,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	server.SetDependencies(policyManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
 
-	// Initialize Raft node if configured
-	var raftNode *raft.Node
+	// Initialize Raft node if configured (raftNode already declared earlier for Spine handler closures)
 	var clusterReporter *ClusterStatusReporter
 	// Try snapshot config first, fall back to simple config for local-only testing
 	raftConfig := getRaftConfigFromSnapshot(snapshotClient)
@@ -563,7 +596,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	}
 
 	// Initialize UA→MMA event stream server
-	var eventStreamServer *EventStreamServer
+	// (eventStreamServer already declared earlier for Spine handler closures)
 	// Get cluster ID from raft config if available
 	clusterID := "default-cluster"
 	nodeID := serverID.(string)

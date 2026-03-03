@@ -134,3 +134,29 @@ func (e *EventStreamServer) SubscriberCount() int {
 func (e *EventStreamServer) BufferStats() (size, capacity int) {
 	return e.server.BufferStats()
 }
+
+// PublishExposureBindRequested emits an exposure.bind.requested UA event to MMA.
+// Called when the agent receives an exposure.bind.request from Spine.
+func (e *EventStreamServer) PublishExposureBindRequested(
+	exposureID string,
+	hostname string,
+	targetPort int,
+	localAddr string,
+) error {
+	payload := map[string]interface{}{
+		"exposure_id": exposureID,
+		"hostname":    hostname,
+		"target_port": targetPort,
+		"local_addr":  localAddr,
+	}
+	return e.PublishEvent("exposure.bind.requested", payload, "exposure", exposureID)
+}
+
+// PublishExposureUnbindRequested emits an exposure.unbind.requested UA event to MMA.
+// Called when the agent receives an exposure.unbind.request from Spine.
+func (e *EventStreamServer) PublishExposureUnbindRequested(exposureID string) error {
+	payload := map[string]interface{}{
+		"exposure_id": exposureID,
+	}
+	return e.PublishEvent("exposure.unbind.requested", payload, "exposure", exposureID)
+}

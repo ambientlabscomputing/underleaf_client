@@ -6,19 +6,19 @@ import (
 
 // AppDeployment represents a deployment specification
 type AppDeployment struct {
-	ID        string        `json:"id"`
-	OrgID     string        `json:"org_id"`
-	Name      string        `json:"name"`
-	Slug      string        `json:"slug"`
-	Version   int           `json:"version"`
-	CreatedAt string        `json:"created_at"`
-	UpdatedAt string        `json:"updated_at"`
-	State     string        `json:"state"`  // creating, running, failed, stopped
-	Status    string        `json:"status"` // success, failure, in_progress
-	Networks  []NetworkSpec `json:"networks"`
-	Volumes   []VolumeSpec  `json:"volumes"`
-	Services              []ServiceSpec          `json:"services"`
-	Targeting             NodeTargeting           `json:"targeting"`
+	ID                     string                  `json:"id"`
+	OrgID                  string                  `json:"org_id"`
+	Name                   string                  `json:"name"`
+	Slug                   string                  `json:"slug"`
+	Version                int                     `json:"version"`
+	CreatedAt              string                  `json:"created_at"`
+	UpdatedAt              string                  `json:"updated_at"`
+	State                  string                  `json:"state"`  // creating, running, failed, stopped
+	Status                 string                  `json:"status"` // success, failure, in_progress
+	Networks               []NetworkSpec           `json:"networks"`
+	Volumes                []VolumeSpec            `json:"volumes"`
+	Services               []ServiceSpec           `json:"services"`
+	Targeting              NodeTargeting           `json:"targeting"`
 	CapabilityRequirements []CapabilityRequirement `json:"capability_requirements,omitempty"`
 }
 
@@ -41,7 +41,8 @@ type ServiceSpec struct {
 	Environment map[string]string `json:"environment,omitempty"`
 	Volumes     []string          `json:"volumes,omitempty"` // mount specs like "volume_name:/path"
 	Networks    []string          `json:"networks,omitempty"`
-	Ports       []string          `json:"ports,omitempty"` // port mappings like "80:8080"
+	Ports       []string          `json:"ports,omitempty"`  // port mappings like "80:8080"
+	Expose      *ExposeConfig     `json:"expose,omitempty"` // optional exposure config
 }
 
 // NodeTargeting defines which nodes should receive this deployment
@@ -54,17 +55,17 @@ type NodeTargeting struct {
 // CapabilityRequirement declares a capability needed by this deployment.
 // The UA will resolve this to a provider from UCRS and ensure it is installed and running.
 type CapabilityRequirement struct {
-	CapabilityID string                `json:"capability_id"`                    // e.g. "iot.light.control"
-	VersionRange string                `json:"version_range,omitempty"`          // semver range, e.g. ">=1.0.0 <2.0.0"
-	Alias        string                `json:"alias,omitempty"`                  // friendly local name for reference
-	Config       map[string]string     `json:"config,omitempty"`                 // runtime env/config overrides
-	Constraints  *CapabilityConstraints `json:"constraints,omitempty"`            // optional resolution constraints
+	CapabilityID string                 `json:"capability_id"`           // e.g. "iot.light.control"
+	VersionRange string                 `json:"version_range,omitempty"` // semver range, e.g. ">=1.0.0 <2.0.0"
+	Alias        string                 `json:"alias,omitempty"`         // friendly local name for reference
+	Config       map[string]string      `json:"config,omitempty"`        // runtime env/config overrides
+	Constraints  *CapabilityConstraints `json:"constraints,omitempty"`   // optional resolution constraints
 }
 
 // CapabilityConstraints specifies filtering constraints for provider selection
 type CapabilityConstraints struct {
-	TrustTier    string `json:"trust_tier,omitempty"`    // minimum trust tier
-	Platform     string `json:"platform,omitempty"`      // e.g. "linux", "darwin"
+	TrustTier    string `json:"trust_tier,omitempty"`   // minimum trust tier
+	Platform     string `json:"platform,omitempty"`     // e.g. "linux", "darwin"
 	Architecture string `json:"architecture,omitempty"` // e.g. "amd64", "arm64"
 }
 
@@ -218,11 +219,11 @@ type PlanOptions struct {
 
 // LastAppliedSnapshot represents a snapshot of the last successfully applied state
 type LastAppliedSnapshot struct {
-	DeploymentID           string                      `json:"deployment_id"`
-	Version                int                         `json:"version"`
-	Resources              map[string]interface{}       `json:"resources"` // Config for each resource, keyed by ResourceID.String()
-	InstalledCapabilities  []InstalledCapabilityState   `json:"installed_capabilities,omitempty"`
-	AppliedAt              time.Time                    `json:"applied_at"`
+	DeploymentID          string                     `json:"deployment_id"`
+	Version               int                        `json:"version"`
+	Resources             map[string]interface{}     `json:"resources"` // Config for each resource, keyed by ResourceID.String()
+	InstalledCapabilities []InstalledCapabilityState `json:"installed_capabilities,omitempty"`
+	AppliedAt             time.Time                  `json:"applied_at"`
 }
 
 // InstalledCapabilityState records a capability that was installed as part of a deployment
@@ -276,4 +277,10 @@ type DiffResult struct {
 	DesiredConfig     interface{}   `json:"desired_config,omitempty"`
 	ObservedConfig    interface{}   `json:"observed_config,omitempty"`
 	LastAppliedConfig interface{}   `json:"last_applied_config,omitempty"`
+}
+
+// ExposeConfig indicates that a service should be publicly exposed via Hyphae.
+type ExposeConfig struct {
+	Port     int    `json:"port" binding:"required,min=1,max=65535"`
+	Hostname string `json:"hostname,omitempty"` // auto-generated if empty
 }

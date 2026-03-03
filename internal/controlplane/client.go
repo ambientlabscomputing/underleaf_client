@@ -14,6 +14,7 @@ type CPlaneClient struct {
 	Config      CPlaneConfigClient
 	Commands    CPlaneCommandClient
 	Deployments CPlaneDeploymentClient
+	Exposures   *CPlaneExposureClient
 	Auth        *CPlaneAuthClient
 	Users       *CPlaneUserClient
 	Logs        *LogClient
@@ -32,6 +33,7 @@ func NewCPlaneClient(config *policy_manager.ConfigClient, h *http.Client) *CPlan
 		Config:      NewCPlaneConfigClient(apiClient),
 		Commands:    NewCommandClient(apiClient),
 		Deployments: NewDeploymentClient(apiClient),
+		Exposures:   NewCPlaneExposureClient(apiClient),
 		Auth:        NewAuthClient(apiClient),
 		Users:       NewUserClient(apiClient),
 		Logs:        NewLogClient(apiClient),
