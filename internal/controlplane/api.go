@@ -189,12 +189,14 @@ func (c *APIClient) POST(ctx context.Context, path string, payload interface{}, 
 	}
 	slog.Debug("APIClient POST response", "status", resp.StatusCode, "body", string(bodyBytes))
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("API request failed with status %s: %s", resp.Status, string(bodyBytes))
 	}
 
-	if err := json.Unmarshal(bodyBytes, response); err != nil {
-		return fmt.Errorf("failed to parse response: %w, body: %s", err, string(bodyBytes))
+	if response != nil && len(bodyBytes) > 0 {
+		if err := json.Unmarshal(bodyBytes, response); err != nil {
+			return fmt.Errorf("failed to parse response: %w, body: %s", err, string(bodyBytes))
+		}
 	}
 
 	return nil
