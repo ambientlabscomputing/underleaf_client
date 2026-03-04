@@ -699,6 +699,12 @@ ufctl jobs status <job-id> --output
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Developer Guides
+
+- [**Dev Mode: Local UMC Development**](docs/DEV_MODE.md) — How to build and run UMCs from local paths (bypassing UCRS), with hot-reload on rebuild
+- [**Deployment Compiler**](docs/DEPLOYMENT_COMPILER.md) — Architecture of the deployment engine compiler
+- [**Deploy Commands**](docs/DEPLOY_COMMANDS.md) — Reference for deploy command syntax
+
 ### Code Style
 
 - Follow standard Go conventions

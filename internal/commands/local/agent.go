@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
+	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
@@ -54,6 +55,25 @@ Examples:
 		detach, _ := cmd.Flags().GetBool("detach")
 		port, _ := cmd.Flags().GetInt("port")
 
+		// Load dev config if dev-mode is enabled
+		devMode, _ := cmd.Flags().GetBool("dev-mode")
+		buildConfigPath, _ := cmd.Flags().GetString("build-config")
+
+		var devConfig *devmode.DevConfig
+		if devMode {
+			var err error
+			devConfig, err = devmode.LoadBuildConfig(buildConfigPath)
+			if err != nil {
+				printer.PrintError(fmt.Sprintf("Failed to load build config: %v", err))
+				return err
+			}
+			if err := devConfig.Validate(); err != nil {
+				printer.PrintError(fmt.Sprintf("Build config validation failed: %v", err))
+				return err
+			}
+			PrintDevModeInfo(devConfig, printer)
+		}
+
 		// Determine launch mode
 		mode := agent.ModeDev
 		if detach {
@@ -64,8 +84,9 @@ Examples:
 
 		// Create launcher
 		launcher := agent.NewLauncher(agent.LauncherConfig{
-			Mode: mode,
-			Port: port,
+			Mode:      mode,
+			Port:      port,
+			DevConfig: devConfig,
 		})
 
 		// Check if already running

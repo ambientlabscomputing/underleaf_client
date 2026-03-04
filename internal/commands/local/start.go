@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
+	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -53,9 +55,29 @@ Examples:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
+		printer := ui.GetPrinter(ctx)
 
 		serverName, _ := cmd.Flags().GetString("name")
 		port, _ := cmd.Flags().GetInt("port")
+
+		// Load dev config if dev-mode is enabled
+		devMode, _ := cmd.Flags().GetBool("dev-mode")
+		buildConfigPath, _ := cmd.Flags().GetString("build-config")
+
+		var devConfig *devmode.DevConfig
+		if devMode {
+			var err error
+			devConfig, err = devmode.LoadBuildConfig(buildConfigPath)
+			if err != nil {
+				printer.PrintError(fmt.Sprintf("Failed to load build config: %v", err))
+				return err
+			}
+			if err := devConfig.Validate(); err != nil {
+				printer.PrintError(fmt.Sprintf("Build config validation failed: %v", err))
+				return err
+			}
+			PrintDevModeInfo(devConfig, printer)
+		}
 
 		// Step 1: Check if already registered, if not register silently
 		existingID, hasID := deps.ConfigClient.Get("local.server_id")
@@ -195,9 +217,17 @@ Examples:
 		}
 
 		// Step 3: Start agent daemon silently
+		// Resolve the build config path to absolute so the daemon child can find it
+		var absBuildConfigPath string
+		if devConfig != nil && buildConfigPath != "" {
+			absBuildConfigPath, _ = filepath.Abs(buildConfigPath)
+		}
+
 		launcher := agent.NewLauncher(agent.LauncherConfig{
-			Mode: agent.ModeDaemon,
-			Port: port,
+			Mode:            agent.ModeDaemon,
+			Port:            port,
+			DevConfig:       devConfig,
+			BuildConfigPath: absBuildConfigPath,
 		})
 
 		// Save port to config (do this before checking if running, so port is always updated)

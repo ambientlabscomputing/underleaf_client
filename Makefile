@@ -49,6 +49,25 @@ install:
 	@cp $(BINARY_AGENT) /usr/local/bin/$(BINARY_AGENT)
 	@echo "✓ Installed to /usr/local/bin/"
 
+## build-dev: Build both CLI and agent with dev mode enabled
+build-dev: build-cli-dev build-agent-dev
+
+## build-cli-dev: Build the CLI binary with dev mode
+build-cli-dev:
+	@echo "Building $(BINARY_CLI) [dev mode]..."
+	@go build -tags dev $(LDFLAGS) -o $(BINARY_CLI) ./cmd/ufctl
+	@echo "✓ Built $(BINARY_CLI) [dev mode]"
+
+## build-agent-dev: Build the agent binary with dev mode
+build-agent-dev:
+	@echo "Building $(BINARY_AGENT) [dev mode]..."
+	@go build -tags dev $(LDFLAGS) -o $(BINARY_AGENT) ./cmd/underleaf_agent
+	@echo "✓ Built $(BINARY_AGENT) [dev mode]"
+
+## bni-dev: Build & Install with dev mode enabled
+.PHONY: bni-dev
+bni-dev: build-dev install
+
 ## install-gopath: Install binaries to $GOPATH/bin
 install-gopath:
 	@echo "Installing binaries..."

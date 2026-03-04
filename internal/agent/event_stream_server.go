@@ -139,12 +139,14 @@ func (e *EventStreamServer) BufferStats() (size, capacity int) {
 // Called when the agent receives an exposure.bind.request from Spine.
 func (e *EventStreamServer) PublishExposureBindRequested(
 	exposureID string,
+	leaseID string,
 	hostname string,
 	targetPort int,
 	localAddr string,
 ) error {
 	payload := map[string]interface{}{
 		"exposure_id": exposureID,
+		"lease_id":    leaseID,
 		"hostname":    hostname,
 		"target_port": targetPort,
 		"local_addr":  localAddr,

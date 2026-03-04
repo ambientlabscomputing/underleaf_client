@@ -17,8 +17,10 @@ underleaf_agent
 
 # Config files (use config.example.yaml for templates)
 config.yaml
+build.yaml
 *.yaml
 !config.example.yaml
+!build.yaml.example
 
 # IDE
 .vscode/

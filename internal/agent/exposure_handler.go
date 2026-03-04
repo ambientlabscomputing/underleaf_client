@@ -89,6 +89,7 @@ func HandleExposureBindRequested(ctx context.Context, msg spine.Message, raftNod
 	if eventServer != nil {
 		if err := eventServer.PublishExposureBindRequested(
 			req.ExposureID,
+			req.LeaseID,
 			req.Hostname,
 			req.TargetPort,
 			req.LocalAddr,

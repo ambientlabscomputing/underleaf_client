@@ -7,14 +7,16 @@ import (
 	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
+	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/pkg/version"
 	"github.com/spf13/cobra"
 )
 
 var (
-	port int
-	mode string
+	port            int
+	mode            string
+	buildConfigPath string
 )
 
 var rootCmd = &cobra.Command{
@@ -44,9 +46,21 @@ var serveCmd = &cobra.Command{
 		ctx, _ = logging.Init(ctx, logging.LoggerModeAgent, &logFile)
 
 		// Create launcher
+		var devConfig *devmode.DevConfig
+		if buildConfigPath != "" {
+			var err error
+			devConfig, err = devmode.LoadBuildConfig(buildConfigPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to load build config: %v\n", err)
+			} else {
+				fmt.Printf("DEV MODE: loaded build config from %s\n", buildConfigPath)
+			}
+		}
+
 		launcher := agent.NewLauncher(agent.LauncherConfig{
-			Mode: launchMode,
-			Port: port,
+			Mode:      launchMode,
+			Port:      port,
+			DevConfig: devConfig,
 		})
 
 		// Create runtime
@@ -69,6 +83,7 @@ var versionCmd = &cobra.Command{
 func init() {
 	serveCmd.Flags().IntVarP(&port, "port", "p", 8081, "Port to run the agent on")
 	serveCmd.Flags().StringVarP(&mode, "mode", "m", "daemon", "Launch mode (dev or daemon)")
+	serveCmd.Flags().StringVar(&buildConfigPath, "build-config", "", "Path to build.yaml for dev mode UMC overrides")
 
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)

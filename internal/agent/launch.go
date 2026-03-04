@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 )
 
@@ -25,20 +26,24 @@ const (
 
 // Launcher manages agent lifecycle
 type Launcher struct {
-	mode       LaunchMode
-	binaryPath string
-	pidFile    string
-	logFile    string
-	port       int
+	mode            LaunchMode
+	binaryPath      string
+	pidFile         string
+	logFile         string
+	port            int
+	devConfig       *devmode.DevConfig
+	buildConfigPath string // absolute path to build.yaml, for passing to daemon child
 }
 
 // LauncherConfig configures the launcher
 type LauncherConfig struct {
-	Mode       LaunchMode
-	BinaryPath string
-	PIDFile    string
-	LogFile    string
-	Port       int
+	Mode            LaunchMode
+	BinaryPath      string
+	PIDFile         string
+	LogFile         string
+	Port            int
+	DevConfig       *devmode.DevConfig
+	BuildConfigPath string // path to build.yaml, forwarded to daemon child
 }
 
 // NewLauncher creates a new agent launcher
@@ -54,11 +59,13 @@ func NewLauncher(config LauncherConfig) *Launcher {
 	}
 
 	return &Launcher{
-		mode:       config.Mode,
-		binaryPath: config.BinaryPath,
-		pidFile:    config.PIDFile,
-		logFile:    config.LogFile,
-		port:       config.Port,
+		mode:            config.Mode,
+		binaryPath:      config.BinaryPath,
+		pidFile:         config.PIDFile,
+		logFile:         config.LogFile,
+		port:            config.Port,
+		devConfig:       config.DevConfig,
+		buildConfigPath: config.BuildConfigPath,
 	}
 }
 
@@ -97,7 +104,7 @@ func (l *Launcher) startDev(ctx context.Context) error {
 	defer l.removePID()
 
 	// Wire up all dependencies (config manager, Mycelium Spine, etc.)
-	deps, err := WireAgent(ctx, l.port)
+	deps, err := WireAgent(ctx, l.port, l.devConfig)
 	if err != nil {
 		logger.Error("failed to wire agent dependencies", "err", err)
 		return fmt.Errorf("failed to wire agent: %w", err)
@@ -150,6 +157,28 @@ func (l *Launcher) startDev(ctx context.Context) error {
 					}
 					// Clean up PID file
 					os.Remove(cronPIDFile)
+				}
+			}
+		}
+		// MMA cleanup
+		if deps.MMA != nil {
+			logger.Info("stopping MMA", "pid", deps.MMA.PID)
+			if deps.MMA.Process != nil && deps.MMA.Process.Process != nil {
+				if err := deps.MMA.Process.Process.Signal(syscall.SIGTERM); err != nil {
+					logger.Warn("failed to send SIGTERM to MMA", "error", err)
+				}
+				done := make(chan error, 1)
+				go func() { done <- deps.MMA.Process.Wait() }()
+				select {
+				case <-time.After(5 * time.Second):
+					logger.Warn("MMA did not shut down gracefully, killing")
+					deps.MMA.Process.Process.Kill()
+				case err := <-done:
+					if err != nil {
+						logger.Warn("MMA exit error", "error", err)
+					} else {
+						logger.Info("MMA stopped gracefully")
+					}
 				}
 			}
 		}
@@ -214,7 +243,11 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	defer logFile.Close()
 
 	// Fork the process with underleaf_agent binary
-	cmd := exec.Command(agentBinary, "serve", "--port", fmt.Sprintf("%d", l.port), "--mode", "dev")
+	args := []string{"serve", "--port", fmt.Sprintf("%d", l.port), "--mode", "dev"}
+	if l.buildConfigPath != "" {
+		args = append(args, "--build-config", l.buildConfigPath)
+	}
+	cmd := exec.Command(agentBinary, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	configureProcAttr(cmd)

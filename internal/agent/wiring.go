@@ -19,6 +19,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/config"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
+	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logcollector"
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 
@@ -63,6 +64,7 @@ type Dependencies struct {
 	CapabilityManager interface{}            // Capability manager (type from internal/capability)
 	DeploymentEngine  *ManagedProcess        // Deployment engine UMC process
 	CronEngine        *ManagedProcess        // Cron engine UMC process (managed by deployment engine supervisor)
+	MMA               *ManagedProcess        // Mycelium Mesh Agent UMC process (dev mode)
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -167,7 +169,7 @@ func getConfigIntWithFallback(primary, fallback policy_manager.ConfigClient, key
 }
 
 // WireAgent sets up all agent dependencies
-func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
+func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*Dependencies, error) {
 	// Initialize simple config to get credentials
 	simpleConfig := policy_manager.NewCLIConfigClient()
 
@@ -244,55 +246,61 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 
 	// Initialize Mycelium Spine client for push updates and command events.
 	var spineClient *spine.Client
-	spineEndpoint, hasSpineEndpoint := getConfigValue(configClient, "mycelium_spine.endpoint")
-	if hasSpineEndpoint && spineEndpoint != "" {
-		slog.Info("initializing Mycelium Spine client", "endpoint", spineEndpoint, "server_id", serverID)
 
-		// Build TLS config by fetching the server_api CA dynamically.
-		// The spine server cert is signed by server_api's CA — same trust anchor
-		// the agent already uses for mTLS. This mirrors the mDNS fingerprint pattern.
-		var spineTLS *tls.Config
-		spineAPIClient := controlplane.NewAPIClient(configClient, http.DefaultClient)
-		caCertPEM, err := spineAPIClient.GetCACertificate(ctx)
-		if err != nil {
-			slog.Warn("failed to fetch CA certificate for Spine TLS, spine will connect insecure", "error", err)
-		} else {
-			pool := x509.NewCertPool()
-			pool.AppendCertsFromPEM(caCertPEM)
-			spineTLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-			slog.Info("Mycelium Spine TLS configured with server_api CA")
-		}
-
-		// Get org ID for spine subscription (needed early, before policyManager exists)
-		spineOrgID := getConfigValueStr(configClient, "local.organization_id", "")
-
-		sdkCfg := spinesdk.ClientConfig{
-			ServerID:      serverID.(string),
-			OrgID:         spineOrgID,
-			TLSConfig:     spineTLS,
-			AutoReconnect: true,
-			OnReconnect: func() {
-				slog.Info("Mycelium Spine reconnected")
-			},
-		}
-		sdkClient, err := spinesdk.NewClient(spineEndpoint.(string), sdkCfg)
-		if err != nil {
-			slog.Warn("failed to create Spine SDK client", "error", err)
-		} else {
-			var publisherOpts []spinesdk.PublisherOption
-			if spineTLS != nil {
-				publisherOpts = append(publisherOpts, spinesdk.WithTLS(spineTLS))
-			}
-			publisher, err := spinesdk.NewPublisher(spineEndpoint.(string), publisherOpts...)
-			if err != nil {
-				slog.Warn("failed to create Spine publisher", "error", err)
-			} else {
-				spineClient = spine.NewClient(sdkClient, publisher, serverID.(string), spineOrgID)
-			}
-		}
+	// DEV MODE: Check if Spine should be skipped
+	if devCheckSkipSpine(devConfig) {
+		slog.Warn("DEV MODE: skipping Spine connection per build.yaml")
 	} else {
-		slog.Info("mycelium_spine not configured, push updates disabled")
-	}
+		spineEndpoint, hasSpineEndpoint := getConfigValue(configClient, "mycelium_spine.endpoint")
+		if hasSpineEndpoint && spineEndpoint != "" {
+			slog.Info("initializing Mycelium Spine client", "endpoint", spineEndpoint, "server_id", serverID)
+
+			// Build TLS config by fetching the server_api CA dynamically.
+			// The spine server cert is signed by server_api's CA — same trust anchor
+			// the agent already uses for mTLS. This mirrors the mDNS fingerprint pattern.
+			var spineTLS *tls.Config
+			spineAPIClient := controlplane.NewAPIClient(configClient, http.DefaultClient)
+			caCertPEM, err := spineAPIClient.GetCACertificate(ctx)
+			if err != nil {
+				slog.Warn("failed to fetch CA certificate for Spine TLS, spine will connect insecure", "error", err)
+			} else {
+				pool := x509.NewCertPool()
+				pool.AppendCertsFromPEM(caCertPEM)
+				spineTLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+				slog.Info("Mycelium Spine TLS configured with server_api CA")
+			}
+
+			// Get org ID for spine subscription (needed early, before policyManager exists)
+			spineOrgID := getConfigValueStr(configClient, "local.organization_id", "")
+
+			sdkCfg := spinesdk.ClientConfig{
+				ServerID:      serverID.(string),
+				OrgID:         spineOrgID,
+				TLSConfig:     spineTLS,
+				AutoReconnect: true,
+				OnReconnect: func() {
+					slog.Info("Mycelium Spine reconnected")
+				},
+			}
+			sdkClient, err := spinesdk.NewClient(spineEndpoint.(string), sdkCfg)
+			if err != nil {
+				slog.Warn("failed to create Spine SDK client", "error", err)
+			} else {
+				var publisherOpts []spinesdk.PublisherOption
+				if spineTLS != nil {
+					publisherOpts = append(publisherOpts, spinesdk.WithTLS(spineTLS))
+				}
+				publisher, err := spinesdk.NewPublisher(spineEndpoint.(string), publisherOpts...)
+				if err != nil {
+					slog.Warn("failed to create Spine publisher", "error", err)
+				} else {
+					spineClient = spine.NewClient(sdkClient, publisher, serverID.(string), spineOrgID)
+				}
+			}
+		} else {
+			slog.Info("mycelium_spine not configured, push updates disabled")
+		}
+	} // end devCheckSkipSpine
 
 	// Initialize config store
 	basePath := policy_manager.GetBasePath(true) // true = agent
@@ -723,24 +731,32 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Initialize and start deployment engine UMC
 	var deploymentEngine *ManagedProcess
 	if syscallServer != nil {
-		homeDir, _ := os.UserHomeDir()
-		// Deployment engine is installed in ~/.underleaf/bin/
-		deploymentEngineExe := filepath.Join(homeDir, ".underleaf", "bin", "deployment-engine-serve")
-		// Fallback paths in case standard location doesn't work
-		fallbackPaths := []string{
-			"/usr/local/bin/deployment-engine-serve",
-			filepath.Join(filepath.Dir(os.Args[0]), "..", "deployment_engine", "serve"),
-		}
-
 		var exePath string
-		if info, err := os.Stat(deploymentEngineExe); err == nil && !info.IsDir() {
-			exePath = deploymentEngineExe
+
+		// DEV MODE: Check for local binary override
+		if devPath, ok := devDeploymentEnginePath(devConfig); ok {
+			exePath = devPath
+			slog.Warn("DEV MODE: using local deployment engine", "path", exePath)
 		} else {
-			// Try fallback paths
-			for _, p := range fallbackPaths {
-				if info, err := os.Stat(p); err == nil && !info.IsDir() {
-					exePath = p
-					break
+			// Standard resolution path
+			homeDir, _ := os.UserHomeDir()
+			// Deployment engine is installed in ~/.underleaf/bin/
+			deploymentEngineExe := filepath.Join(homeDir, ".underleaf", "bin", "deployment-engine-serve")
+			// Fallback paths in case standard location doesn't work
+			fallbackPaths := []string{
+				"/usr/local/bin/deployment-engine-serve",
+				filepath.Join(filepath.Dir(os.Args[0]), "..", "deployment_engine", "serve"),
+			}
+
+			if info, err := os.Stat(deploymentEngineExe); err == nil && !info.IsDir() {
+				exePath = deploymentEngineExe
+			} else {
+				// Try fallback paths
+				for _, p := range fallbackPaths {
+					if info, err := os.Stat(p); err == nil && !info.IsDir() {
+						exePath = p
+						break
+					}
 				}
 			}
 		}
@@ -793,14 +809,59 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 	// Note: Cron engine is now managed by deployment engine supervisor
 	// instead of being started directly here
 
+	// Initialize and start MMA UMC in DEV MODE
+	// In production, MMA is managed by the capability manager.
+	// In dev mode with capability_registry disabled, we start it as a managed process.
+	var mma *ManagedProcess
+	if mmaPath, ok := devMMAPath(devConfig); ok {
+		slog.Warn("DEV MODE: starting local MMA binary", "path", mmaPath)
+
+		mmaCmd := exec.Command(mmaPath)
+		// Build env: start with KERNEL_SOCKET and LOG_LEVEL, then merge dev config env vars
+		baseEnv := map[string]string{
+			"KERNEL_SOCKET": syscallSocketPath,
+			"LOG_LEVEL":     "debug",
+		}
+		mergedEnv := devMMAEnv(devConfig, baseEnv)
+
+		mmaCmd.Env = os.Environ()
+		for k, v := range mergedEnv {
+			mmaCmd.Env = append(mmaCmd.Env, k+"="+v)
+		}
+		mmaCmd.Stdout = os.Stdout
+		mmaCmd.Stderr = os.Stderr
+
+		if err := mmaCmd.Start(); err != nil {
+			slog.Warn("DEV MODE: failed to start MMA", "error", err, "path", mmaPath)
+		} else {
+			mma = &ManagedProcess{
+				Name:    "mma",
+				Process: mmaCmd,
+				PID:     mmaCmd.Process.Pid,
+			}
+			slog.Info("DEV MODE: MMA started", "pid", mmaCmd.Process.Pid)
+		}
+	}
+
 	// Initialize capability manager if enabled
 	// Read from snapshotClient (synced from Server API) with fallback to simpleConfig (local config.yaml)
 	var capabilityManager interface{}
+
+	// DEV MODE: Check if capability registry should be disabled
 	capEnabled := getConfigValueBool(snapshotClient, "capability_registry.enabled", false)
 	if !capEnabled {
 		// Fallback: check local config in case snapshot hasn't synced yet
 		capEnabled = getConfigValueBool(simpleConfig, "capability_registry.enabled", false)
 	}
+
+	// DEV MODE: Override with dev config if specified
+	if devConfigCapReg := devCheckCapabilityRegistryEnabled(devConfig); devConfigCapReg != nil {
+		capEnabled = *devConfigCapReg
+		if !capEnabled {
+			slog.Warn("DEV MODE: disabling capability registry per build.yaml")
+		}
+	}
+
 	slog.Info("checking capability_registry config", "enabled", capEnabled)
 	if capEnabled {
 		slog.Info("initializing capability manager")
@@ -829,57 +890,66 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 			if err != nil {
 				slog.Warn("failed to create capability manager", "error", err)
 			} else {
-				// Start capability manager
-				if err := mgr.Start(ctx); err != nil {
-					slog.Warn("failed to start capability manager", "error", err)
-				} else {
-					slog.Info("capability manager started successfully")
-					capabilityManager = mgr
-					server.SetCapabilityManager(capabilityManager)
+				// DEV MODE: Skip UCRS sync if requested
+				var skipUCRSSyncStart bool
+				if devCheckSkipUCRSSync(devConfig) {
+					slog.Warn("DEV MODE: skipping UCRS sync per build.yaml")
+					skipUCRSSyncStart = true
+				}
 
-					// Wire lifecycle manager and supervisor into syscall server
-					if syscallServer != nil {
-						syscallServer.WireCapabilityManager(mgr)
-						slog.Info("capability manager wired into kernel syscall server")
-					}
+				// Start capability manager (unless skipping UCRS sync)
+				if !skipUCRSSyncStart {
+					if err := mgr.Start(ctx); err != nil {
+						slog.Warn("failed to start capability manager", "error", err)
+					} else {
+						slog.Info("capability manager started successfully")
+						capabilityManager = mgr
+						server.SetCapabilityManager(capabilityManager)
 
-					// DEPRECATED: Recipe reconciler and deployment handler moved to deployment_engine UMC
-					// Capability operations are now requested via UA-K syscalls
-					// Wire the recipe reconciler into the deployment handler
-					// so deployments with capability_requirements are handled
-					// recipeDataDir := filepath.Join(homeDir, ".underleaf")
-					// recipeReconciler := recipe.NewReconciler(capabilityManager.(*capability.Manager), recipeDataDir)
-					// deploymentHandler.SetRecipeReconciler(recipeReconciler)
-					// slog.Info("recipe reconciler wired into deployment handler")
+						// Wire lifecycle manager and supervisor into syscall server
+						if syscallServer != nil {
+							syscallServer.WireCapabilityManager(mgr)
+							slog.Info("capability manager wired into kernel syscall server")
+						}
 
-					// Auto-install MMA if enabled and not already installed
-					autoInstall := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mma", false)
-					if !autoInstall {
-						autoInstall = getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true)
-					}
-					if autoInstall {
-						mmaProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
-						go ensureMMAInstalled(ctx, mgr, mmaProviderID)
-					}
+						// DEPRECATED: Recipe reconciler and deployment handler moved to deployment_engine UMC
+						// Capability operations are now requested via UA-K syscalls
+						// Wire the recipe reconciler into the deployment handler
+						// so deployments with capability_requirements are handled
+						// recipeDataDir := filepath.Join(homeDir, ".underleaf")
+						// recipeReconciler := recipe.NewReconciler(capabilityManager.(*capability.Manager), recipeDataDir)
+						// deploymentHandler.SetRecipeReconciler(recipeReconciler)
+						// slog.Info("recipe reconciler wired into deployment handler")
 
-					// Auto-install Deployment Engine if enabled and not already installed
-					autoInstallDE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_deployment_engine", false)
-					if !autoInstallDE {
-						autoInstallDE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_deployment_engine", true)
-					}
-					if autoInstallDE {
-						deProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.deployment_engine_provider_id", "underleaf.deployment-engine")
-						go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine")
-					}
+						// Auto-install MMA if enabled and not already installed
+						autoInstall := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mma", false)
+						if !autoInstall {
+							autoInstall = getConfigValueBool(simpleConfig, "capability_registry.auto_install_mma", true)
+						}
+						if autoInstall {
+							mmaProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
+							go ensureMMAInstalled(ctx, mgr, mmaProviderID)
+						}
 
-					// Auto-install Cron Engine if enabled and not already installed
-					autoInstallCE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_cron_engine", false)
-					if !autoInstallCE {
-						autoInstallCE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_cron_engine", true)
-					}
-					if autoInstallCE {
-						ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
-						go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine")
+						// Auto-install Deployment Engine if enabled and not already installed
+						autoInstallDE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_deployment_engine", false)
+						if !autoInstallDE {
+							autoInstallDE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_deployment_engine", true)
+						}
+						if autoInstallDE {
+							deProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.deployment_engine_provider_id", "underleaf.deployment-engine")
+							go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine")
+						}
+
+						// Auto-install Cron Engine if enabled and not already installed
+						autoInstallCE := getConfigValueBool(snapshotClient, "capability_registry.auto_install_cron_engine", false)
+						if !autoInstallCE {
+							autoInstallCE = getConfigValueBool(simpleConfig, "capability_registry.auto_install_cron_engine", true)
+						}
+						if autoInstallCE {
+							ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
+							go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine")
+						}
 					}
 				}
 			}
@@ -919,6 +989,7 @@ func WireAgent(ctx context.Context, port int) (*Dependencies, error) {
 		CapabilityManager: capabilityManager,
 		DeploymentEngine:  deploymentEngine,
 		CronEngine:        nil, // Managed by deployment engine supervisor
+		MMA:               mma,
 	}, nil
 }
 

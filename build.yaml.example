@@ -1,0 +1,75 @@
+# build.yaml.example — Copy to build.yaml and customize for your dev setup
+#
+# This file demonstrates how to configure Dev Mode for local UMC development.
+# Dev Mode allows you to load UMC binaries from local directories instead of
+# fetching them from UCRS, enabling fast iteration without publishing changes.
+#
+# Usage:
+#   1. cp build.yaml.example build.yaml
+#   2. Edit build.yaml and uncomment the overrides you need
+#   3. make build-dev
+#   4. ufctl start --dev-mode --build-config ./build.yaml -p 2023
+#
+# Paths are resolved relative to the location of this file (build.yaml).
+# Each developer maintains their own build.yaml (it is .gitignored).
+
+version: "1"
+
+# Global defaults applied to all UMC overrides unless explicitly set per-UMC
+defaults:
+  env:
+    LOG_LEVEL: debug
+    KERNEL_SOCKET: /tmp/ua_kernel.sock
+  # Restart UMC automatically when its binary changes on disk (poll every 2s)
+  watch: true
+  # Skip Ed25519 signature verification on UCRS snapshots in dev mode
+  skip_signature_check: true
+
+# Override specific UMCs with local binary paths.
+# Any UMC not listed here is loaded from UCRS as normal.
+overrides:
+  # Deployment Engine
+  # deployment-engine:
+  #   binary: ../umcs/deployment_engine/bin/serve
+  #   health_endpoint: http://localhost:10081/health
+  #   health_timeout: 10s
+  #   args: []
+  #   env:
+  #     CUSTOM_DEBUG_FLAG: "true"
+
+  # Cron Engine
+  # cron-engine:
+  #   binary: ../umcs/cron_engine/bin/serve
+  #   health_endpoint: http://localhost:8081/health
+
+  # Mycelium Mesh Agent (MMA)
+  # mma:
+  #   binary: ../umcs/mycelium_mesh_agent/bin/serve
+  #   health_endpoint: http://localhost:8082/health
+
+  # Any provider by its UCRS provider ID:
+  # my-custom-provider:
+  #   binary: /absolute/path/to/my-provider-serve
+  #   args: ["--verbose"]
+  #   env:
+  #     MY_DEBUG: "true"
+  #   watch: true
+  #   health_endpoint: http://localhost:8090/health
+
+# Agent-level development settings (optional)
+agent:
+  # Skip mTLS setup for pure-local development without certificates
+  skip_mtls: false
+
+  # Disconnect from Spine (cloud messaging) — for offline development
+  skip_spine: false
+
+  # Skip UCRS registry sync — don't pull the provider list from the cloud.
+  # Set to true if all your UMCs are defined in overrides above.
+  skip_ucrs_sync: true
+
+  # Capability registry (provider installation subsystem)
+  capability_registry:
+    # Set to false to disable the capability manager entirely.
+    # Useful when developing core components that don't need provider installation.
+    enabled: false
