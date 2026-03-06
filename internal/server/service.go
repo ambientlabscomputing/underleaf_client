@@ -17,6 +17,7 @@ type Service interface {
 	ListServers(ctx context.Context) ([]servertypes.Server, error)
 	ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]servertypes.Server, error)
 	RegisterServer(ctx context.Context, name string) error
+	CreateServer(ctx context.Context, name string, sshPublicKey *string) (servertypes.Server, error)
 	GetLocal(ctx context.Context) (*servertypes.Server, error)
 	UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (servertypes.Server, error)
 	GetServerMetrics(ctx context.Context, serverID string) (*servertypes.ServerMetrics, error)
@@ -25,6 +26,9 @@ type Service interface {
 	GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error)
 	FindExistingServer(ctx context.Context, nameOrID string) (*servertypes.Server, error)
 	DownloadServerConfig(ctx context.Context, server *servertypes.Server) error
+	AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error)
+	ListSSHKeys(ctx context.Context, serverID string) ([]servertypes.SSHPublicKey, error)
+	RemoveSSHKey(ctx context.Context, serverID string, keyID string) error
 }
 type ServerService struct {
 	cplane *controlplane.CPlaneClient
@@ -115,6 +119,14 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 	}
 
 	return nil
+}
+
+func (s *ServerService) CreateServer(ctx context.Context, name string, sshPublicKey *string) (servertypes.Server, error) {
+	server, err := s.cplane.Servers.CreateServer(ctx, name, sshPublicKey)
+	if err != nil {
+		return servertypes.Server{}, err
+	}
+	return server, nil
 }
 
 func (s *ServerService) UpdateServer(ctx context.Context, serverID string, updates servertypes.UpdateServerRequest) (servertypes.Server, error) {
@@ -224,6 +236,18 @@ func convertInterface(src interface{}, dest interface{}) error {
 		return err
 	}
 	return json.Unmarshal(jsonBytes, dest)
+}
+
+func (s *ServerService) AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error) {
+	return s.cplane.Servers.AddSSHKey(ctx, serverID, publicKey, label)
+}
+
+func (s *ServerService) ListSSHKeys(ctx context.Context, serverID string) ([]servertypes.SSHPublicKey, error) {
+	return s.cplane.Servers.ListSSHKeys(ctx, serverID)
+}
+
+func (s *ServerService) RemoveSSHKey(ctx context.Context, serverID string, keyID string) error {
+	return s.cplane.Servers.RemoveSSHKey(ctx, serverID, keyID)
 }
 
 // func (s *ServerService) HandleRunCommand(ctx context.Context, serverID string) error {

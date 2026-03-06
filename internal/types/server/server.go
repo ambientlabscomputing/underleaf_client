@@ -94,19 +94,29 @@ func (c Configuration) FromPolicyManagerConfig(cfg policy_manager.Configuration)
 
 // Server represents a server
 type Server struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Status      string            `json:"status,omitempty"`
-	Location    string            `json:"location,omitempty"`
-	IPAddress   string            `json:"ip_address,omitempty"`
-	Hostname    string            `json:"hostname,omitempty"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	Metrics     *ServerMetrics    `json:"metrics,omitempty"`
-	LastCheckIn *NullableTime     `json:"last_check_in,omitempty"`
-	CreatedAt   *NullableTime     `json:"created_at,omitempty"`
-	UpdatedAt   *NullableTime     `json:"updated_at,omitempty"`
-	Config      Configuration     `json:"configuration"`
-	Platform    *ServerPlatform   `json:"platform,omitempty"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Status        string            `json:"status,omitempty"`
+	Location      string            `json:"location,omitempty"`
+	IPAddress     string            `json:"ip_address,omitempty"`
+	Hostname      string            `json:"hostname,omitempty"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	Metrics       *ServerMetrics    `json:"metrics,omitempty"`
+	LastCheckIn   *NullableTime     `json:"last_check_in,omitempty"`
+	CreatedAt     *NullableTime     `json:"created_at,omitempty"`
+	UpdatedAt     *NullableTime     `json:"updated_at,omitempty"`
+	Config        Configuration     `json:"configuration"`
+	Platform      *ServerPlatform   `json:"platform,omitempty"`
+	SSHPublicKeys []SSHPublicKey    `json:"ssh_public_keys,omitempty"`
+}
+
+// SSHPublicKey represents an SSH public key stored for a server
+type SSHPublicKey struct {
+	ID          string `json:"id"`
+	Key         string `json:"key,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Fingerprint string `json:"fingerprint"`
+	AddedAt     string `json:"added_at"`
 }
 
 // ServerMetrics represents current server metrics

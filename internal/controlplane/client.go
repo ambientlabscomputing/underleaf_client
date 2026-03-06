@@ -42,6 +42,7 @@ func NewCPlaneClient(config *policy_manager.ConfigClient, h *http.Client) *CPlan
 
 type CPlaneServerClient interface {
 	RegisterServer(ctx context.Context, name string, platform interface{}) (interface{}, error)
+	CreateServer(ctx context.Context, name string, sshPublicKey *string) (servertypes.Server, error)
 	GetServer(ctx context.Context, serverID string) (interface{}, error)
 	ListServers(ctx context.Context) ([]interface{}, error)
 	ListServersWithParams(ctx context.Context, params servertypes.ListServersParams) ([]interface{}, error)
@@ -53,6 +54,9 @@ type CPlaneServerClient interface {
 	UpdateClusterMemberStatus(ctx context.Context, clusterID, serverID, role, leaderID string) error
 	GetMetricsHistory(ctx context.Context, serverID string, period string, resolution string) (*servertypes.MetricsHistoryResponse, error)
 	GetServerActivity(ctx context.Context, serverID string, params servertypes.GetActivityParams) (*servertypes.ActivityResponse, error)
+	AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error)
+	ListSSHKeys(ctx context.Context, serverID string) ([]servertypes.SSHPublicKey, error)
+	RemoveSSHKey(ctx context.Context, serverID string, keyID string) error
 }
 
 func NewCPlaneServerClient(config *policy_manager.ConfigClient, a *APIClient) CPlaneServerClient {

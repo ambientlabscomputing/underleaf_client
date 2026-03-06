@@ -34,6 +34,27 @@ func (c *ServerClient) RegisterServer(ctx context.Context, name string, platform
 	return response, nil
 }
 
+func (c *ServerClient) CreateServer(ctx context.Context, name string, sshPublicKey *string) (servertypes.Server, error) {
+	newServerRequest := map[string]interface{}{
+		"name": name,
+	}
+
+	// Add SSH public key if provided
+	if sshPublicKey != nil && *sshPublicKey != "" {
+		newServerRequest["ssh_public_keys"] = []map[string]string{
+			{
+				"key": *sshPublicKey,
+			},
+		}
+	}
+
+	var response servertypes.Server
+	if err := c.api.POST(ctx, "/servers", newServerRequest, &response); err != nil {
+		return servertypes.Server{}, err
+	}
+	return response, nil
+}
+
 func (c *ServerClient) GetServer(ctx context.Context, serverID string) (interface{}, error) {
 	var response interface{}
 	if err := c.api.GET(ctx, "/servers/"+serverID, &response); err != nil {
@@ -168,4 +189,35 @@ func (c *ServerClient) UpdateClusterMemberStatus(ctx context.Context, clusterID,
 		return err
 	}
 	return nil
+}
+
+// AddSSHKey adds an SSH public key to a server
+func (c *ServerClient) AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error) {
+	payload := map[string]string{
+		"key": publicKey,
+	}
+	if label != "" {
+		payload["label"] = label
+	}
+	var key servertypes.SSHPublicKey
+	if err := c.api.POST(ctx, fmt.Sprintf("/servers/%s/ssh-keys", serverID), payload, &key); err != nil {
+		return servertypes.SSHPublicKey{}, err
+	}
+	return key, nil
+}
+
+// ListSSHKeys lists the SSH public keys registered for a server
+func (c *ServerClient) ListSSHKeys(ctx context.Context, serverID string) ([]servertypes.SSHPublicKey, error) {
+	var resp struct {
+		Keys []servertypes.SSHPublicKey `json:"keys"`
+	}
+	if err := c.api.GET(ctx, fmt.Sprintf("/servers/%s/ssh-keys", serverID), &resp); err != nil {
+		return nil, err
+	}
+	return resp.Keys, nil
+}
+
+// RemoveSSHKey removes an SSH public key from a server by key ID
+func (c *ServerClient) RemoveSSHKey(ctx context.Context, serverID string, keyID string) error {
+	return c.api.DELETE(ctx, fmt.Sprintf("/servers/%s/ssh-keys/%s", serverID, keyID), nil)
 }

@@ -18,6 +18,8 @@ import (
 var (
 	noBrowser bool
 	timeout   time.Duration
+	useSSH    bool
+	serverID  string
 )
 
 // Styles for the auth flow display
@@ -60,168 +62,179 @@ var AuthCmd = &cobra.Command{
 // `ufctl auth login` uses OAuth2 device code flow for authentication
 var AuthLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Login using device authorization",
-	Long:  "Authenticate using OAuth2 device code flow. Opens a browser for authorization.",
+	Short: "Login using device authorization or SSH",
+	Long:  "Authenticate using OAuth2 device code flow or SSH authentication.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		logger := logging.GetLogger(ctx)
-
-		// Get dependencies
-		deps := utils.NewDependencyManager(ctx)
-		if deps == nil {
-			return fmt.Errorf("failed to create dependencies")
+		// Check if using SSH auth
+		if useSSH {
+			return runSSHAuth(cmd, serverID)
 		}
 
-		config := deps.ConfigClient
-		authClient := deps.CPlaneClient.Auth
-
-		// Start the device authorization flow
-		fmt.Println(titleStyle.Render("🔐 Underleaf Authentication"))
-		fmt.Println()
-		fmt.Println("Initiating device authorization flow...")
-		logger.Info("Starting device authorization flow")
-
-		authResp, err := authClient.StartDeviceFlow(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to start device flow: %w", err)
-		}
-		logger.Info("Device flow started", "device_code", authResp.DeviceCode, "user_code", authResp.UserCode, "expires_in", authResp.ExpiresIn)
-
-		// Determine which URL to use (prefer complete URL with code pre-filled)
-		displayURL := authResp.VerificationURIComplete
-		if displayURL == "" {
-			displayURL = authResp.VerificationURI
-		}
-
-		// Display the URL and code
-		fmt.Println()
-		fmt.Println("Please authorize this device by visiting:")
-		fmt.Println()
-		fmt.Println("  " + urlStyle.Render(displayURL))
-		fmt.Println()
-
-		// Only show the code if we're using the basic verification URI
-		if authResp.VerificationURIComplete == "" {
-			fmt.Println("And enter the code:")
-			fmt.Println()
-			fmt.Println("  " + codeStyle.Render(authResp.UserCode))
-			fmt.Println()
-		}
-
-		// Open browser unless --no-browser flag is set
-		if !noBrowser {
-			if err := internalutils.OpenURL(displayURL); err != nil {
-				fmt.Println(instructionStyle.Render(fmt.Sprintf("⚠️  Could not open browser: %v", err)))
-				fmt.Println(instructionStyle.Render("Please open the URL manually."))
-			} else {
-				fmt.Println(instructionStyle.Render("✓ Browser opened automatically"))
-			}
-		}
-
-		fmt.Println()
-		fmt.Println(instructionStyle.Render(fmt.Sprintf("Code expires in %d seconds", authResp.ExpiresIn)))
-		fmt.Println(instructionStyle.Render("Waiting for authorization..."))
-		fmt.Println()
-
-		// Create a spinner model for polling
-		spinner := NewAuthSpinner()
-		program := tea.NewProgram(spinner)
-
-		// Start polling in the background
-		pollerConfig := auth.DefaultPollerConfig()
-		if timeout > 0 {
-			pollerConfig.Timeout = timeout
-		}
-		logger.Info("Starting poller", "initial_interval", pollerConfig.InitialInterval, "timeout", pollerConfig.Timeout)
-		poller := auth.NewPoller(authClient, pollerConfig)
-		resultChan := poller.Poll(ctx, authResp.DeviceCode)
-		logger.Info("Poller started, waiting for result")
-
-		// Run the spinner and wait for result
-		go func() {
-			logger.Info("Result channel goroutine started")
-			for result := range resultChan {
-				logger.Info("Received result from poller", "has_error", result.Error != nil, "has_token", result.Token != nil)
-				if result.Error != nil {
-					logger.Error("Auth error received", "error", result.Error)
-					program.Send(authErrorMsg{err: result.Error})
-				} else {
-					logger.Info("Auth success received", "access_token_length", len(result.Token.AccessToken))
-					program.Send(authSuccessMsg{token: result.Token})
-				}
-			}
-			logger.Info("Result channel closed")
-		}()
-
-		logger.Info("Starting Bubble Tea program")
-		finalModel, err := program.Run()
-		logger.Info("Bubble Tea program finished")
-		if err != nil {
-			return fmt.Errorf("error running UI: %w", err)
-		}
-
-		// Check the final state
-		logger.Info("Checking final state")
-		final := finalModel.(authSpinnerModel)
-		if final.err != nil {
-			logger.Error("Final state has error", "error", final.err)
-			return final.err
-		}
-
-		if final.token == nil {
-			logger.Error("Final state has no token")
-			return fmt.Errorf("authentication failed: no token received")
-		}
-		logger.Info("Final state is valid, has token")
-
-		// Save the token
-		token := final.token.AccessToken
-
-		if token == "" {
-			logger.Error("Received empty access token")
-			return fmt.Errorf("authentication failed: received empty access token")
-		}
-
-		logger.Info("Saving token to config", "token_length", len(token))
-		if err := config.Set("auth.token", token); err != nil {
-			logger.Error("Failed to save token", "error", err)
-			return fmt.Errorf("failed to save authentication token: %w", err)
-		}
-		logger.Info("Token saved successfully")
-
-		fmt.Println()
-		fmt.Println(successStyle.Render("✓ Authentication successful!"))
-		fmt.Println()
-
-		// Auto-provision organization for simplified onboarding
-		userClient := deps.CPlaneClient.Users
-		logger.Info("Auto-provisioning organization for new user")
-
-		org, err := userClient.AutoProvisionOrganization(ctx)
-		if err != nil {
-			logger.Warn("Failed to auto-provision organization", "error", err)
-			fmt.Println(instructionStyle.Render("Warning: Could not auto-provision organization. You can create one manually later."))
-			return nil
-		}
-
-		// Save the auto-provisioned org context
-		logger.Info("Auto-provisioned organization", "org_id", org.ID, "org_name", org.Name, "org_slug", org.Slug)
-		if err := config.Set("local.organization_id", org.ID); err != nil {
-			logger.Error("Failed to save organization ID", "error", err)
-		}
-		if err := config.Set("local.organization_name", org.Name); err != nil {
-			logger.Error("Failed to save organization name", "error", err)
-		}
-		if err := config.Set("local.organization_slug", org.Slug); err != nil {
-			logger.Error("Failed to save organization slug", "error", err)
-		}
-
-		fmt.Println(successStyle.Render("✓ Organization set: " + org.Name))
-		fmt.Println(instructionStyle.Render(fmt.Sprintf("  Organization ID: %s", org.ID)))
-		fmt.Println()
-
-		return nil
+		// Otherwise, run device code auth
+		return runDeviceCodeAuth(cmd)
 	},
+}
+
+// runDeviceCodeAuth handles the standard OAuth2 device code flow
+func runDeviceCodeAuth(cmd *cobra.Command) error {
+	ctx := cmd.Context()
+	logger := logging.GetLogger(ctx)
+
+	// Get dependencies
+	deps := utils.NewDependencyManager(ctx)
+	if deps == nil {
+		return fmt.Errorf("failed to create dependencies")
+	}
+
+	config := deps.ConfigClient
+	authClient := deps.CPlaneClient.Auth
+
+	// Start the device authorization flow
+	fmt.Println(titleStyle.Render("🔐 Underleaf Authentication"))
+	fmt.Println()
+	fmt.Println("Initiating device authorization flow...")
+	logger.Info("Starting device authorization flow")
+
+	authResp, err := authClient.StartDeviceFlow(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to start device flow: %w", err)
+	}
+	logger.Info("Device flow started", "device_code", authResp.DeviceCode, "user_code", authResp.UserCode, "expires_in", authResp.ExpiresIn)
+
+	// Determine which URL to use (prefer complete URL with code pre-filled)
+	displayURL := authResp.VerificationURIComplete
+	if displayURL == "" {
+		displayURL = authResp.VerificationURI
+	}
+
+	// Display the URL and code
+	fmt.Println()
+	fmt.Println("Please authorize this device by visiting:")
+	fmt.Println()
+	fmt.Println("  " + urlStyle.Render(displayURL))
+	fmt.Println()
+
+	// Only show the code if we're using the basic verification URI
+	if authResp.VerificationURIComplete == "" {
+		fmt.Println("And enter the code:")
+		fmt.Println()
+		fmt.Println("  " + codeStyle.Render(authResp.UserCode))
+		fmt.Println()
+	}
+
+	// Open browser unless --no-browser flag is set
+	if !noBrowser {
+		if err := internalutils.OpenURL(displayURL); err != nil {
+			fmt.Println(instructionStyle.Render(fmt.Sprintf("⚠️  Could not open browser: %v", err)))
+			fmt.Println(instructionStyle.Render("Please open the URL manually."))
+		} else {
+			fmt.Println(instructionStyle.Render("✓ Browser opened automatically"))
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(instructionStyle.Render(fmt.Sprintf("Code expires in %d seconds", authResp.ExpiresIn)))
+	fmt.Println(instructionStyle.Render("Waiting for authorization..."))
+	fmt.Println()
+
+	// Create a spinner model for polling
+	spinner := NewAuthSpinner()
+	program := tea.NewProgram(spinner)
+
+	// Start polling in the background
+	pollerConfig := auth.DefaultPollerConfig()
+	if timeout > 0 {
+		pollerConfig.Timeout = timeout
+	}
+	logger.Info("Starting poller", "initial_interval", pollerConfig.InitialInterval, "timeout", pollerConfig.Timeout)
+	poller := auth.NewPoller(authClient, pollerConfig)
+	resultChan := poller.Poll(ctx, authResp.DeviceCode)
+	logger.Info("Poller started, waiting for result")
+
+	// Run the spinner and wait for result
+	go func() {
+		logger.Info("Result channel goroutine started")
+		for result := range resultChan {
+			logger.Info("Received result from poller", "has_error", result.Error != nil, "has_token", result.Token != nil)
+			if result.Error != nil {
+				logger.Error("Auth error received", "error", result.Error)
+				program.Send(authErrorMsg{err: result.Error})
+			} else {
+				logger.Info("Auth success received", "access_token_length", len(result.Token.AccessToken))
+				program.Send(authSuccessMsg{token: result.Token})
+			}
+		}
+		logger.Info("Result channel closed")
+	}()
+
+	logger.Info("Starting Bubble Tea program")
+	finalModel, err := program.Run()
+	logger.Info("Bubble Tea program finished")
+	if err != nil {
+		return fmt.Errorf("error running UI: %w", err)
+	}
+
+	// Check the final state
+	logger.Info("Checking final state")
+	final := finalModel.(authSpinnerModel)
+	if final.err != nil {
+		logger.Error("Final state has error", "error", final.err)
+		return final.err
+	}
+
+	if final.token == nil {
+		logger.Error("Final state has no token")
+		return fmt.Errorf("authentication failed: no token received")
+	}
+	logger.Info("Final state is valid, has token")
+
+	// Save the token
+	token := final.token.AccessToken
+
+	if token == "" {
+		logger.Error("Received empty access token")
+		return fmt.Errorf("authentication failed: received empty access token")
+	}
+
+	logger.Info("Saving token to config", "token_length", len(token))
+	if err := config.Set("auth.token", token); err != nil {
+		logger.Error("Failed to save token", "error", err)
+		return fmt.Errorf("failed to save authentication token: %w", err)
+	}
+	logger.Info("Token saved successfully")
+
+	fmt.Println()
+	fmt.Println(successStyle.Render("✓ Authentication successful!"))
+	fmt.Println()
+
+	// Auto-provision organization for simplified onboarding
+	userClient := deps.CPlaneClient.Users
+	logger.Info("Auto-provisioning organization for new user")
+
+	org, err := userClient.AutoProvisionOrganization(ctx)
+	if err != nil {
+		logger.Warn("Failed to auto-provision organization", "error", err)
+		fmt.Println(instructionStyle.Render("Warning: Could not auto-provision organization. You can create one manually later."))
+		return nil
+	}
+
+	// Save the auto-provisioned org context
+	logger.Info("Auto-provisioned organization", "org_id", org.ID, "org_name", org.Name, "org_slug", org.Slug)
+	if err := config.Set("local.organization_id", org.ID); err != nil {
+		logger.Error("Failed to save organization ID", "error", err)
+	}
+	if err := config.Set("local.organization_name", org.Name); err != nil {
+		logger.Error("Failed to save organization name", "error", err)
+	}
+	if err := config.Set("local.organization_slug", org.Slug); err != nil {
+		logger.Error("Failed to save organization slug", "error", err)
+	}
+
+	fmt.Println(successStyle.Render("✓ Organization set: " + org.Name))
+	fmt.Println(instructionStyle.Render(fmt.Sprintf("  Organization ID: %s", org.ID)))
+	fmt.Println()
+
+	return nil
 }
 
 // Auth spinner model
@@ -413,6 +426,8 @@ var AuthStatusCmd = &cobra.Command{
 func init() {
 	AuthLoginCmd.Flags().BoolVar(&noBrowser, "no-browser", false, "Don't open browser automatically")
 	AuthLoginCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for authorization")
+	AuthLoginCmd.Flags().BoolVar(&useSSH, "use-ssh", false, "Use SSH authentication instead of device code flow")
+	AuthLoginCmd.Flags().StringVar(&serverID, "server-id", "", "Server ID for SSH authentication (required with --use-ssh)")
 
 	AuthCmd.AddCommand(AuthLoginCmd)
 	AuthCmd.AddCommand(AuthLogoutCmd)

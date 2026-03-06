@@ -194,3 +194,75 @@ func (e *TokenError) IsExpired() bool {
 func (e *TokenError) IsAccessDenied() bool {
 	return e.Code == "access_denied"
 }
+
+// SSHChallengeResponse represents the response from requesting an SSH challenge
+type SSHChallengeResponse struct {
+	Challenge string `json:"challenge"`
+	ServerID  string `json:"server_id"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+// SSHVerifyResponse represents the response from verifying an SSH signature
+type SSHVerifyResponse struct {
+	Token     string `json:"token"`
+	ServerID  string `json:"server_id"`
+	OrgID     string `json:"org_id"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+// RequestSSHChallenge requests an SSH authentication challenge
+func (c *CPlaneAuthClient) RequestSSHChallenge(ctx context.Context, serverID string) (*SSHChallengeResponse, error) {
+	baseURL, ok := c.apiClient.config.Get("api.base_url")
+	if !ok || baseURL == nil {
+		return nil, fmt.Errorf("api.base_url not configured")
+	}
+
+	// The SSH challenge endpoint is at /api/v1/servers/ssh/challenge
+	apiBaseURL := baseURL.(string)
+	// Remove /servers suffix if present to get the API root
+	if len(apiBaseURL) >= 8 && apiBaseURL[len(apiBaseURL)-8:] == "/servers" {
+		apiBaseURL = apiBaseURL[:len(apiBaseURL)-8]
+	}
+
+	url := apiBaseURL + "/servers/ssh/challenge"
+
+	requestBody := map[string]string{"server_id": serverID}
+
+	var resp SSHChallengeResponse
+	if err := c.apiClient.POST(ctx, url, requestBody, &resp); err != nil {
+		return nil, fmt.Errorf("failed to request SSH challenge: %w", err)
+	}
+
+	return &resp, nil
+}
+
+// VerifySSHSignature verifies an SSH signature and obtains an auth token
+func (c *CPlaneAuthClient) VerifySSHSignature(ctx context.Context, serverID string, challenge string, signature string, fingerprint string) (*SSHVerifyResponse, error) {
+	baseURL, ok := c.apiClient.config.Get("api.base_url")
+	if !ok || baseURL == nil {
+		return nil, fmt.Errorf("api.base_url not configured")
+	}
+
+	// The SSH verify endpoint is at /api/v1/servers/ssh/verify
+	apiBaseURL := baseURL.(string)
+	// Remove /servers suffix if present to get the API root
+	if len(apiBaseURL) >= 8 && apiBaseURL[len(apiBaseURL)-8:] == "/servers" {
+		apiBaseURL = apiBaseURL[:len(apiBaseURL)-8]
+	}
+
+	url := apiBaseURL + "/servers/ssh/verify"
+
+	requestBody := map[string]string{
+		"server_id":              serverID,
+		"challenge":              challenge,
+		"signature":              signature,
+		"public_key_fingerprint": fingerprint,
+	}
+
+	var resp SSHVerifyResponse
+	if err := c.apiClient.POST(ctx, url, requestBody, &resp); err != nil {
+		return nil, fmt.Errorf("SSH authentication failed: %w", err)
+	}
+
+	return &resp, nil
+}

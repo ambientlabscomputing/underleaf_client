@@ -68,6 +68,35 @@ build-agent-dev:
 .PHONY: bni-dev
 bni-dev: build-dev install
 
+## bni-orb: Build & Install with host.orb.internal endpoints baked in (for local OrbStack lab testing)
+.PHONY: bni-orb
+bni-orb: build-orb install
+
+## build-orb: Build both CLI and agent with host.orb.internal endpoints baked in
+build-orb: build-cli-orb build-agent-orb
+
+## build-cli-orb: Build the CLI binary with host.orb.internal endpoints
+build-cli-orb:
+	@echo "Building $(BINARY_CLI) [orb mode]..."
+	@go build \
+		-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=http://host.orb.internal:8080/api/v1/servers \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.SpineEndpoint=host.orb.internal:9097 \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.UCRSBaseURL=http://host.orb.internal:8083/api/v1/registry" \
+		-o $(BINARY_CLI) ./cmd/ufctl
+	@echo "✓ Built $(BINARY_CLI) [orb mode — api=host.orb.internal:8080, spine=host.orb.internal:9097, ucrs=host.orb.internal:8083]"
+
+## build-agent-orb: Build the agent binary with host.orb.internal endpoints
+build-agent-orb:
+	@echo "Building $(BINARY_AGENT) [orb mode]..."
+	@go build \
+		-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=http://host.orb.internal:8080/api/v1/servers \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.SpineEndpoint=host.orb.internal:9097 \
+		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.UCRSBaseURL=http://host.orb.internal:8083/api/v1/registry" \
+		-o $(BINARY_AGENT) ./cmd/underleaf_agent
+	@echo "✓ Built $(BINARY_AGENT) [orb mode — api=host.orb.internal:8080, spine=host.orb.internal:9097, ucrs=host.orb.internal:8083]"
+
 ## install-gopath: Install binaries to $GOPATH/bin
 install-gopath:
 	@echo "Installing binaries..."
