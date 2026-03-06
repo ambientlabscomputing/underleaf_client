@@ -1,9 +1,11 @@
 package controlplane
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/ambientlabscomputing/mycelium_spine/sdk"
@@ -217,23 +219,43 @@ func (c *CPlaneAuthClient) RequestSSHChallenge(ctx context.Context, serverID str
 		return nil, fmt.Errorf("api.base_url not configured")
 	}
 
-	// The SSH challenge endpoint is at /api/v1/servers/ssh/challenge
-	apiBaseURL := baseURL.(string)
-	// Remove /servers suffix if present to get the API root
-	if len(apiBaseURL) >= 8 && apiBaseURL[len(apiBaseURL)-8:] == "/servers" {
-		apiBaseURL = apiBaseURL[:len(apiBaseURL)-8]
-	}
-
-	url := apiBaseURL + "/servers/ssh/challenge"
+	// The SSH challenge endpoint is at {base_url}/servers/ssh/challenge
+	// base_url = .../api/v1/servers (the server API root path)
+	// route = /api/v1/servers/servers/ssh/challenge (BasePath + /servers/ssh/challenge)
+	url := baseURL.(string) + "/servers/ssh/challenge"
 
 	requestBody := map[string]string{"server_id": serverID}
-
-	var resp SSHChallengeResponse
-	if err := c.apiClient.POST(ctx, url, requestBody, &resp); err != nil {
-		return nil, fmt.Errorf("failed to request SSH challenge: %w", err)
+	payloadBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	return &resp, nil
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
+	req = req.WithContext(ctx)
+
+	resp, err := c.apiClient.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request SSH challenge: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("SSH challenge request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var challengeResp SSHChallengeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&challengeResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &challengeResp, nil
 }
 
 // VerifySSHSignature verifies an SSH signature and obtains an auth token
@@ -243,14 +265,10 @@ func (c *CPlaneAuthClient) VerifySSHSignature(ctx context.Context, serverID stri
 		return nil, fmt.Errorf("api.base_url not configured")
 	}
 
-	// The SSH verify endpoint is at /api/v1/servers/ssh/verify
-	apiBaseURL := baseURL.(string)
-	// Remove /servers suffix if present to get the API root
-	if len(apiBaseURL) >= 8 && apiBaseURL[len(apiBaseURL)-8:] == "/servers" {
-		apiBaseURL = apiBaseURL[:len(apiBaseURL)-8]
-	}
-
-	url := apiBaseURL + "/servers/ssh/verify"
+	// The SSH verify endpoint is at {base_url}/servers/ssh/verify
+	// base_url = .../api/v1/servers (the server API root path)
+	// route = /api/v1/servers/servers/ssh/verify (BasePath + /servers/ssh/verify)
+	url := baseURL.(string) + "/servers/ssh/verify"
 
 	requestBody := map[string]string{
 		"server_id":              serverID,
@@ -258,11 +276,35 @@ func (c *CPlaneAuthClient) VerifySSHSignature(ctx context.Context, serverID stri
 		"signature":              signature,
 		"public_key_fingerprint": fingerprint,
 	}
-
-	var resp SSHVerifyResponse
-	if err := c.apiClient.POST(ctx, url, requestBody, &resp); err != nil {
-		return nil, fmt.Errorf("SSH authentication failed: %w", err)
+	payloadBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	return &resp, nil
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Trace-ID", sdk.TraceIDFromContext(ctx))
+	req = req.WithContext(ctx)
+
+	resp, err := c.apiClient.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("SSH authentication failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("SSH verification failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var verifyResp SSHVerifyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&verifyResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &verifyResp, nil
 }
