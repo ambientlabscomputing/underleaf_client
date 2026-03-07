@@ -96,6 +96,7 @@ func (c Configuration) FromPolicyManagerConfig(cfg policy_manager.Configuration)
 type Server struct {
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
+	OrgID         string            `json:"org_id,omitempty"`
 	Status        string            `json:"status,omitempty"`
 	Location      string            `json:"location,omitempty"`
 	IPAddress     string            `json:"ip_address,omitempty"`

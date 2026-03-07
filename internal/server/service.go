@@ -117,6 +117,12 @@ func (s *ServerService) RegisterServer(ctx context.Context, name string) error {
 	if err := s.config.Set("local.server_name", server.Name); err != nil {
 		return fmt.Errorf("failed to save server name: %w", err)
 	}
+	// Persist org_id when the API returns it (defense-in-depth for Spine/mTLS)
+	if server.OrgID != "" {
+		if err := s.config.Set("local.organization_id", server.OrgID); err != nil {
+			return fmt.Errorf("failed to save organization ID: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -217,6 +223,13 @@ func (s *ServerService) DownloadServerConfig(ctx context.Context, server *server
 	}
 	if err := s.config.Set("local.server_name", server.Name); err != nil {
 		return fmt.Errorf("failed to save server name: %w", err)
+	}
+
+	// Save org_id if available (critical for Spine SDK and mTLS cert).
+	if server.OrgID != "" {
+		if err := s.config.Set("local.organization_id", server.OrgID); err != nil {
+			return fmt.Errorf("failed to save organization ID: %w", err)
+		}
 	}
 
 	// Optionally save other metadata if available

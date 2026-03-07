@@ -97,6 +97,23 @@ build-agent-orb:
 		-o $(BINARY_AGENT) ./cmd/underleaf_agent
 	@echo "✓ Built $(BINARY_AGENT) [orb mode — api=host.orb.internal:8080, spine=host.orb.internal:9097, ucrs=host.orb.internal:8083]"
 
+ORB_LDFLAGS=-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
+	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=http://host.orb.internal:8080/api/v1/servers \
+	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.SpineEndpoint=host.orb.internal:9097 \
+	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.UCRSBaseURL=http://host.orb.internal:8083/api/v1/registry"
+
+## build-orb-linux: Cross-compile linux-arm64 binaries with orb endpoints for local-underleaf-lab VMs
+.PHONY: build-orb-linux
+build-orb-linux:
+	@mkdir -p bin
+	@echo "Building $(BINARY_CLI) [orb linux-arm64]..."
+	@GOOS=linux GOARCH=arm64 go build $(ORB_LDFLAGS) -o bin/$(BINARY_CLI)-linux-arm64 ./cmd/ufctl
+	@echo "✓ bin/$(BINARY_CLI)-linux-arm64"
+	@echo "Building $(BINARY_AGENT) [orb linux-arm64]..."
+	@GOOS=linux GOARCH=arm64 go build $(ORB_LDFLAGS) -o bin/$(BINARY_AGENT)-linux-arm64 ./cmd/underleaf_agent
+	@echo "✓ bin/$(BINARY_AGENT)-linux-arm64"
+	@echo "✓ Ready for local-underleaf-lab (cluster.json points here)"
+
 ## install-gopath: Install binaries to $GOPATH/bin
 install-gopath:
 	@echo "Installing binaries..."

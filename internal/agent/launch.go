@@ -267,8 +267,10 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	// the PID before the process finishes initializing, causing it to think
 	// another instance is already running.
 
-	// Wait for the agent to become healthy via health check endpoint
-	maxWait := 10 * time.Second
+	// Wait for the agent to become healthy via health check endpoint.
+	// The agent initialises raft, seal-manager, Spine SDK, etc. which can
+	// take well over 10 s on slower / VM environments, so give it room.
+	maxWait := 30 * time.Second
 	checkInterval := 500 * time.Millisecond
 	elapsed := time.Duration(0)
 

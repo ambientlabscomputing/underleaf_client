@@ -135,6 +135,19 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 		}
 	}
 
+	// Save organization ID from the verify response.
+	// This is critical: the Spine SDK requires a non-empty OrgID and the
+	// mTLS certificate embeds it.  Without this the agent cannot connect
+	// to Mycelium Spine and org-scoped API queries return "no documents".
+	if verifyResp.OrgID != "" {
+		logger.Info("Saving organization ID from SSH auth", "org_id", verifyResp.OrgID)
+		if err := config.Set("local.organization_id", verifyResp.OrgID); err != nil {
+			logger.Warn("failed to save organization ID", "error", err)
+		}
+	} else {
+		logger.Warn("SSH verify response did not include org_id — Spine connectivity may be degraded")
+	}
+
 	fmt.Println()
 	fmt.Println(successStyle.Render("✓ SSH Authentication successful!"))
 	fmt.Println(successStyle.Render(fmt.Sprintf("✓ Short-lived API token obtained (expires in %d seconds)", verifyResp.ExpiresIn)))
