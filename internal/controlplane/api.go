@@ -343,6 +343,12 @@ func (c *APIClient) DELETE(ctx context.Context, path string, response interface{
 		return err
 	}
 	defer resp.Body.Close()
+
+	// 204 No Content means success with no body to decode.
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		var errorResp any
 		if err := json.NewDecoder(resp.Body).Decode(&errorResp); err != nil {

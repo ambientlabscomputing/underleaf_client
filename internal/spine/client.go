@@ -18,6 +18,8 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	umsv1 "github.com/ambientlabscomputing/mycelium_spine/proto/ums/v1"
 	"github.com/ambientlabscomputing/mycelium_spine/sdk"
@@ -43,6 +45,16 @@ type Client struct {
 	handlers map[string][]handlerEntry
 
 	nextID uint64 // monotonic counter for handler IDs (protected by handlersMu)
+
+	// Spine health metrics — updated atomically by dispatchLoop.
+	// lastDeliveryNano is Unix nanoseconds of the last successfully dispatched
+	// frame (0 = never). consecutiveErrs counts subscriber errors since the
+	// last successful delivery; it is reset to 0 on each delivery.
+	// When consecutiveErrs reaches errWarnThreshold the severity escalates from
+	// WARN → ERROR so operators can distinguish transient blips from a stuck
+	// reconnect loop.
+	lastDeliveryNano int64 // accessed via sync/atomic
+	consecutiveErrs  int32 // accessed via sync/atomic
 }
 
 type handlerEntry struct {
@@ -120,6 +132,39 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
+// errWarnThreshold is the number of consecutive subscriber errors after which
+// the dispatchLoop escalates its log severity from WARN to ERROR. This lets
+// operators easily spot a stuck reconnect loop vs. a momentary blip.
+const errWarnThreshold = 10
+
+// SpineStatusSnapshot is a point-in-time view of the Spine client's health.
+type SpineStatusSnapshot struct {
+	// ConsecutiveErrors is the number of subscriber errors since the last
+	// successful delivery. Resets to zero on each delivery.
+	ConsecutiveErrors int32
+	// LastDeliveryAt is when the last envelope was successfully dispatched.
+	// Zero value means no delivery has ever been observed.
+	LastDeliveryAt time.Time
+	// IsHealthy is false when ConsecutiveErrors >= errWarnThreshold, indicating
+	// the SDK is likely stuck in a failed reconnect loop.
+	IsHealthy bool
+}
+
+// SpineStatus returns a point-in-time health snapshot for monitoring/alerting.
+func (c *Client) SpineStatus() SpineStatusSnapshot {
+	errs := atomic.LoadInt32(&c.consecutiveErrs)
+	nano := atomic.LoadInt64(&c.lastDeliveryNano)
+	var lastDel time.Time
+	if nano != 0 {
+		lastDel = time.Unix(0, nano)
+	}
+	return SpineStatusSnapshot{
+		ConsecutiveErrors: errs,
+		LastDeliveryAt:    lastDel,
+		IsHealthy:         errs < errWarnThreshold,
+	}
+}
+
 // dispatchLoop reads DeliverFrames from the subscriber, converts each envelope
 // to a Message, routes it to registered handlers, and acks if required.
 // It is resilient to transient errors and handler panics — individual failures
@@ -145,16 +190,51 @@ func (c *Client) dispatchLoop(ctx context.Context) {
 
 		case err, ok := <-errors:
 			if !ok {
-				slog.Warn("spine: error channel closed, dispatch loop exiting")
+				if ctx.Err() != nil {
+					return // context cancelled — normal shutdown
+				}
+				// Error channel closed unexpectedly (e.g. Spine reconnect).
+				// Restart so the next invocation picks up fresh channels.
+				slog.Warn("spine: error channel closed unexpectedly — restarting dispatch loop")
+				go c.dispatchLoop(ctx)
 				return
 			}
-			slog.Warn("spine: subscriber error", "error", err)
+			// Track consecutive errors to distinguish transient blips from a
+			// stuck reconnect loop. Escalate log severity after the threshold.
+			n := atomic.AddInt32(&c.consecutiveErrs, 1)
+			if n >= errWarnThreshold {
+				nano := atomic.LoadInt64(&c.lastDeliveryNano)
+				var since string
+				if nano == 0 {
+					since = "never"
+				} else {
+					since = time.Since(time.Unix(0, nano)).Round(time.Second).String()
+				}
+				slog.Error("spine: persistent subscriber errors — Spine may be unreachable",
+					"consecutive_errors", n,
+					"last_delivery_ago", since,
+					"error", err)
+			} else {
+				slog.Warn("spine: subscriber error", "error", err)
+			}
 
 		case frame, ok := <-deliveries:
 			if !ok {
-				slog.Warn("spine: delivery channel closed, dispatch loop exiting")
+				if ctx.Err() != nil {
+					return // context cancelled — normal shutdown
+				}
+				// Delivery channel closed unexpectedly (Spine disconnected or SDK
+				// reconnected and replaced its internal channel). Restart the loop
+				// so the new invocation calls c.subscriber.Deliveries() and picks
+				// up the fresh channel.  Without this the agent goes permanently
+				// deaf: SSH health checks pass but Spine messages never arrive.
+				slog.Warn("spine: delivery channel closed unexpectedly — restarting dispatch loop")
+				go c.dispatchLoop(ctx)
 				return
 			}
+			// Successful delivery: reset error counter and record delivery time.
+			atomic.StoreInt32(&c.consecutiveErrs, 0)
+			atomic.StoreInt64(&c.lastDeliveryNano, time.Now().UnixNano())
 			for _, env := range frame.Envelopes {
 				c.safeDispatch(ctx, env)
 			}

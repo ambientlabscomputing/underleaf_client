@@ -58,8 +58,12 @@ Examples:
 			}
 		}
 
-		// Build full command string
-		fullCommand := strings.Join(command, " ")
+		// Build full command string with shell-safe argument quoting.
+		// Without quoting, tokens like ["bash", "-c", "exit 42"] collapse into
+		// "bash -c exit 42" which the remote sh(1) parses as: bash with -c option
+		// and "exit" as the script, ignoring "42". Single-quoting each token with
+		// special characters preserves argument boundaries.
+		fullCommand := shellJoin(command)
 
 		// Build dispatch request
 		req := controlplane.DispatchCommandRequest{
@@ -385,6 +389,45 @@ func getStringField(m map[string]interface{}, key string) string {
 		return v
 	}
 	return ""
+}
+
+// shellJoin builds a shell-safe command string by single-quoting any token that
+// contains characters a POSIX shell would interpret specially (spaces, quotes,
+// $, !, etc.).  Tokens consisting solely of alphanumerics and safe punctuation
+// (- _ . / : @ %) are passed through unquoted to keep common commands readable.
+//
+// Example: ["bash", "-c", "exit 42"] → "bash -c 'exit 42'"
+func shellJoin(args []string) string {
+	parts := make([]string, len(args))
+	for i, a := range args {
+		if needsShellQuoting(a) {
+			// Single-quote the token, escaping embedded single-quotes as '\''.
+			parts[i] = "'" + strings.ReplaceAll(a, "'", "'\\''") + "'"
+		} else {
+			parts[i] = a
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// needsShellQuoting returns true for the empty string or any string containing
+// a character that POSIX sh would treat as special outside of quoting.
+func needsShellQuoting(s string) bool {
+	if s == "" {
+		return true // empty "" must be quoted to remain a distinct token
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c >= '0' && c <= '9':
+		case c == '-' || c == '_' || c == '.' || c == '/' || c == ':':
+		case c == '@' || c == '%' || c == '+':
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func init() {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/cluster"
@@ -73,11 +74,47 @@ Requirements:
 			return fmt.Errorf("failed to parse cluster status: %w", err)
 		}
 
-		// Verify this node is the leader (only leaders can issue join tokens)
+		// Check leader status; if not leader, determine whether we can bootstrap.
 		isLeader, _ := status["is_leader"].(bool)
 		if !isLeader {
-			role, _ := status["role"].(string)
-			return fmt.Errorf("this node is not the cluster leader (role: %s)\n\nJoin tokens must be generated from the leader node", role)
+			// Un-bootstrapped state: nodes is an empty map ({}). In this case we can
+			// bootstrap this node as the single-node cluster leader.
+			nodes, _ := status["nodes"].(map[string]interface{})
+			if len(nodes) != 0 {
+				// There ARE peers but this node isn't the leader — user must run create
+				// from the leader node.
+				role, _ := status["role"].(string)
+				return fmt.Errorf("this node is not the cluster leader (role: %s)\n\nJoin tokens must be generated from the leader node", role)
+			}
+
+			// nodes == {} → cluster has never been bootstrapped. Bootstrap now.
+			printer.Print("⚙️  Cluster not yet bootstrapped — bootstrapping this node as leader...")
+			if _, err := client.DoRequest("POST", "/api/v1/raft/bootstrap", nil); err != nil {
+				return fmt.Errorf("failed to bootstrap cluster: %w", err)
+			}
+
+			// Wait for leader election (single-node typically takes ~500ms)
+			printer.Print("⏳ Waiting for leader election...")
+			deadline := time.Now().Add(15 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(500 * time.Millisecond)
+				resp2, err2 := client.DoRequest("GET", "/api/v1/raft/status", nil)
+				if err2 != nil {
+					continue
+				}
+				var s2 map[string]interface{}
+				if err2 = json.Unmarshal(resp2, &s2); err2 != nil {
+					continue
+				}
+				if ok2, _ := s2["is_leader"].(bool); ok2 {
+					isLeader = true
+					printer.PrintSuccess("✓ This node is now the cluster leader")
+					break
+				}
+			}
+			if !isLeader {
+				return fmt.Errorf("timed out waiting for this node to become cluster leader after bootstrap")
+			}
 		}
 
 		// Extract cluster/node information from status

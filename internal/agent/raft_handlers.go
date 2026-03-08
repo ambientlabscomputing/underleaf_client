@@ -33,6 +33,29 @@ func (s *Server) handleRaftStatus(c *gin.Context) {
 	})
 }
 
+// handleRaftBootstrap bootstraps this node as a single-node cluster leader.
+// Only valid when the cluster has never been bootstrapped (nodes == {}).
+// After this call, the node will elect itself leader (typically within ~500ms).
+func (s *Server) handleRaftBootstrap(c *gin.Context) {
+	if s.raftNode == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "raft not enabled",
+		})
+		return
+	}
+
+	if err := s.raftNode.BootstrapSelf(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "bootstrap initiated; node is electing itself leader",
+	})
+}
+
 func (s *Server) handleRaftStats(c *gin.Context) {
 	if s.raftNode == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -96,10 +119,11 @@ func (s *Server) handleRaftKVGet(c *gin.Context) {
 		key = "/" + key
 	}
 
-	// Get read mode from query param (default: linearizable)
-	readMode := raft.ReadModeLinearizable
-	if mode := c.Query("mode"); mode == "stale" {
-		readMode = raft.ReadModeStale
+	// Get read mode from query param (default: stale — allows follower reads).
+	// Pass ?mode=linearizable to force a leader-routed consistent read.
+	readMode := raft.ReadModeStale
+	if mode := c.Query("mode"); mode == "linearizable" {
+		readMode = raft.ReadModeLinearizable
 	}
 
 	kv := raft.NewKV(s.raftNode)
@@ -232,10 +256,11 @@ func (s *Server) handleRaftKVList(c *gin.Context) {
 		prefix = "/"
 	}
 
-	// Get read mode from query param (default: linearizable)
-	readMode := raft.ReadModeLinearizable
-	if mode := c.Query("mode"); mode == "stale" {
-		readMode = raft.ReadModeStale
+	// Get read mode from query param (default: stale — allows follower reads).
+	// Pass ?mode=linearizable to force a leader-routed consistent read.
+	readMode := raft.ReadModeStale
+	if mode := c.Query("mode"); mode == "linearizable" {
+		readMode = raft.ReadModeLinearizable
 	}
 
 	kv := raft.NewKV(s.raftNode)

@@ -10,6 +10,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/raft"
+	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	eventStreamServer *EventStreamServer
 	capabilityManager interface{}             // Capability manager (type from internal/capability)
 	capabilityAPI     *capability.APIHandlers // HTTP handlers for capability endpoints
+	spineClient       *spine.Client           // nil when Spine is not configured
 }
 
 // NewServer creates a new agent server
@@ -74,6 +76,11 @@ func (s *Server) SetSecretStore(ss *raft.SecretStore) {
 // SetEventStreamServer injects the event stream server into the server
 func (s *Server) SetEventStreamServer(ess *EventStreamServer) {
 	s.eventStreamServer = ess
+}
+
+// SetSpineClient injects the Spine client so its health can be surfaced via /api/v1/status.
+func (s *Server) SetSpineClient(c *spine.Client) {
+	s.spineClient = c
 }
 
 // SetCapabilityManager injects the capability manager into the server
@@ -149,6 +156,7 @@ func (s *Server) setupRoutes() {
 			raft.GET("/status", s.handleRaftStatus)
 			raft.GET("/stats", s.handleRaftStats)
 			raft.GET("/leader", s.handleRaftLeader)
+			raft.POST("/bootstrap", s.handleRaftBootstrap)
 
 			// KV operations
 			raft.GET("/kv/:key", s.handleRaftKVGet)
@@ -255,6 +263,19 @@ func (s *Server) handleStatus(c *gin.Context) {
 	// Add config info if available
 	if s.configClient != nil {
 		status["config"] = s.configClient.ConfigClientInfo()
+	}
+
+	// Add Spine connectivity health when configured.
+	if s.spineClient != nil {
+		ss := s.spineClient.SpineStatus()
+		spineStatus := gin.H{
+			"healthy":            ss.IsHealthy,
+			"consecutive_errors": ss.ConsecutiveErrors,
+		}
+		if !ss.LastDeliveryAt.IsZero() {
+			spineStatus["last_delivery_at"] = ss.LastDeliveryAt.UTC().Format(time.RFC3339)
+		}
+		status["spine"] = spineStatus
 	}
 
 	c.JSON(http.StatusOK, status)

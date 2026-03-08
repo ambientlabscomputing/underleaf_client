@@ -51,8 +51,10 @@ Examples:
 		var exposures []interface{}
 		switch v := resp.(type) {
 		case map[string]interface{}:
-			// Response might be wrapped in a data field
-			if data, ok := v["data"].([]interface{}); ok {
+			// QueryExposuresResponse wraps the list: {"exposures": [...], "total": N}
+			if data, ok := v["exposures"].([]interface{}); ok {
+				exposures = data
+			} else if data, ok := v["data"].([]interface{}); ok {
 				exposures = data
 			} else {
 				exposures = []interface{}{v}
@@ -76,7 +78,7 @@ Examples:
 		}
 
 		// Display as table
-		deps.Printer.Print(fmt.Sprintf("\n%-10s %-12s %-15s %-8s %-25s %-10s %-25s", "ID", "DEPLOYMENT", "SERVICE", "PORT", "HOSTNAME", "STATUS", "URL"))
+		deps.Printer.Print(fmt.Sprintf("\n%-15s %-12s %-15s %-8s %-25s %-10s %-25s", "ID", "DEPLOYMENT", "SERVICE", "PORT", "HOSTNAME", "STATUS", "URL"))
 		deps.Printer.Print("──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
 		for _, exp := range exposures {
 			expMap, ok := exp.(map[string]interface{})
@@ -96,8 +98,8 @@ Examples:
 				publicURL = "-"
 			}
 
-			deps.Printer.Print(fmt.Sprintf("%-10s %-12s %-15s %-8v %-25s %-10s %-25s",
-				truncate(id, 8),
+			deps.Printer.Print(fmt.Sprintf("%-15s %-12s %-15s %-8v %-25s %-10s %-25s",
+				truncate(id, 13),
 				truncate(deploymentID, 10),
 				serviceName,
 				int(targetPort),

@@ -55,7 +55,7 @@ func NewLauncher(config LauncherConfig) *Launcher {
 		config.LogFile = filepath.Join(os.TempDir(), "underleaf-agent.log")
 	}
 	if config.Port == 0 {
-		config.Port = 8081
+		config.Port = 8080
 	}
 
 	return &Launcher{

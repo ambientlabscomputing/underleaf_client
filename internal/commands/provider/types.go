@@ -36,5 +36,5 @@ func getAgentPort(ctx context.Context) int {
 	if port, ok := ctx.Value(configAgentPortContextKey).(int); ok && port != 0 {
 		return port
 	}
-	return 8081 // default agent port
+	return 8080 // default agent port
 }

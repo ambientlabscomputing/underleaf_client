@@ -157,6 +157,38 @@ func (n *Node) Start() error {
 	return nil
 }
 
+// BootstrapSelf bootstraps a single-node cluster with this node as the sole voter.
+// This is used when the cluster has never been bootstrapped (nodes == {}) and the
+// caller wants to elect this node as the initial leader without config changes.
+func (n *Node) BootstrapSelf() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.raft == nil {
+		return fmt.Errorf("raft not started")
+	}
+
+	n.logger.Info("bootstrapping self as single-node cluster leader")
+
+	configuration := raft.Configuration{
+		Servers: []raft.Server{
+			{
+				ID:       raft.ServerID(n.config.NodeID),
+				Address:  n.transport.LocalAddr(),
+				Suffrage: raft.Voter,
+			},
+		},
+	}
+
+	future := n.raft.BootstrapCluster(configuration)
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to bootstrap cluster: %w", err)
+	}
+
+	n.logger.Info("single-node bootstrap complete, node will elect itself leader")
+	return nil
+}
+
 // bootstrap handles cluster bootstrapping based on configuration.
 func (n *Node) bootstrap() error {
 	// For now, always attempt bootstrap if configured

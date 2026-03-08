@@ -443,6 +443,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	server := NewServer(port)
 	server.SetDependencies(policyManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
+	server.SetSpineClient(spineClient) // exposes Spine health via /api/v1/status
 
 	// Initialize Raft node if configured (raftNode already declared earlier for Spine handler closures)
 	var clusterReporter *ClusterStatusReporter
