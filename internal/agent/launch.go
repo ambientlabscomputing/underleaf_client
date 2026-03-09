@@ -31,17 +31,22 @@ type Launcher struct {
 	pidFile         string
 	logFile         string
 	port            int
+	healthTimeout   time.Duration // 0 = skip health check; >0 = max time to wait
 	devConfig       *devmode.DevConfig
 	buildConfigPath string // absolute path to build.yaml, for passing to daemon child
 }
 
 // LauncherConfig configures the launcher
 type LauncherConfig struct {
-	Mode            LaunchMode
-	BinaryPath      string
-	PIDFile         string
-	LogFile         string
-	Port            int
+	Mode       LaunchMode
+	BinaryPath string
+	PIDFile    string
+	LogFile    string
+	Port       int
+	// HealthTimeout is how long startDaemon waits for the HTTP health endpoint.
+	// Set to 0 to disable the timeout entirely (agent process liveness is still
+	// verified). Defaults to 120s when unset.
+	HealthTimeout   time.Duration
 	DevConfig       *devmode.DevConfig
 	BuildConfigPath string // path to build.yaml, forwarded to daemon child
 }
@@ -57,6 +62,11 @@ func NewLauncher(config LauncherConfig) *Launcher {
 	if config.Port == 0 {
 		config.Port = 8080
 	}
+	// Default to 120s — long enough for Raft leader election + Spine SDK init
+	// across multi-node clusters, but still bounded for single-node fast starts.
+	if config.HealthTimeout == 0 {
+		config.HealthTimeout = 120 * time.Second
+	}
 
 	return &Launcher{
 		mode:            config.Mode,
@@ -64,6 +74,7 @@ func NewLauncher(config LauncherConfig) *Launcher {
 		pidFile:         config.PIDFile,
 		logFile:         config.LogFile,
 		port:            config.Port,
+		healthTimeout:   config.HealthTimeout,
 		devConfig:       config.DevConfig,
 		buildConfigPath: config.BuildConfigPath,
 	}
@@ -267,10 +278,25 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 	// the PID before the process finishes initializing, causing it to think
 	// another instance is already running.
 
+	// When HealthTimeout is negative, skip health polling entirely.
+	// Just verify the process is still alive after a brief settle period.
+	if l.healthTimeout < 0 {
+		time.Sleep(2 * time.Second)
+		if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+			logger.Error("agent process exited immediately", "logFile", l.logFile)
+			return fmt.Errorf("agent process exited immediately after launch, check logs at: %s", l.logFile)
+		}
+		logger.Info("daemon launched (health checking disabled)", "port", l.port)
+		return nil
+	}
+
 	// Wait for the agent to become healthy via health check endpoint.
-	// The agent initialises raft, seal-manager, Spine SDK, etc. which can
-	// take well over 10 s on slower / VM environments, so give it room.
-	maxWait := 30 * time.Second
+	// The agent initialises Raft, seal-manager, Spine SDK, etc. which can
+	// take well over 10s on slower / VM / multi-node environments.
+	// healthTimeout controls the maximum wait; callers can pass a large value
+	// (or use --health-timeout 0 on the CLI, which maps to -1 internally) to
+	// accommodate Raft leader-election across multiple nodes.
+	maxWait := l.healthTimeout
 	checkInterval := 500 * time.Millisecond
 	elapsed := time.Duration(0)
 
@@ -298,9 +324,20 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 		}
 	}
 
-	// Process failed to start or respond to health checks
-	logger.Error("timeout waiting for agent health check", "port", l.port, "logFile", l.logFile)
-	cmd.Process.Kill()
+	// Timeout reached — send SIGTERM for graceful shutdown, then SIGKILL if needed.
+	logger.Error("timeout waiting for agent health check", "port", l.port, "logFile", l.logFile, "timeout", maxWait)
+	if err := terminateProcess(cmd.Process); err != nil {
+		_ = killProcess(cmd.Process) // fall back to SIGKILL
+	} else {
+		// Give process 5s to clean up before force-killing
+		for i := 0; i < 10; i++ {
+			time.Sleep(500 * time.Millisecond)
+			if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
+				break // process is gone
+			}
+		}
+		_ = killProcess(cmd.Process)
+	}
 	return fmt.Errorf("agent failed to respond to health checks within %v, check logs at: %s", maxWait, l.logFile)
 }
 

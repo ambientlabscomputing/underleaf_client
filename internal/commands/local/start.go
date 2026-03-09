@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
@@ -59,6 +60,7 @@ Examples:
 
 		serverName, _ := cmd.Flags().GetString("name")
 		port, _ := cmd.Flags().GetInt("port")
+		healthTimeout, _ := cmd.Flags().GetDuration("health-timeout")
 
 		// Load dev config if dev-mode is enabled
 		devMode, _ := cmd.Flags().GetBool("dev-mode")
@@ -223,9 +225,17 @@ Examples:
 			absBuildConfigPath, _ = filepath.Abs(buildConfigPath)
 		}
 
+		// --health-timeout 0 means "disable" — we map that to a negative sentinel
+		// so NewLauncher's zero-default (120s) does not override the user's intent.
+		launcherHealthTimeout := healthTimeout
+		if healthTimeout == 0 {
+			launcherHealthTimeout = -1 * time.Nanosecond
+		}
+
 		launcher := agent.NewLauncher(agent.LauncherConfig{
 			Mode:            agent.ModeDaemon,
 			Port:            port,
+			HealthTimeout:   launcherHealthTimeout,
 			DevConfig:       devConfig,
 			BuildConfigPath: absBuildConfigPath,
 		})
@@ -306,4 +316,5 @@ func init() {
 	StartCmd.Flags().StringP("name", "n", "", "Server name (auto-generated if not provided)")
 	StartCmd.Flags().IntP("port", "p", 8080, "Agent port")
 	StartCmd.Flags().Bool("existing", false, "Claim an existing server identity instead of creating a new one")
+	StartCmd.Flags().Duration("health-timeout", 120*time.Second, "Max time to wait for agent HTTP health check (0 = disable timeout)")
 }

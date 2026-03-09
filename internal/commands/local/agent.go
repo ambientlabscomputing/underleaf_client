@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/agent"
 	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
@@ -54,6 +55,7 @@ Examples:
 		dev, _ := cmd.Flags().GetBool("dev")
 		detach, _ := cmd.Flags().GetBool("detach")
 		port, _ := cmd.Flags().GetInt("port")
+		healthTimeout, _ := cmd.Flags().GetDuration("health-timeout")
 
 		// Load dev config if dev-mode is enabled
 		devMode, _ := cmd.Flags().GetBool("dev-mode")
@@ -83,10 +85,17 @@ Examples:
 		}
 
 		// Create launcher
+		// --health-timeout 0 means "disable" — map to negative sentinel so
+		// NewLauncher's zero-default (120s) does not override the user's intent.
+		launcherHealthTimeout := healthTimeout
+		if healthTimeout == 0 {
+			launcherHealthTimeout = -1 * time.Nanosecond
+		}
 		launcher := agent.NewLauncher(agent.LauncherConfig{
-			Mode:      mode,
-			Port:      port,
-			DevConfig: devConfig,
+			Mode:          mode,
+			Port:          port,
+			HealthTimeout: launcherHealthTimeout,
+			DevConfig:     devConfig,
 		})
 
 		// Check if already running
@@ -293,6 +302,7 @@ func init() {
 	agentStartCmd.Flags().Bool("dev", false, "Run in development mode (foreground)")
 	agentStartCmd.Flags().BoolP("detach", "d", false, "Run as background daemon (requires underleaf_agent binary)")
 	agentStartCmd.Flags().IntP("port", "p", 8081, "Port to run the agent on")
+	agentStartCmd.Flags().Duration("health-timeout", 120*time.Second, "Max time to wait for agent HTTP health check (0 = disable timeout)")
 
 	// Restart flags
 	agentRestartCmd.Flags().IntP("port", "p", 8081, "Port to run the agent on")
