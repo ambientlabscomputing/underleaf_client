@@ -19,7 +19,7 @@ including size, capacity, and usage percentage.`,
 
 		// Try to get port from config first
 		config := policy_manager.GetConfig(cmd.Context())
-		port := 8081 // default
+		port := 2240 // default
 		if portVal, ok := config.Get("agent.port"); ok {
 			if portInt, ok := portVal.(int); ok {
 				port = portInt

@@ -81,7 +81,7 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
-	serveCmd.Flags().IntVarP(&port, "port", "p", 8081, "Port to run the agent on")
+	serveCmd.Flags().IntVarP(&port, "port", "p", 2240, "Port to run the agent on")
 	serveCmd.Flags().StringVarP(&mode, "mode", "m", "daemon", "Launch mode (dev or daemon)")
 	serveCmd.Flags().StringVar(&buildConfigPath, "build-config", "", "Path to build.yaml for dev mode UMC overrides")
 

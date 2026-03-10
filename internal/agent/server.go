@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,6 +21,7 @@ type Server struct {
 	port              int
 	router            *gin.Engine
 	server            *http.Server
+	listener          net.Listener // non-nil when ListenEarly has been called
 	configManager     policy_manager.PolicyManager
 	configClient      policy_manager.ConfigClient
 	commandHandler    *exec.CommandHandler
@@ -207,28 +210,60 @@ func (s *Server) setupRoutes() {
 	}
 }
 
-// Start starts the HTTP server
-func (s *Server) Start(ctx context.Context) error {
+// ListenEarly opens the TCP listener and starts serving immediately so that
+// the /health endpoint is reachable while the rest of the agent (Spine, Raft,
+// UMCs, etc.) is still initializing.  Call this early in WireAgent so that
+// ufctl's health-check polling sees a response instead of connection-refused.
+func (s *Server) ListenEarly() error {
+	addr := fmt.Sprintf(":%d", s.port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("early listen on %s: %w", addr, err)
+	}
+	s.listener = ln
 	s.server = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
+		Addr:    addr,
 		Handler: s.router,
 	}
-
-	// Start server in goroutine
-	errChan := make(chan error, 1)
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+		if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
+			slog.Error("early HTTP server error", "error", err)
 		}
 	}()
+	return nil
+}
 
-	// Wait for context cancellation or error
-	select {
-	case err := <-errChan:
-		return fmt.Errorf("server error: %w", err)
-	case <-ctx.Done():
-		return s.Shutdown()
+// Start starts the HTTP server.  If ListenEarly was already called the TCP
+// listener is already active, so Start just blocks until the context is
+// cancelled and then shuts down gracefully.
+func (s *Server) Start(ctx context.Context) error {
+	if s.listener == nil {
+		// Normal path — no early listener
+		s.server = &http.Server{
+			Addr:    fmt.Sprintf(":%d", s.port),
+			Handler: s.router,
+		}
+
+		// Start server in goroutine
+		errChan := make(chan error, 1)
+		go func() {
+			if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				errChan <- err
+			}
+		}()
+
+		// Wait for context cancellation or error
+		select {
+		case err := <-errChan:
+			return fmt.Errorf("server error: %w", err)
+		case <-ctx.Done():
+			return s.Shutdown()
+		}
 	}
+
+	// Early listener already active — just wait for shutdown signal
+	<-ctx.Done()
+	return s.Shutdown()
 }
 
 // Shutdown gracefully shuts down the server

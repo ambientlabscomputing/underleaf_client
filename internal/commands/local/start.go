@@ -314,7 +314,7 @@ Examples:
 
 func init() {
 	StartCmd.Flags().StringP("name", "n", "", "Server name (auto-generated if not provided)")
-	StartCmd.Flags().IntP("port", "p", 8080, "Agent port")
+	StartCmd.Flags().IntP("port", "p", 2240, "Agent port")
 	StartCmd.Flags().Bool("existing", false, "Claim an existing server identity instead of creating a new one")
 	StartCmd.Flags().Duration("health-timeout", 120*time.Second, "Max time to wait for agent HTTP health check (0 = disable timeout)")
 }

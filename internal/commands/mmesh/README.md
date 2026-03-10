@@ -161,7 +161,7 @@ If commands fail with "MMA event stream server not initialized":
 
 If commands fail with connection errors:
 1. Check if the agent is running: `ufctl agent status`
-2. Verify the agent port: `ufctl agent status` (default: 8081)
+2. Verify the agent port: `ufctl agent status` (default: 2240)
 3. Override the port if needed: `ufctl mmesh status --config-agent-port 9090`
 
 ## Implementation Details

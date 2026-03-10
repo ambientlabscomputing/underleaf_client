@@ -159,11 +159,12 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 		}, nil
 	}
 
-	// POST CSR to server_api /servers/:id/csr endpoint using POSTRaw
+	// POST CSR to server_api endpoint using POSTRaw.
+	// server_api BasePath is /api/v1/servers (the API service path); the resource
+	// group adds /servers, so the full registered route is /api/v1/servers/servers/:id/csr.
 	// Note: POSTRaw sets Content-Type to application/x-yaml by default, but the
 	// server_api endpoint reads raw bytes anyway and doesn't validate Content-Type.
-	// For proper HTTP semantics, the server should ideally accept application/x-pem-file.
-	path := fmt.Sprintf("/api/v1/servers/%s/csr", s.serverID)
+	path := fmt.Sprintf("/api/v1/servers/servers/%s/csr", s.serverID)
 	var csrResponse struct {
 		Certificate string `json:"certificate"`
 	}

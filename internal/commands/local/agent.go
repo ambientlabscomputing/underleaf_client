@@ -210,7 +210,7 @@ var agentStatusCmd = &cobra.Command{
 
 		// Try to get port from config first
 		config := policy_manager.GetConfig(cmd.Context())
-		port := 8080 // default (matches agent.port in ~/.underleaf/config.yaml)
+		port := 2240 // default (matches agent.port in ~/.underleaf/config.yaml)
 		if portVal, ok := config.Get("agent.port"); ok {
 			if portInt, ok := portVal.(int); ok {
 				port = portInt
@@ -301,11 +301,11 @@ func init() {
 	// Start flags
 	agentStartCmd.Flags().Bool("dev", false, "Run in development mode (foreground)")
 	agentStartCmd.Flags().BoolP("detach", "d", false, "Run as background daemon (requires underleaf_agent binary)")
-	agentStartCmd.Flags().IntP("port", "p", 8081, "Port to run the agent on")
+	agentStartCmd.Flags().IntP("port", "p", 2240, "Port to run the agent on")
 	agentStartCmd.Flags().Duration("health-timeout", 120*time.Second, "Max time to wait for agent HTTP health check (0 = disable timeout)")
 
 	// Restart flags
-	agentRestartCmd.Flags().IntP("port", "p", 8081, "Port to run the agent on")
+	agentRestartCmd.Flags().IntP("port", "p", 2240, "Port to run the agent on")
 
 	// Logs flags
 	agentLogsCmd.Flags().BoolP("follow", "f", false, "Follow log output")

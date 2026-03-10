@@ -65,7 +65,7 @@ local servers and the control plane.`,
 
 func init() {
 	// Add global persistent flags
-	rootCmd.PersistentFlags().IntVar(&configAgentPort, "config-agent-port", 0, "Override the agent port to connect to (default: 8081)")
+	rootCmd.PersistentFlags().IntVar(&configAgentPort, "config-agent-port", 0, "Override the agent port to connect to (default: 2240)")
 
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.StartCmd)

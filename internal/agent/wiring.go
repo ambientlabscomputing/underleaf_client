@@ -193,13 +193,23 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 	var configClient policy_manager.ConfigClient = simpleConfig
 
+	// Create the HTTP server immediately so the /health endpoint is reachable
+	// while the rest of initialization runs.  ufctl's daemon-mode health check
+	// polls /health — without an early listener the check times out and kills
+	// the agent process.
+	server := NewServer(port)
+	if err := server.ListenEarly(); err != nil {
+		return nil, fmt.Errorf("failed to start early HTTP listener: %w", err)
+	}
+	slog.Info("HTTP listener started (health check available)", "port", port)
+
 	// Get server ID from local metadata (with backward compatibility)
 	serverID, ok := getConfigValue(configClient, "server_id")
 	if !ok {
 		slog.Warn("no server ID configured, config manager will not sync")
 		return &Dependencies{
 			Config: configClient,
-			Server: NewServer(port),
+			Server: server,
 		}, nil
 	}
 
@@ -209,7 +219,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		slog.Warn("no auth token configured, config manager will not sync")
 		return &Dependencies{
 			Config: configClient,
-			Server: NewServer(port),
+			Server: server,
 		}, nil
 	}
 
@@ -267,6 +277,20 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				pool := x509.NewCertPool()
 				pool.AppendCertsFromPEM(caCertPEM)
 				spineTLS = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+
+				// Present the agent's mTLS client certificate to the spine.
+				// The spine requires mutual TLS (client_auth: require_and_verify)
+				// so we reuse the same cert/key the agent uses for control-plane mTLS.
+				if hasCert && hasKey && certPath != "" && keyPath != "" {
+					clientCert, err := tls.LoadX509KeyPair(certPath.(string), keyPath.(string))
+					if err != nil {
+						slog.Warn("failed to load agent mTLS cert for Spine, continuing without client cert", "error", err)
+					} else {
+						spineTLS.Certificates = []tls.Certificate{clientCert}
+						slog.Info("Spine TLS configured with agent mTLS client certificate")
+					}
+				}
+
 				slog.Info("Mycelium Spine TLS configured with server_api CA")
 			}
 
@@ -439,8 +463,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Don't fail agent startup if network info publish fails
 	}
 
-	// Initialize server
-	server := NewServer(port)
+	// Wire dependencies into the already-listening server
 	server.SetDependencies(policyManager, snapshotClient)
 	server.SetCommandHandler(commandHandler)
 	server.SetSpineClient(spineClient) // exposes Spine health via /api/v1/status

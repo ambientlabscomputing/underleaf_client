@@ -467,7 +467,13 @@ func (l *Launcher) IsRunning() bool {
 	}
 
 	// Check if process exists
-	return isProcessRunning(process)
+	if isProcessRunning(process) {
+		return true
+	}
+
+	// Process is gone — clean up stale PID file so the next Start() succeeds.
+	_ = l.removePID()
+	return false
 }
 
 // GetStatus returns the agent status

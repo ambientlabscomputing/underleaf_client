@@ -195,8 +195,8 @@ func init() {
 	kvCmd.AddCommand(kvListCmd)
 
 	// Add common flags
-	kvGetCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	kvPutCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	kvDeleteCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	kvListCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
+	kvGetCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	kvPutCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	kvDeleteCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	kvListCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
 }

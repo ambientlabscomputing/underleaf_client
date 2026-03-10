@@ -297,12 +297,12 @@ Maintenance mode is required for certain operations like promoting/demoting node
 
 func init() {
 	// Add common flags
-	statusCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	joinCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
+	statusCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	joinCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
 	joinCmd.Flags().StringVarP(&joinCode, "code", "c", "", "Join code for trust ceremony (e.g., A7K2-N9P4)")
 	joinCmd.Flags().StringVarP(&joinToken, "token", "t", "", "Full join token")
-	leaveCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	promoteCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	demoteCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
-	maintenanceCmd.Flags().IntVarP(&agentPort, "port", "p", 8080, "Agent port")
+	leaveCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	promoteCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	demoteCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
+	maintenanceCmd.Flags().IntVarP(&agentPort, "port", "p", 2240, "Agent port")
 }
