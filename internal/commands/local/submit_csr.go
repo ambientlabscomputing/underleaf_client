@@ -2,6 +2,7 @@ package local
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -110,12 +111,19 @@ be used for mTLS authentication.`,
 			return fmt.Errorf("API request failed with status %d", resp.StatusCode)
 		}
 
-		// Read signed certificate
-		certPEM, err := io.ReadAll(resp.Body)
+		// Read and parse JSON response
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			deps.Printer.PrintError("Failed to read signed certificate.")
 			return fmt.Errorf("failed to read certificate: %w", err)
 		}
+		var csrResponse struct {
+			Certificate string `json:"certificate"`
+		}
+		if err := json.Unmarshal(bodyBytes, &csrResponse); err != nil {
+			return fmt.Errorf("failed to parse CSR response: %w", err)
+		}
+		certPEM := []byte(csrResponse.Certificate)
 
 		// Save certificate to file
 		err = os.WriteFile(certPath, certPEM, 0644)

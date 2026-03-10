@@ -133,9 +133,11 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 		return nil, fmt.Errorf("failed to generate key: %w", err)
 	}
 
-	// Generate CSR
+	// Generate CSR — always use the server UUID as the CN so that downstream
+	// services (e.g. Hyphae tunnel gateway) can match the cert identity to
+	// the registered server.  The component name is informational only.
 	csrData := crypto.CSRData{
-		CommonName:  req.ComponentName,
+		CommonName:  s.serverID,
 		DNSNames:    req.DnsNames,
 		IPAddresses: req.IpAddresses,
 	}
@@ -160,11 +162,10 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 	}
 
 	// POST CSR to server_api endpoint using POSTRaw.
-	// server_api BasePath is /api/v1/servers (the API service path); the resource
-	// group adds /servers, so the full registered route is /api/v1/servers/servers/:id/csr.
-	// Note: POSTRaw sets Content-Type to application/x-yaml by default, but the
-	// server_api endpoint reads raw bytes anyway and doesn't validate Content-Type.
-	path := fmt.Sprintf("/api/v1/servers/servers/%s/csr", s.serverID)
+	// api.base_url already includes the service base path /api/v1/servers, so the
+	// path here is relative to that base — /servers/:id/csr maps to the full route
+	// /api/v1/servers/servers/:id/csr.
+	path := fmt.Sprintf("/servers/%s/csr", s.serverID)
 	var csrResponse struct {
 		Certificate string `json:"certificate"`
 	}
@@ -180,9 +181,21 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 		return nil, fmt.Errorf("failed to parse signed certificate: %w", err)
 	}
 
-	// Store certificate for GetNodeIdentity to return
+	// Fetch the CA certificate so callers of GetNodeIdentity can build a complete
+	// RootCAs pool. Without this the leaf cert is present but the trust anchor is
+	// missing and mTLS handshakes with Hyphae will fail.
+	chain := []string{string(certPEM)}
+	caCertPEM, caErr := s.fetchCACertificate(ctx)
+	if caErr != nil {
+		// Non-fatal — log and continue with just the leaf cert.
+		fmt.Printf("[identity] warning: could not fetch CA certificate: %v\n", caErr)
+	} else {
+		chain = append(chain, string(caCertPEM))
+	}
+
+	// Store certificate chain for GetNodeIdentity to return
 	s.mu.Lock()
-	s.issuedCertChain = []string{string(certPEM)}
+	s.issuedCertChain = chain
 	s.mu.Unlock()
 
 	return &pb.IssueLocalCertificateResponse{
@@ -190,4 +203,13 @@ func (s *IdentityServer) IssueLocalCertificate(ctx context.Context, req *pb.Issu
 		PrivateKeyPem:  string(privateKeyPEM),
 		ExpiresAt:      timestamppb.New(cert.NotAfter),
 	}, nil
+}
+
+// fetchCACertificate retrieves the CA certificate from server_api's public
+// GET /ca/certificate endpoint via the API client's cached getter.
+func (s *IdentityServer) fetchCACertificate(ctx context.Context) ([]byte, error) {
+	if s.apiClient == nil {
+		return nil, fmt.Errorf("no API client configured")
+	}
+	return s.apiClient.GetCACertificate(ctx)
 }

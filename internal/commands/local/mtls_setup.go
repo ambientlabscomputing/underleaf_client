@@ -3,14 +3,15 @@ package local
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
 
@@ -101,12 +102,19 @@ func SetupMTLSCertificate(ctx context.Context, printer *ui.Printer, configClient
 		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Step 4: Read and save signed certificate
+	// Step 4: Read and parse JSON response, then save signed certificate
 	printer.PrintInfo("[4/4] Saving signed certificate...")
-	certPEM, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read certificate: %w", err)
 	}
+	var csrResponse struct {
+		Certificate string `json:"certificate"`
+	}
+	if err := json.Unmarshal(bodyBytes, &csrResponse); err != nil {
+		return fmt.Errorf("failed to parse CSR response: %w", err)
+	}
+	certPEM := []byte(csrResponse.Certificate)
 
 	if err := crypto.SaveCertificate(certPEM, certPath); err != nil {
 		return fmt.Errorf("failed to save certificate: %w", err)
