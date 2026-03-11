@@ -22,6 +22,7 @@ type LifecycleManager struct {
 	providerStore   *store.ProviderStore
 	config          LifecycleConfig
 	log             *slog.Logger
+	envOverrides    map[string]map[string]string // providerID -> env vars to merge at start time
 }
 
 // LifecycleConfig configures the lifecycle manager
@@ -62,12 +63,24 @@ func NewLifecycleManager(dockerClient *client.Client, providerStore *store.Provi
 		providerStore:   providerStore,
 		config:          config,
 		log:             log,
+		envOverrides:    make(map[string]map[string]string),
 	}, nil
 }
 
 // GetSupervisor returns the process supervisor (for kernel syscall wiring).
 func (lm *LifecycleManager) GetSupervisor() *ProcessSupervisor {
 	return lm.supervisor
+}
+
+// SetEnvOverride registers additional environment variables to be merged into
+// a provider's RuntimeRequirements.Env each time it is started. These overrides
+// are applied at start time and are not persisted to the provider store.
+// Keys already present in the UCRS-supplied env are overwritten.
+func (lm *LifecycleManager) SetEnvOverride(providerID string, env map[string]string) {
+	if lm.envOverrides == nil {
+		lm.envOverrides = make(map[string]map[string]string)
+	}
+	lm.envOverrides[providerID] = env
 }
 
 // Install installs a provider (pulls OCI image or downloads binary)
@@ -300,6 +313,27 @@ func (l *LifecycleManager) startBinary(ctx context.Context, instance *store.Prov
 		ProviderID: instance.ProviderID,
 		Version:    instance.Version,
 		BinaryPath: instance.Metadata["binary_path"],
+	}
+
+	// Merge any platform-injected env overrides (e.g. HYPHAE_ENABLED, HYPHAE_TUNNEL_ADDR for MMA).
+	// These are set at agent wiring time and override or augment the UCRS-supplied env.
+	if overrides, ok := l.envOverrides[provider.ProviderID]; ok && len(overrides) > 0 {
+		if provider.RuntimeRequirements.Env == nil {
+			provider.RuntimeRequirements.Env = make(map[string]string)
+		}
+		for k, v := range overrides {
+			provider.RuntimeRequirements.Env[k] = v
+		}
+		l.log.Info("applied platform env overrides to provider",
+			"provider_id", provider.ProviderID,
+			"keys", func() []string {
+				ks := make([]string, 0, len(overrides))
+				for k := range overrides {
+					ks = append(ks, k)
+				}
+				return ks
+			}(),
+		)
 	}
 
 	if err := l.binaryLifecycle.Start(provider, installState); err != nil {

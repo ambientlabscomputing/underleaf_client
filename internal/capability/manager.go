@@ -242,6 +242,15 @@ func (m *Manager) GetRegistryStats() RegistryStats {
 	return m.registry.Stats()
 }
 
+// SetProviderEnvOverride registers additional environment variables that will be
+// merged into a provider's env each time it is (re)started. Calling this before
+// InstallProviderByID/EnsureCapability ensures the overrides are applied on first
+// start. Calling it while a provider is already running takes effect on the next
+// restart (the agent restarts MMA when a new binary is deployed).
+func (m *Manager) SetProviderEnvOverride(providerID string, env map[string]string) {
+	m.lifecycle.SetEnvOverride(providerID, env)
+}
+
 // InstallProviderByID installs a provider by its provider ID (not capability ID)
 func (m *Manager) InstallProviderByID(ctx context.Context, providerID string) (*ProviderEndpoint, error) {
 	slog.Info("installing provider by ID", "provider_id", providerID)

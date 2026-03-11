@@ -14,15 +14,16 @@ import (
 
 // ExposureBindRequest is the payload from Spine exposure.bind.request
 type ExposureBindRequest struct {
-	ExposureID   string `json:"exposure_id"`
-	LeaseID      string `json:"lease_id"`
-	Hostname     string `json:"hostname"`
-	TargetPort   int    `json:"target_port"`
-	LocalAddr    string `json:"local_addr"`
-	OrgID        string `json:"org_id"`
-	DeploymentID string `json:"deployment_id"`
-	ServerID     string `json:"server_id"`
-	CreatedAt    int64  `json:"created_at"`
+	ExposureID       string `json:"exposure_id"`
+	LeaseID          string `json:"lease_id"`
+	Hostname         string `json:"hostname"`
+	TargetPort       int    `json:"target_port"`
+	LocalAddr        string `json:"local_addr"`
+	OrgID            string `json:"org_id"`
+	DeploymentID     string `json:"deployment_id"`
+	ServerID         string `json:"server_id"`
+	CreatedAt        int64  `json:"created_at"`
+	HyphaeTunnelAddr string `json:"hyphae_tunnel_addr"` // Hyphae tunnel endpoint (host:port) from server_api platform config
 }
 
 // ExposureUnbindRequest is the payload from Spine exposure.unbind.request
@@ -57,15 +58,16 @@ func HandleExposureBindRequested(ctx context.Context, msg spine.Message, raftNod
 	if raftNode != nil {
 		kv := raft.NewKV(raftNode)
 		exposureData := map[string]interface{}{
-			"exposure_id":   req.ExposureID,
-			"lease_id":      req.LeaseID,
-			"hostname":      req.Hostname,
-			"target_port":   req.TargetPort,
-			"local_addr":    req.LocalAddr,
-			"deployment_id": req.DeploymentID,
-			"server_id":     req.ServerID,
-			"status":        "pending",
-			"created_at":    time.Now().Unix(),
+			"exposure_id":        req.ExposureID,
+			"lease_id":           req.LeaseID,
+			"hostname":           req.Hostname,
+			"target_port":        req.TargetPort,
+			"local_addr":         req.LocalAddr,
+			"deployment_id":      req.DeploymentID,
+			"server_id":          req.ServerID,
+			"hyphae_tunnel_addr": req.HyphaeTunnelAddr,
+			"status":             "pending",
+			"created_at":         time.Now().Unix(),
 		}
 		exposureJSON, err := json.Marshal(exposureData)
 		if err != nil {
@@ -93,6 +95,7 @@ func HandleExposureBindRequested(ctx context.Context, msg spine.Message, raftNod
 			req.Hostname,
 			req.TargetPort,
 			req.LocalAddr,
+			req.HyphaeTunnelAddr,
 		); err != nil {
 			logger.Error("failed to publish exposure bind requested event", "error", err)
 			return fmt.Errorf("failed to emit event to MMA: %w", err)

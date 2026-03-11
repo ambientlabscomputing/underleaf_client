@@ -66,8 +66,9 @@ type ServerPlatform struct {
 }
 
 type ConfigurationPayload struct {
-	Commands ServerCommandSettings `json:"commands"`
-	Platform ServerPlatform        `json:"platform"`
+	Commands         ServerCommandSettings `json:"commands"`
+	Platform         ServerPlatform        `json:"platform"`
+	HyphaeTunnelAddr string                `json:"hyphae_tunnel_addr,omitempty"` // Hyphae tunnel endpoint (host:port), populated by server_api from platform config
 }
 
 type Configuration struct {

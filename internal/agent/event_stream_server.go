@@ -143,13 +143,15 @@ func (e *EventStreamServer) PublishExposureBindRequested(
 	hostname string,
 	targetPort int,
 	localAddr string,
+	tunnelAddr string,
 ) error {
 	payload := map[string]interface{}{
-		"exposure_id": exposureID,
-		"lease_id":    leaseID,
-		"hostname":    hostname,
-		"target_port": targetPort,
-		"local_addr":  localAddr,
+		"exposure_id":        exposureID,
+		"lease_id":           leaseID,
+		"hostname":           hostname,
+		"target_port":        targetPort,
+		"local_addr":         localAddr,
+		"hyphae_tunnel_addr": tunnelAddr,
 	}
 	return e.PublishEvent("exposure.bind.requested", payload, "exposure", exposureID)
 }

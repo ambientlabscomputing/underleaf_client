@@ -841,10 +841,23 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		slog.Warn("DEV MODE: starting local MMA binary", "path", mmaPath)
 
 		mmaCmd := exec.Command(mmaPath)
-		// Build env: start with KERNEL_SOCKET and LOG_LEVEL, then merge dev config env vars
+		// Build env: start with KERNEL_SOCKET and LOG_LEVEL, then merge dev config env vars.
+		// Hyphae config (HYPHAE_ENABLED, HYPHAE_TUNNEL_ADDR) comes from the platform snapshot
+		// config (hyphae_tunnel_addr delivered by server_api) or dev config as fallback.
+		// File-path env vars (HYPHAE_CA_CERT_PATH etc.) are NOT injected — MMA uses
+		// the kernel cert bootstrap path (IssueLocalCertificate → server_api CSR) instead.
 		baseEnv := map[string]string{
 			"KERNEL_SOCKET": syscallSocketPath,
 			"LOG_LEVEL":     "debug",
+		}
+		// Inject Hyphae tunnel addr if available from platform config
+		devHyphaeTunnelAddr := getConfigValueStr(snapshotClient, "hyphae_tunnel_addr", "")
+		if devHyphaeTunnelAddr == "" {
+			devHyphaeTunnelAddr = getConfigValueStr(simpleConfig, "hyphae.tunnel_addr", "")
+		}
+		if devHyphaeTunnelAddr != "" {
+			baseEnv["HYPHAE_ENABLED"] = "true"
+			baseEnv["HYPHAE_TUNNEL_ADDR"] = devHyphaeTunnelAddr
 		}
 		mergedEnv := devMMAEnv(devConfig, baseEnv)
 
@@ -952,6 +965,27 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstall {
 							mmaProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mma_provider_id", "underleaf.mma")
+
+							// Inject Hyphae config from platform into MMA's env before starting.
+							// The tunnel address comes from server_api's configuration payload
+							// (hyphae_tunnel_addr field), not from scripts or local config files.
+							// No file-path env vars are injected — MMA bootstraps its cert via
+							// the kernel IssueLocalCertificate path (UA-K → server_api CSR endpoint).
+							hyphaeTunnelAddr := getConfigValueStr(snapshotClient, "hyphae_tunnel_addr", "")
+							if hyphaeTunnelAddr == "" {
+								hyphaeTunnelAddr = getConfigValueStr(simpleConfig, "hyphae.tunnel_addr", "")
+							}
+							if hyphaeTunnelAddr != "" {
+								mgr.SetProviderEnvOverride(mmaProviderID, map[string]string{
+									"HYPHAE_ENABLED":     "true",
+									"HYPHAE_TUNNEL_ADDR": hyphaeTunnelAddr,
+								})
+								slog.Info("Hyphae env configured for MMA", "provider_id", mmaProviderID, "tunnel_addr", hyphaeTunnelAddr)
+							} else {
+								slog.Warn("hyphae_tunnel_addr not found in platform config; MMA will start with Hyphae disabled",
+									"hint", "ensure server_api config has hyphae.tunnel_endpoint set")
+							}
+
 							go ensureMMAInstalled(ctx, mgr, mmaProviderID)
 						}
 
