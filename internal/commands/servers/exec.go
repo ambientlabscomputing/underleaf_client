@@ -48,6 +48,7 @@ Examples:
 		timeout, _ := cmd.Flags().GetInt("timeout")
 		envVars, _ := cmd.Flags().GetStringSlice("env")
 		detach, _ := cmd.Flags().GetBool("detach")
+		workDir, _ := cmd.Flags().GetString("workdir")
 
 		// Build environment map
 		envMap := make(map[string]string)
@@ -68,6 +69,7 @@ Examples:
 		// Build dispatch request
 		req := controlplane.DispatchCommandRequest{
 			Command: fullCommand,
+			WorkDir: workDir,
 			Timeout: timeout,
 			EnvVars: envMap,
 		}
@@ -434,5 +436,6 @@ func init() {
 	ExecCmd.Flags().IntP("timeout", "t", 0, "Command timeout in seconds (0 = use server default)")
 	ExecCmd.Flags().StringSliceP("env", "e", []string{}, "Environment variables (KEY=VALUE)")
 	ExecCmd.Flags().BoolP("detach", "d", false, "Run in background without waiting for completion")
+	ExecCmd.Flags().StringP("workdir", "w", "", "Working directory for command execution")
 	ServersCmd.AddCommand(ExecCmd)
 }
