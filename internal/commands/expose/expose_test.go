@@ -1,10 +1,29 @@
 package expose
-package expose
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 	"testing"
 )
+
+// parseExposeFormat is a helper function for testing
+// Simple parser for testing - not used in actual commands
+func parseExposeFormat(flag string) map[string]interface{} {
+	parts := strings.SplitN(flag, ":", 2)
+	if len(parts) != 2 {
+		return nil
+	}
+	port, err := strconv.Atoi(parts[1])
+	if err != nil || port < 1 || port > 65535 {
+		return nil
+	}
+	return map[string]interface{}{
+		"service": parts[0],
+		"port":    fmt.Sprintf("%d", port),
+	}
+}
 
 // TestParseExposeFlag tests the parsing of expose configuration
 func TestParseExposeFlag(t *testing.T) {
@@ -21,117 +40,110 @@ func TestParseExposeFlag(t *testing.T) {
 			wantError: false,
 		},
 		{
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}	}		// Context is valid	default:		t.Fatal("context should not be done")	case <-ctx.Done():	select {	}		t.Fatal("context should not be nil")	if ctx == nil {	// Verify context can be passed to expose commands	defer cancel()	ctx, cancel := context.WithCancel(ctx)	ctx := context.Background()func TestExposeContextPropagation(t *testing.T) {// TestExposeContextPropagation tests that context is properly passed through commands}	}		})			}				t.Errorf("%s is nil", tt.name)			if tt.cmd == nil {		t.Run(tt.name, func(t *testing.T) {	for _, tt := range tests {	}		},			wantErr: false,			cmd:     RevokeCmd,			name:    "RevokeCmd exists",		{		},			wantErr: false,			cmd:     GetCmd,			name:    "GetCmd exists",		{		},			wantErr: false,			cmd:     ListCmd,			name:    "ListCmd exists",		{		},			wantErr: false,			cmd:     CreateCmd,			name:    "CreateCmd exists",		{		},			wantErr: false,			cmd:     ExposeCmd,			name:    "ExposeCmd exists",		{	}{		wantErr bool		cmd     interface{} // Would be *cobra.Command in actual implementation		name    string	tests := []struct {func TestExposeCommandStructure(t *testing.T) {// TestExposeCommandStructure tests that expose commands are properly configured}	return nil	// This is just for demonstration	// Simple parser for testing - not used in actual commandsfunc parseExposeFormat(flag string) map[string]interface{} {// parseExposeFormat is a helper function for testing}	}		})			}				t.Errorf("parseExposeFormat(%q) error = %v, wantError %v", tt.flag, parts == nil, tt.wantError)			if (parts == nil) != tt.wantError {			parts := parseExposeFormat(tt.flag)			// In real implementation, would test the actual parsing function			// This test validates the parsing logic		t.Run(tt.name, func(t *testing.T) {	for _, tt := range tests {	}		},			wantError: true,			flag:      "web:65536",			name:      "invalid port - out of range high",		{		},			wantError: true,			flag:      "web:0",			name:      "invalid port - out of range low",		{		},			wantError: true,			flag:      "web:abc",			name:      "invalid format - non-numeric port",		{		},			wantError: true,			flag:      "web8080",			name:      "invalid format - missing colon",		{		},			wantError: false,			wantPort:  1,			flag:      "db:1",			name:      "valid low port",		{		},			wantError: false,			wantPort:  65535,			flag:      "api:65535",			name:      "valid high port",
+			name:      "valid high port",
+			flag:      "api:65535",
+			wantPort:  65535,
+			wantError: false,
+		},
+		{
+			name:      "valid low port",
+			flag:      "db:1",
+			wantPort:  1,
+			wantError: false,
+		},
+		{
+			name:      "invalid format - missing colon",
+			flag:      "web8080",
+			wantError: true,
+		},
+		{
+			name:      "invalid format - non-numeric port",
+			flag:      "web:abc",
+			wantError: true,
+		},
+		{
+			name:      "invalid port - out of range low",
+			flag:      "web:0",
+			wantError: true,
+		},
+		{
+			name:      "invalid port - out of range high",
+			flag:      "web:65536",
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This test validates the parsing logic
+			// In real implementation, would test the actual parsing function
+			parts := parseExposeFormat(tt.flag)
+
+			if (parts == nil) != tt.wantError {
+				t.Errorf("parseExposeFormat(%q) error = %v, wantError %v", tt.flag, parts == nil, tt.wantError)
+			}
+		})
+	}
+}
+
+// TestExposeCommandStructure tests that expose commands are properly configured
+func TestExposeCommandStructure(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmd     interface{} // Would be *cobra.Command in actual implementation
+		wantErr bool
+	}{
+		{
+			name:    "ExposeCmd exists",
+			cmd:     ExposeCmd,
+			wantErr: false,
+		},
+		{
+			name:    "CreateCmd exists",
+			cmd:     CreateCmd,
+			wantErr: false,
+		},
+		{
+			name:    "ListCmd exists",
+			cmd:     ListCmd,
+			wantErr: false,
+		},
+		{
+			name:    "GetCmd exists",
+			cmd:     GetCmd,
+			wantErr: false,
+		},
+		{
+			name:    "RevokeCmd exists",
+			cmd:     RevokeCmd,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.cmd == nil {
+				t.Errorf("%s is nil", tt.name)
+			}
+		})
+	}
+}
+
+// TestExposeContextPropagation tests that context is properly passed through commands
+func TestExposeContextPropagation(t *testing.T) {
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Verify context can be passed to expose commands
+	if ctx == nil {
+		t.Fatal("context should not be nil")
+	}
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be done")
+	default:
+		// Context is valid
+	}
+}

@@ -75,3 +75,45 @@ func (c *DeploymentClient) ReportDeploymentProgress(ctx context.Context, progres
 
 	return nil
 }
+
+// SourceTargeting selects which servers receive a source-deployed app.
+type SourceTargeting struct {
+	Mode      string            `json:"mode"`
+	ServerIDs []string          `json:"server_ids,omitempty"`
+	Tags      map[string]string `json:"tags,omitempty"`
+}
+
+// DeployFromSourceRequest is the body for POST /deployments/source.
+type DeployFromSourceRequest struct {
+	Source      string           `json:"source"`
+	Ref         string           `json:"ref,omitempty"`
+	Targeting   *SourceTargeting `json:"targeting,omitempty"`
+	GitHubToken string           `json:"github_token,omitempty"`
+}
+
+// DeployFromSourceResponse is returned by POST /deployments/source.
+type DeployFromSourceResponse struct {
+	DeploymentID string `json:"deployment_id"`
+	JobID        string `json:"job_id"`
+	Slug         string `json:"slug"`
+	Source       string `json:"source"`
+	Timestamp    string `json:"timestamp"`
+}
+
+// DeployFromSource calls POST /deployments/source and returns the created deployment info.
+func (c *DeploymentClient) DeployFromSource(ctx context.Context, req DeployFromSourceRequest) (*DeployFromSourceResponse, error) {
+	slog.Info("deploying from source", "source", req.Source, "ref", req.Ref)
+
+	var response DeployFromSourceResponse
+	if err := c.api.POST(ctx, "/deployments/source", req, &response); err != nil {
+		return nil, fmt.Errorf("failed to deploy from source: %w", err)
+	}
+
+	slog.Info("deploy from source submitted",
+		"deployment_id", response.DeploymentID,
+		"job_id", response.JobID,
+		"slug", response.Slug,
+	)
+
+	return &response, nil
+}

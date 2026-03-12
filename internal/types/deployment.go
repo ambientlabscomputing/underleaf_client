@@ -11,6 +11,7 @@ type AppDeployment struct {
 	Name                   string                  `json:"name"`
 	Slug                   string                  `json:"slug"`
 	Version                int                     `json:"version"`
+	Source                 *SourceRef              `json:"source,omitempty"`
 	CreatedAt              string                  `json:"created_at"`
 	UpdatedAt              string                  `json:"updated_at"`
 	State                  string                  `json:"state"`  // creating, running, failed, stopped
@@ -34,10 +35,28 @@ type VolumeSpec struct {
 	Path string `json:"path"`
 }
 
+// BuildConfig describes how to build a Docker image from source.
+// If set, Image should be empty — the built image replaces it at runtime.
+type BuildConfig struct {
+	Context    string            `json:"context,omitempty" yaml:"context,omitempty"`       // path relative to repo root (default ".")
+	Dockerfile string            `json:"dockerfile,omitempty" yaml:"dockerfile,omitempty"` // default "Dockerfile"
+	Args       map[string]string `json:"args,omitempty" yaml:"args,omitempty"`
+}
+
+// SourceRef carries resolved source coordinates from a gh: deploy.
+type SourceRef struct {
+	Type       string `json:"type"` // currently always "github"
+	Owner      string `json:"owner"`
+	Repo       string `json:"repo"`
+	Ref        string `json:"ref"`         // branch, tag, or commit SHA
+	ArchiveURL string `json:"archive_url"` // tarball download URL
+}
+
 // ServiceSpec defines a Docker container service
 type ServiceSpec struct {
 	Name        string            `json:"name"`
-	Image       string            `json:"image"`
+	Image       string            `json:"image,omitempty"`
+	Build       *BuildConfig      `json:"build,omitempty" yaml:"build,omitempty"`
 	Environment map[string]string `json:"environment,omitempty"`
 	Volumes     []string          `json:"volumes,omitempty"` // mount specs like "volume_name:/path"
 	Networks    []string          `json:"networks,omitempty"`
