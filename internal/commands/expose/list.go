@@ -35,10 +35,12 @@ Examples:
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
 
-		deps.Printer.Print(lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("86")).
-			Render("\n🌐 Listing public exposures...\n"))
+		if listOutput != "json" {
+			deps.Printer.Print(lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("86")).
+				Render("\n🌐 Listing public exposures...\n"))
+		}
 
 		// Call API
 		resp, err := deps.CPlaneClient.API().QueryExposures(ctx, listDeploymentID, listServerID, listStatus, listLimit, listOffset)
