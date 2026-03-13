@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ambientlabscomputing/mycelium_spine v1.1.0-rc.3
 	github.com/ambientlabscomputing/mycelium_spine/sdk v1.1.0-rc.3
-	github.com/ambientlabscomputing/ucrs v1.3.0
+	github.com/ambientlabscomputing/ucrs v1.4.0-rc.1
 	github.com/ambientlabscomputing/umc_sdk v0.1.3
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
