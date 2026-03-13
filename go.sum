@@ -13,8 +13,8 @@ github.com/ambientlabscomputing/mycelium_spine v1.1.0-rc.3 h1:gA4wWKTwfXIKSL+JYQ
 github.com/ambientlabscomputing/mycelium_spine v1.1.0-rc.3/go.mod h1:KghCzDjXO5tUy1qK7q7U/JKip9LQkscdaBIqDYvaI2I=
 github.com/ambientlabscomputing/mycelium_spine/sdk v1.1.0-rc.3 h1:qsiLpD9eQK/zGOhDV6VadJWnZhj4lzgzU4P2JG8gcYA=
 github.com/ambientlabscomputing/mycelium_spine/sdk v1.1.0-rc.3/go.mod h1:15x1OXCqWefNC0NLolAOs75EmwpNCAvG6945D2UcacE=
-github.com/ambientlabscomputing/ucrs v1.3.0 h1:FKcLeGCXnDcx1gEWJZ+uYPheyt19zUqu75z6vqnheYA=
-github.com/ambientlabscomputing/ucrs v1.3.0/go.mod h1:eLdKbkbKX6XkZ3Xzcr5obVAYgypDDoyEdNvXfU7P9yg=
+github.com/ambientlabscomputing/ucrs v1.4.0-rc.1 h1:4ocwRnB1NN1/4wpOOldV9a63rLnhLVttTX2SQJS4Q8I=
+github.com/ambientlabscomputing/ucrs v1.4.0-rc.1/go.mod h1:eLdKbkbKX6XkZ3Xzcr5obVAYgypDDoyEdNvXfU7P9yg=
 github.com/ambientlabscomputing/umc_sdk v0.1.3 h1:aL4qg7q/NKLlf8cnK0cCwDWJ58Fi1qkDo7z6REqz+7E=
 github.com/ambientlabscomputing/umc_sdk v0.1.3/go.mod h1:K7Bi+Rq7I66gyEJ/2RRgU6grt6loATwVGRp3ygVGQYg=
 github.com/armon/go-metrics v0.4.1 h1:hR91U9KYmb6bLBYLQjyM+3j+rcd/UhE+G78SFnF8gJA=
