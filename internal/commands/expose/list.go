@@ -78,8 +78,8 @@ Examples:
 		}
 
 		// Display as table
-		deps.Printer.Print(fmt.Sprintf("\n%-15s %-12s %-15s %-8s %-25s %-10s %-25s", "ID", "DEPLOYMENT", "SERVICE", "PORT", "HOSTNAME", "STATUS", "URL"))
-		deps.Printer.Print("──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
+		deps.Printer.Print(fmt.Sprintf("\n%-15s %-12s %-20s %-6s %-10s %s", "ID", "DEPLOYMENT", "SERVICE", "PORT", "STATUS", "URL"))
+		deps.Printer.Print("─────────────────────────────────────────────────────────────────────────────────────────────────────────────────")
 		for _, exp := range exposures {
 			expMap, ok := exp.(map[string]interface{})
 			if !ok {
@@ -90,7 +90,6 @@ Examples:
 			deploymentID, _ := expMap["deployment_id"].(string)
 			serviceName, _ := expMap["service_name"].(string)
 			targetPort, _ := expMap["target_port"].(float64)
-			hostname, _ := expMap["hostname"].(string)
 			status, _ := expMap["status"].(string)
 			publicURL, _ := expMap["public_url"].(string)
 
@@ -98,14 +97,13 @@ Examples:
 				publicURL = "-"
 			}
 
-			deps.Printer.Print(fmt.Sprintf("%-15s %-12s %-15s %-8v %-25s %-10s %-25s",
+			deps.Printer.Print(fmt.Sprintf("%-15s %-12s %-20s %-6v %-10s %s",
 				truncate(id, 13),
 				truncate(deploymentID, 10),
-				serviceName,
+				truncate(serviceName, 18),
 				int(targetPort),
-				truncate(hostname, 23),
 				status,
-				truncate(publicURL, 23),
+				publicURL,
 			))
 		}
 

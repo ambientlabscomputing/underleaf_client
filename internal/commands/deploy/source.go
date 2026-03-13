@@ -86,6 +86,18 @@ Examples:
 		deps.Printer.Print(fmt.Sprintf("   Job ID        : %s", resp.JobID))
 		deps.Printer.Print(fmt.Sprintf("   Source        : %s", resp.Source))
 		deps.Printer.Print(fmt.Sprintf("   Started at    : %s", resp.Timestamp))
+
+		if len(resp.Exposures) > 0 {
+			deps.Printer.Print("")
+			deps.Printer.Print(lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("86")).
+				Render("🌐 Public URLs:"))
+			for _, exp := range resp.Exposures {
+				deps.Printer.Print(fmt.Sprintf("   %s → %s", exp.ServiceName, exp.PublicURL))
+			}
+		}
+
 		deps.Printer.Print("")
 		deps.Printer.PrintInfo("Use 'ufctl jobs get " + resp.JobID + "' to track progress.")
 

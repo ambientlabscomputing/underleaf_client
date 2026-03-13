@@ -91,13 +91,22 @@ type DeployFromSourceRequest struct {
 	GitHubToken string           `json:"github_token,omitempty"`
 }
 
+// ExposureInfo is a summary of an auto-created exposure.
+type ExposureInfo struct {
+	ExposureID  string `json:"exposure_id"`
+	ServiceName string `json:"service_name"`
+	PublicURL   string `json:"public_url"`
+	ServerID    string `json:"server_id"`
+}
+
 // DeployFromSourceResponse is returned by POST /deployments/source.
 type DeployFromSourceResponse struct {
-	DeploymentID string `json:"deployment_id"`
-	JobID        string `json:"job_id"`
-	Slug         string `json:"slug"`
-	Source       string `json:"source"`
-	Timestamp    string `json:"timestamp"`
+	DeploymentID string         `json:"deployment_id"`
+	JobID        string         `json:"job_id"`
+	Slug         string         `json:"slug"`
+	Source       string         `json:"source"`
+	Timestamp    string         `json:"timestamp"`
+	Exposures    []ExposureInfo `json:"exposures,omitempty"`
 }
 
 // DeployFromSource calls POST /deployments/source and returns the created deployment info.
