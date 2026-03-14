@@ -45,6 +45,14 @@ const (
 	ArtifactPyPI   = ucrstypes.ArtifactPyPI
 )
 
+// LaunchMode type and constants
+type LaunchMode = ucrstypes.LaunchMode
+
+const (
+	LaunchModeDaemon   = ucrstypes.LaunchModeDaemon
+	LaunchModeOnDemand = ucrstypes.LaunchModeOnDemand
+)
+
 // CapabilityRequest represents a request to resolve and ensure a capability
 type CapabilityRequest struct {
 	CapabilityID string             `json:"capability_id"`

@@ -126,3 +126,5 @@ require (
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
 )
+
+replace github.com/ambientlabscomputing/ucrs v1.4.0 => ../ucrs

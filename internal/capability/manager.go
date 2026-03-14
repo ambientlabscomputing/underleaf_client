@@ -168,8 +168,9 @@ func (m *Manager) EnsureCapability(ctx context.Context, req CapabilityRequest) (
 		}
 	}
 
-	// Start if not running
-	if providerInstance.State != string(ProviderStateRunning) {
+	// Start if not running — skipped for on-demand providers (e.g. stdio tools invoked by the IDE).
+	if providerInstance.State != string(ProviderStateRunning) &&
+		provider.RuntimeRequirements.LaunchMode != LaunchModeOnDemand {
 		slog.Info("starting provider", "provider_id", provider.ProviderID, "version", provider.Version)
 		if err := m.lifecycle.Start(ctx, provider.ProviderID, provider.Version); err != nil {
 			return nil, fmt.Errorf("failed to start provider: %w", err)
@@ -291,8 +292,9 @@ func (m *Manager) InstallProviderByID(ctx context.Context, providerID string) (*
 		}
 	}
 
-	// Start provider if not running
-	if providerInstance.State != string(ProviderStateRunning) {
+	// Start provider if not running — skipped for on-demand providers (e.g. stdio tools invoked by the IDE).
+	if providerInstance.State != string(ProviderStateRunning) &&
+		provider.RuntimeRequirements.LaunchMode != LaunchModeOnDemand {
 		slog.Info("starting provider", "provider_id", provider.ProviderID, "version", provider.Version)
 		if err := m.lifecycle.Start(ctx, provider.ProviderID, provider.Version); err != nil {
 			return nil, fmt.Errorf("failed to start provider: %w", err)

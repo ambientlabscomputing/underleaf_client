@@ -151,6 +151,14 @@ payload:
     # Cron Engine provider ID to auto-install (default: underleaf.cron-engine)
     cron_engine_provider_id: underleaf.cron-engine
 
+    # Auto-install MCP Server on agent startup.
+    # The MCP Server uses launch_mode: on-demand — the binary is placed on disk
+    # but NOT started as a daemon. The IDE invokes it directly via stdio transport.
+    auto_install_mcp_server: true
+
+    # MCP Server provider ID to auto-install (default: underleaf.mcp-server)
+    mcp_server_provider_id: underleaf.mcp-server
+
     # UCRS base URL for registry synchronization
     ucrs_base_url: https://registry.underleaf.io
 

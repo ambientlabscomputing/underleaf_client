@@ -1008,6 +1008,18 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 							ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
 							go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine")
 						}
+
+						// Auto-install MCP Server if enabled.
+						// launch_mode: on-demand in UCRS means InstallProviderByID places the binary
+						// on disk but does NOT start it as a daemon — the IDE invokes it via stdio.
+						autoInstallMCP := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mcp_server", false)
+						if !autoInstallMCP {
+							autoInstallMCP = getConfigValueBool(simpleConfig, "capability_registry.auto_install_mcp_server", true)
+						}
+						if autoInstallMCP {
+							mcpProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mcp_server_provider_id", "underleaf.mcp-server")
+							go ensureProviderInstalled(ctx, mgr, mcpProviderID, "MCP Server")
+						}
 					}
 				}
 			}
