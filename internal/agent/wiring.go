@@ -21,6 +21,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/crypto/keymanager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logcollector"
+	dockerrunner "github.com/ambientlabscomputing/underleaf_client/internal/runner"
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 
 	// DEPRECATED: deployment and recipe packages moved to deployment_engine UMC
@@ -379,6 +380,19 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	// Initialize log collector — reads the structured agent log and uploads to server API
 	logCollector := logcollector.New(cplaneClient.Logs)
 
+	// Initialize service log collector — fetches Docker container logs and uploads to server API.
+	// Creates its own Runner (and Docker client) since the deployment runner is managed separately
+	// by the deployment_engine UMC. Falls back gracefully if Docker is unavailable.
+	var serviceLogCollector *logcollector.ServiceCollector
+	{
+		dockerRunner, err := dockerrunner.NewRunner("/tmp/deployment-reports")
+		if err != nil {
+			slog.Warn("service log collector disabled: could not create Docker runner", "error", err)
+		} else {
+			serviceLogCollector = logcollector.NewServiceCollector(dockerRunner, cplaneClient.Logs)
+		}
+	}
+
 	// Declare Raft and EventStream variables early for use in Spine handler closures
 	// These will be initialized later in the code, but closures capture them by reference
 	var raftNode *raft.Node
@@ -405,6 +419,15 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Handle log collection requests from server API
 		spineClient.Register("logs.collect.server.request", func(ctx context.Context, msg spine.Message) {
 			logCollector.HandleEvent(ctx, msg.Payload)
+		})
+
+		// Handle service/container log collection requests from server API
+		spineClient.Register("logs.collect.service.request", func(ctx context.Context, msg spine.Message) {
+			if serviceLogCollector == nil {
+				slog.Warn("service log collection request received but collector is not available (Docker unavailable?)")
+				return
+			}
+			serviceLogCollector.HandleEvent(ctx, msg.Payload)
 		})
 
 		// Handle cluster membership change events — force an immediate config reconcile

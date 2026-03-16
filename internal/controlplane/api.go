@@ -37,6 +37,53 @@ func NewAPIClient(config policy_manager.ConfigClient, h *http.Client) *APIClient
 	}
 }
 
+// GETBytes performs an authenticated GET request and returns the raw response body.
+// Useful for binary downloads (e.g., zip files) where JSON decoding is not desired.
+func (c *APIClient) GETBytes(ctx context.Context, path string) ([]byte, error) {
+	baseURL, ok := c.config.Get("api.base_url")
+	token, _ := c.config.Get("auth.token")
+
+	if !ok || baseURL == nil {
+		return nil, fmt.Errorf("api.base_url not configured")
+	}
+	if token == nil {
+		return nil, fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL.(string)+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.(string))
+
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode == http.StatusConflict {
+		return nil, fmt.Errorf("job not yet completed")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed with status %s: %s", resp.Status, string(body))
+	}
+
+	return body, nil
+}
+
 func (c *APIClient) GET(ctx context.Context, path string, response interface{}) error {
 	baseURL, ok := c.config.Get("api.base_url")
 	token, _ := c.config.Get("auth.token")
@@ -602,7 +649,66 @@ func (c *APIClient) POSTMultipartToURL(ctx context.Context, fullURL string, fiel
 	return nil
 }
 
-// Exposure API Methods
+// POSTMultipartAndDecode is like POSTMultipartToURL but captures the raw response
+// body in *rawBody for the caller to decode. Use this when you need to parse the
+// server's JSON response from a multipart upload.
+func (c *APIClient) POSTMultipartAndDecode(ctx context.Context, fullURL string, fields map[string]string, fileField, fileName string, fileData []byte, rawBody *[]byte) error {
+	token, _ := c.config.Get("auth.token")
+	if token == nil {
+		return fmt.Errorf("auth.token not configured - please run 'ufctl auth login' first")
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return fmt.Errorf("failed to write form field %q: %w", k, err)
+		}
+	}
+
+	fw, err := mw.CreateFormFile(fileField, fileName)
+	if err != nil {
+		return fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := fw.Write(fileData); err != nil {
+		return fmt.Errorf("failed to write file data: %w", err)
+	}
+	if err := mw.Close(); err != nil {
+		return fmt.Errorf("failed to close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token.(string))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	if traceID := sdk.TraceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
+	if orgID, ok := c.config.Get("local.organization_id"); ok && orgID != nil && orgID != "" {
+		req.Header.Set("X-Organization-ID", orgID.(string))
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("multipart upload failed with status %s: %s", resp.Status, string(respBytes))
+	}
+
+	if rawBody != nil {
+		*rawBody = respBytes
+	}
+	slog.Debug("POSTMultipartAndDecode success", "url", fullURL, "status", resp.StatusCode)
+	return nil
+}
 
 // CreateExposure creates a new public exposure for a deployment service
 func (c *APIClient) CreateExposure(ctx context.Context, deploymentID, serviceName string, targetPort int, hostname, serverID string) (interface{}, error) {

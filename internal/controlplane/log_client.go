@@ -51,3 +51,32 @@ func (c *LogClient) UploadLogs(ctx context.Context, serverID, traceID string, zi
 	slog.Info("log archive uploaded", "trace_id", traceID)
 	return nil
 }
+
+// UploadServiceLogs uploads a zipped service log archive (one .log file per container)
+// to the server API's service log upload endpoint.
+func (c *LogClient) UploadServiceLogs(ctx context.Context, serverID, traceID string, zipData []byte) error {
+	baseURL, ok := c.api.config.Get("api.base_url")
+	if !ok || baseURL == nil {
+		return fmt.Errorf("api.base_url not configured")
+	}
+
+	uploadURL := fmt.Sprintf("%s/servers/%s/service-logs/upload", baseURL.(string), serverID)
+
+	slog.Info("uploading service log archive",
+		"server_id", serverID,
+		"trace_id", traceID,
+		"url", uploadURL,
+		"bytes", len(zipData),
+	)
+
+	fields := map[string]string{
+		"trace_id": traceID,
+	}
+
+	if err := c.api.POSTMultipartToURL(ctx, uploadURL, fields, "file", traceID+".zip", zipData); err != nil {
+		return fmt.Errorf("service log archive upload failed: %w", err)
+	}
+
+	slog.Info("service log archive uploaded", "trace_id", traceID)
+	return nil
+}

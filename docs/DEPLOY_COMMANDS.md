@@ -1,8 +1,53 @@
 # Deploy Command Suite
 
-The `ufctl deploy` command suite provides tools for managing application deployments using the three-way diff reconciliation pattern (Desired, Observed, LastApplied).
+The `ufctl deploy` command suite manages application deployments on Underleaf servers.
 
-## Commands
+## Deploying an Application
+
+### `ufctl deploy <gh:owner/repo[@ref] | local:./path>`
+
+Deploys an application from a GitHub repository or a local directory with full
+deployment tracking on the control plane.
+
+**Source types:**
+- `gh:owner/repo[@ref]` — resolves `.underleaf/deploy.yaml` from a GitHub repo via UCRS
+- `local:./path` — reads `.underleaf/deploy.yaml` from a local directory, uploads the
+  build context if any service has a `build:` section, and creates a tracked deployment
+
+**Examples:**
+```bash
+# Deploy from GitHub
+ufctl deploy gh:ambientlabscomputing/hello-world
+ufctl deploy gh:myorg/my-app@v1.2.0 --server <server-id>
+ufctl deploy gh:myorg/private-app --token $GITHUB_TOKEN
+
+# Deploy from a local directory
+ufctl deploy local:.
+ufctl deploy local:./my-app --server <server-id>
+```
+
+**Flags:**
+- `--ref <ref>`: Git branch, tag, or SHA to deploy (`gh:` only; can also be embedded in `@ref`)
+- `--server <id>`: Target a specific server by ID
+- `--token <PAT>`: GitHub Personal Access Token for private repos (`gh:` only)
+
+**Output:**
+```
+🚀 Deploying from gh:myorg/my-app
+
+✅ Deployment created: my-app
+   Deployment ID : 64c9...
+   Job ID        : job-...
+   Source        : gh:myorg/my-app
+   Started at    : 2025-01-15T10:30:00Z
+
+🌐 Public URLs:
+   app → https://my-app.example.underleaf.io
+
+Use 'ufctl jobs get <job-id>' to track progress.
+```
+
+## Developer Tools
 
 ### `ufctl deploy list [directory]`
 
@@ -300,28 +345,21 @@ Test sequence:
 
 ## Next Steps
 
-To complete the deployment system, implement:
+To extend the deployment system, consider adding:
 
-1. **Apply command**: Execute plans
+1. **Destroy command**: Delete all resources for a deployment
    ```bash
-   ufctl deploy apply [deployment-file]
-   ufctl deploy apply --plan /tmp/plan.json
+   ufctl deploy destroy <deployment-id>
    ```
 
-2. **Destroy command**: Delete all resources
+2. **Rollback command**: Revert to a previously deployed version
    ```bash
-   ufctl deploy destroy [deployment-file]
-   ufctl deploy destroy deploy-001
+   ufctl deploy rollback <deployment-id> --to-version 2
    ```
 
-3. **Rollback command**: Revert to previous version
+3. **Status command**: Show current runtime state
    ```bash
-   ufctl deploy rollback deploy-001 --to-version 2
-   ```
-
-4. **Status command**: Show current state
-   ```bash
-   ufctl deploy status deploy-001
+   ufctl deploy status <deployment-id>
    ```
 
 ## Architecture

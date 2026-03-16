@@ -2,8 +2,11 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 )
@@ -83,12 +86,62 @@ type SourceTargeting struct {
 	Tags      map[string]string `json:"tags,omitempty"`
 }
 
+// InlineManifest is the parsed .underleaf/deploy.yaml for local: source deploys.
+// It mirrors the server_api InlineManifest type field-for-field.
+type InlineManifest struct {
+	Version  string                  `json:"version"`
+	Name     string                  `json:"name"`
+	Slug     string                  `json:"slug,omitempty"`
+	Services []InlineManifestService `json:"services"`
+	Networks []InlineManifestNetwork `json:"networks,omitempty"`
+	Volumes  []InlineManifestVolume  `json:"volumes,omitempty"`
+}
+
+// InlineManifestService is a single service entry in an InlineManifest.
+type InlineManifestService struct {
+	Name        string                `json:"name"`
+	Image       string                `json:"image,omitempty"`
+	Build       *InlineManifestBuild  `json:"build,omitempty"`
+	Ports       []string              `json:"ports,omitempty"`
+	Environment map[string]string     `json:"environment,omitempty"`
+	Networks    []string              `json:"networks,omitempty"`
+	Volumes     []string              `json:"volumes,omitempty"`
+	Expose      *InlineManifestExpose `json:"expose,omitempty"`
+}
+
+// InlineManifestBuild describes how to build a Docker image from the uploaded archive.
+type InlineManifestBuild struct {
+	Context    string            `json:"context,omitempty"`
+	Dockerfile string            `json:"dockerfile,omitempty"`
+	Args       map[string]string `json:"args,omitempty"`
+}
+
+// InlineManifestExpose declares that a service should be publicly exposed.
+type InlineManifestExpose struct {
+	Port     int    `json:"port"`
+	Hostname string `json:"hostname,omitempty"`
+}
+
+// InlineManifestNetwork defines a Docker network.
+type InlineManifestNetwork struct {
+	Name   string `json:"name"`
+	Driver string `json:"driver,omitempty"`
+}
+
+// InlineManifestVolume defines a Docker volume.
+type InlineManifestVolume struct {
+	Name string `json:"name"`
+}
+
 // DeployFromSourceRequest is the body for POST /deployments/source.
 type DeployFromSourceRequest struct {
 	Source      string           `json:"source"`
 	Ref         string           `json:"ref,omitempty"`
 	Targeting   *SourceTargeting `json:"targeting,omitempty"`
 	GitHubToken string           `json:"github_token,omitempty"`
+	// Manifest and ArchiveRef are set for local: sources.
+	Manifest   *InlineManifest `json:"manifest,omitempty"`
+	ArchiveRef string          `json:"archive_ref,omitempty"`
 }
 
 // ExposureInfo is a summary of an auto-created exposure.
@@ -125,4 +178,45 @@ func (c *DeploymentClient) DeployFromSource(ctx context.Context, req DeployFromS
 	)
 
 	return &response, nil
+}
+
+// UploadArchiveResponse is returned by POST /deployments/upload-context.
+type UploadArchiveResponse struct {
+	ArchiveRef string `json:"archive_ref"`
+}
+
+// UploadBuildContext uploads a local build-context tarball to server_api and
+// returns the archive_ref to include in the subsequent DeployFromSource request.
+// The tarball must be a .tar.gz file created by createBuildArchive in archive.go.
+func (c *DeploymentClient) UploadBuildContext(ctx context.Context, tarPath string) (string, error) {
+	slog.Info("uploading build context", "path", tarPath)
+
+	data, err := os.ReadFile(tarPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read archive %s: %w", tarPath, err)
+	}
+
+	baseURL, ok := c.api.config.Get("api.base_url")
+	if !ok || baseURL == nil {
+		return "", fmt.Errorf("api.base_url not configured")
+	}
+
+	uploadURL := baseURL.(string) + "/deployments/upload-context"
+	fileName := filepath.Base(tarPath)
+
+	// Capture the raw response so we can parse the archive_ref JSON.
+	// We temporarily override the normal POSTMultipartToURL which discards the body.
+	// Instead, we build the request manually using the same auth plumbing.
+	var rawResp []byte
+	if err := c.api.POSTMultipartAndDecode(ctx, uploadURL, nil, "file", fileName, data, &rawResp); err != nil {
+		return "", fmt.Errorf("build-context upload failed: %w", err)
+	}
+
+	var uploadResp UploadArchiveResponse
+	if err := json.Unmarshal(rawResp, &uploadResp); err != nil {
+		return "", fmt.Errorf("failed to parse upload response: %w", err)
+	}
+
+	slog.Info("build context uploaded", "archive_ref", uploadResp.ArchiveRef)
+	return uploadResp.ArchiveRef, nil
 }

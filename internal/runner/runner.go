@@ -19,6 +19,7 @@ import (
 // Runner executes deployment plans
 type Runner struct {
 	dockerClient *client.Client
+	logClient    dockerLogClient // defaults to dockerClient; replaceable for tests
 	reportPath   string
 }
 
@@ -35,6 +36,7 @@ func NewRunner(reportPath string) (*Runner, error) {
 
 	return &Runner{
 		dockerClient: cli,
+		logClient:    cli,
 		reportPath:   reportPath,
 	}, nil
 }
