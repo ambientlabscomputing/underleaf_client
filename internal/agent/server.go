@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/capability"
@@ -32,6 +33,12 @@ type Server struct {
 	capabilityManager interface{}             // Capability manager (type from internal/capability)
 	capabilityAPI     *capability.APIHandlers // HTTP handlers for capability endpoints
 	spineClient       *spine.Client           // nil when Spine is not configured
+
+	// pendingTunnelBinds tracks in-progress local tunnel bind requests.
+	// Keyed by tunnel_id; each entry is a channel that receives the bind result
+	// when MMA emits tunnel.bind.completed. Used for the local foreground tunnel mode.
+	pendingTunnelBinds   map[string]chan tunnelBindResult
+	pendingTunnelBindsMu sync.Mutex
 }
 
 // NewServer creates a new agent server
@@ -42,8 +49,9 @@ func NewServer(port int) *Server {
 	router.Use(gin.Logger())
 
 	s := &Server{
-		port:   port,
-		router: router,
+		port:               port,
+		router:             router,
+		pendingTunnelBinds: make(map[string]chan tunnelBindResult),
 	}
 
 	s.setupRoutes()
@@ -206,6 +214,14 @@ func (s *Server) setupRoutes() {
 			mmesh.GET("/subscribers", s.handleMMeshSubscribers)
 			mmesh.GET("/buffer", s.handleMMeshBuffer)
 			mmesh.POST("/publish", s.handleMMeshPublish)
+		}
+
+		// Tunnel bind/unbind endpoints — used by the CLI for local foreground tunnels
+		tunnels := api.Group("/tunnels")
+		{
+			tunnels.POST("/bind", s.handleTunnelBind)
+			tunnels.POST("/unbind", s.handleTunnelUnbind)
+			tunnels.GET("/status/:id", s.handleTunnelStatus)
 		}
 	}
 }

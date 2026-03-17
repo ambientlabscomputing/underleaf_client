@@ -4,26 +4,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ExposeCmd is the parent `ufctl expose` command.
 var ExposeCmd = &cobra.Command{
 	Use:   "expose",
-	Short: "Manage public exposures for deployment services",
-	Long: `Manage public exposures for deployment services via the Hyphae gateway.
+	Short: "Manage deployment exposures",
+	Long: `Manage Hyphae deployment exposures.
 
-Exposures allow services to be accessed publicly via mTLS reverse tunnels.
+An exposure binds a deployment's service port to a public HTTPS endpoint
+via the Hyphae tunnel gateway.
 
 Examples:
-  ufctl expose create --deployment <id> --service <name> --port <port>
-  ufctl expose list --deployment <id>
-  ufctl expose get <exposure-id>
-  ufctl expose revoke <exposure-id>`,
+  ufctl expose list --deployment <deployment-id>
+  ufctl expose list --deployment <deployment-id> -o json`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},
 }
 
 func init() {
-	ExposeCmd.AddCommand(CreateCmd)
 	ExposeCmd.AddCommand(ListCmd)
-	ExposeCmd.AddCommand(GetCmd)
-	ExposeCmd.AddCommand(RevokeCmd)
 }

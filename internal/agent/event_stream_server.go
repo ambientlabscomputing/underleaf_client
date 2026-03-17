@@ -164,3 +164,33 @@ func (e *EventStreamServer) PublishExposureUnbindRequested(exposureID string) er
 	}
 	return e.PublishEvent("exposure.unbind.requested", payload, "exposure", exposureID)
 }
+
+// PublishTunnelBindRequested emits a tunnel.bind.requested UA event to MMA.
+// Called when the agent receives a tunnel.bind.request from Spine or from the local
+// HTTP bind endpoint (local-tunnel mode).
+func (e *EventStreamServer) PublishTunnelBindRequested(
+	tunnelID string,
+	leaseID string,
+	hostname string,
+	target string,
+	targetType string,
+	tunnelAddr string,
+) error {
+	payload := map[string]interface{}{
+		"tunnel_id":          tunnelID,
+		"lease_id":           leaseID,
+		"hostname":           hostname,
+		"target":             target,
+		"target_type":        targetType,
+		"hyphae_tunnel_addr": tunnelAddr,
+	}
+	return e.PublishEvent("tunnel.bind.requested", payload, "tunnel", tunnelID)
+}
+
+// PublishTunnelUnbindRequested emits a tunnel.unbind.requested UA event to MMA.
+func (e *EventStreamServer) PublishTunnelUnbindRequested(tunnelID string) error {
+	payload := map[string]interface{}{
+		"tunnel_id": tunnelID,
+	}
+	return e.PublishEvent("tunnel.unbind.requested", payload, "tunnel", tunnelID)
+}

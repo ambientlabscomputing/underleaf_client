@@ -15,6 +15,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/provider"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/templates"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/tunnel"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/update"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
@@ -77,6 +78,7 @@ func init() {
 	rootCmd.AddCommand(local.CSRCmd)
 	rootCmd.AddCommand(servers.ServersCmd)
 	rootCmd.AddCommand(deploy.DeployCmd)
+	rootCmd.AddCommand(tunnel.TunnelCmd)
 	rootCmd.AddCommand(expose.ExposeCmd)
 	rootCmd.AddCommand(infra.NewInfraCmd())
 	rootCmd.AddCommand(jobs.JobsCmd)

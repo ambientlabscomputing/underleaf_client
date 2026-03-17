@@ -75,10 +75,10 @@ bni-orb: build-orb install
 ## build-orb: Build both CLI and agent with host.orb.internal endpoints baked in
 build-orb: build-cli-orb build-agent-orb
 
-## build-cli-orb: Build the CLI binary with host.orb.internal endpoints
+## build-cli-orb: Build the CLI binary with host.orb.internal endpoints (includes -tags dev)
 build-cli-orb:
-	@echo "Building $(BINARY_CLI) [orb mode]..."
-	@go build \
+	@echo "Building $(BINARY_CLI) [orb mode dev]..."
+	@go build -tags dev \
 		-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
 		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=http://host.orb.internal:8080/api/v1/servers \
 		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.SpineEndpoint=host.orb.internal:9097 \
@@ -86,10 +86,10 @@ build-cli-orb:
 		-o $(BINARY_CLI) ./cmd/ufctl
 	@echo "✓ Built $(BINARY_CLI) [orb mode — api=host.orb.internal:8080, spine=host.orb.internal:9097, ucrs=host.orb.internal:8083]"
 
-## build-agent-orb: Build the agent binary with host.orb.internal endpoints
+## build-agent-orb: Build the agent binary with host.orb.internal endpoints (includes -tags dev)
 build-agent-orb:
-	@echo "Building $(BINARY_AGENT) [orb mode]..."
-	@go build \
+	@echo "Building $(BINARY_AGENT) [orb mode dev]..."
+	@go build -tags dev \
 		-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/version.Version=$(VERSION) \
 		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.APIBaseURL=http://host.orb.internal:8080/api/v1/servers \
 		-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.SpineEndpoint=host.orb.internal:9097 \
@@ -103,16 +103,17 @@ ORB_LDFLAGS=-ldflags "-X github.com/ambientlabscomputing/underleaf_client/pkg/ve
 	-X github.com/ambientlabscomputing/underleaf_client/pkg/defaults.UCRSBaseURL=http://host.orb.internal:8083/api/v1/registry"
 
 ## build-orb-linux: Cross-compile linux-arm64 binaries with orb endpoints for local-underleaf-lab VMs
+## Includes -tags dev so the binary has dev-mode wiring (Spine dispatch, build.yaml, UMC overrides).
 .PHONY: build-orb-linux
 build-orb-linux:
 	@mkdir -p bin
-	@echo "Building $(BINARY_CLI) [orb linux-arm64]..."
-	@GOOS=linux GOARCH=arm64 go build $(ORB_LDFLAGS) -o bin/$(BINARY_CLI)-linux-arm64 ./cmd/ufctl
+	@echo "Building $(BINARY_CLI) [orb linux-arm64 dev]..."
+	@GOOS=linux GOARCH=arm64 go build -tags dev $(ORB_LDFLAGS) -o bin/$(BINARY_CLI)-linux-arm64 ./cmd/ufctl
 	@echo "✓ bin/$(BINARY_CLI)-linux-arm64"
-	@echo "Building $(BINARY_AGENT) [orb linux-arm64]..."
-	@GOOS=linux GOARCH=arm64 go build $(ORB_LDFLAGS) -o bin/$(BINARY_AGENT)-linux-arm64 ./cmd/underleaf_agent
+	@echo "Building $(BINARY_AGENT) [orb linux-arm64 dev]..."
+	@GOOS=linux GOARCH=arm64 go build -tags dev $(ORB_LDFLAGS) -o bin/$(BINARY_AGENT)-linux-arm64 ./cmd/underleaf_agent
 	@echo "✓ bin/$(BINARY_AGENT)-linux-arm64"
-	@echo "✓ Ready for local-underleaf-lab (cluster.json points here)"
+	@echo "✓ Ready for local-underleaf-lab (cluster.local.json points here)"
 
 ## install-gopath: Install binaries to $GOPATH/bin
 install-gopath:

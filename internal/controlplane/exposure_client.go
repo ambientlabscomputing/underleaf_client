@@ -13,6 +13,31 @@ type ExposureResultRequest struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// ExposureRecord mirrors the server_api Exposure type for CLI use.
+type ExposureRecord struct {
+	ID           string `json:"id"`
+	OrgID        string `json:"org_id"`
+	ServerID     string `json:"server_id"`
+	DeploymentID string `json:"deployment_id"`
+	ServiceName  string `json:"service_name"`
+	TargetPort   int    `json:"target_port"`
+	Hostname     string `json:"hostname"`
+	LeaseID      string `json:"lease_id"`
+	Status       string `json:"status"`
+	PublicURL    string `json:"public_url"`
+	ErrorMessage string `json:"error_message"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// QueryExposuresResponse is returned by server_api GET /exposures or GET /deployments/:id/exposures
+type QueryExposuresResponse struct {
+	Exposures []*ExposureRecord `json:"exposures"`
+	Total     int               `json:"total"`
+	Limit     int               `json:"limit"`
+	Offset    int               `json:"offset"`
+}
+
 // CPlaneExposureClient wraps exposure-related control plane API calls.
 type CPlaneExposureClient struct {
 	api *APIClient
@@ -37,4 +62,13 @@ func (c *CPlaneExposureClient) PostExposureResult(ctx context.Context, exposureI
 	}
 
 	return nil
+}
+
+// GetDeploymentExposures retrieves all exposures for a deployment.
+func (c *CPlaneExposureClient) GetDeploymentExposures(ctx context.Context, deploymentID string) (*QueryExposuresResponse, error) {
+	var resp QueryExposuresResponse
+	if err := c.api.GET(ctx, "/deployments/"+deploymentID+"/exposures", &resp); err != nil {
+		return nil, fmt.Errorf("failed to get deployment exposures: %w", err)
+	}
+	return &resp, nil
 }

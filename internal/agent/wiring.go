@@ -468,6 +468,20 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			}
 		})
 
+		// Handle tunnel bind requests from server_api (remote agent: user created tunnel with --server)
+		spineClient.Register("tunnel.bind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleTunnelBindRequested(ctx, msg, eventStreamServer); err != nil {
+				slog.Warn("failed to handle tunnel bind request", "error", err)
+			}
+		})
+
+		// Handle tunnel bind completion events emitted by MMA via kernel
+		spineClient.Register("tunnel.bind.completed", func(ctx context.Context, msg spine.Message) {
+			if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Tunnels); err != nil {
+				slog.Warn("failed to handle tunnel bind completed", "error", err)
+			}
+		})
+
 		// Start the spine client (connects and begins dispatch loop)
 		if err := spineClient.Start(ctx); err != nil {
 			slog.Warn("failed to start Mycelium Spine client", "error", err)
