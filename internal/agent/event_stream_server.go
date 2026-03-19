@@ -194,3 +194,32 @@ func (e *EventStreamServer) PublishTunnelUnbindRequested(tunnelID string) error 
 	}
 	return e.PublishEvent("tunnel.unbind.requested", payload, "tunnel", tunnelID)
 }
+
+// PublishChannelBindRequested emits a channel.bind.requested UA event to MMA.
+// Called when the agent receives a channel.bind.request from Spine.
+func (e *EventStreamServer) PublishChannelBindRequested(
+	channelID string,
+	orgID string,
+	role string,
+	grant string,
+	sourceServerID string,
+	destServerID string,
+	purpose string,
+	hyphaeTunnelAddr string,
+	expiresAt int64,
+	createdAt int64,
+) error {
+	payload := map[string]interface{}{
+		"channel_id":         channelID,
+		"org_id":             orgID,
+		"role":               role,
+		"grant":              grant,
+		"source_server_id":   sourceServerID,
+		"dest_server_id":     destServerID,
+		"purpose":            purpose,
+		"hyphae_tunnel_addr": hyphaeTunnelAddr,
+		"expires_at":         expiresAt,
+		"created_at":         createdAt,
+	}
+	return e.PublishEvent("channel.bind.requested", payload, "channel", channelID)
+}

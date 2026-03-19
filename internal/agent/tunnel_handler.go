@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -249,7 +250,7 @@ func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServ
 	if agentServer != nil {
 		var bindErr error
 		if payload.Status == "error" && payload.Error != "" {
-			bindErr = fmt.Errorf(payload.Error)
+			bindErr = errors.New(payload.Error)
 		}
 		if agentServer.SignalTunnelBindResult(payload.TunnelID, payload.PublicURL, bindErr) {
 			logger.Info("signaled pending local tunnel bind", "tunnel_id", payload.TunnelID)

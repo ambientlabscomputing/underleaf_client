@@ -482,6 +482,20 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			}
 		})
 
+		// Handle channel bind requests from server_api (UNDF-111 peer-to-peer relay)
+		spineClient.Register("channel.bind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleChannelBindRequested(ctx, msg, eventStreamServer); err != nil {
+				slog.Warn("failed to handle channel bind request", "error", err)
+			}
+		})
+
+		// Handle channel bind completed events from MMA (UNDF-111)
+		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
+			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels); err != nil {
+				slog.Warn("failed to handle channel bind completed", "error", err)
+			}
+		})
+
 		// Start the spine client (connects and begins dispatch loop)
 		if err := spineClient.Start(ctx); err != nil {
 			slog.Warn("failed to start Mycelium Spine client", "error", err)

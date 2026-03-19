@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/channel"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/cluster"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/deploy"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/expose"
@@ -79,6 +80,7 @@ func init() {
 	rootCmd.AddCommand(servers.ServersCmd)
 	rootCmd.AddCommand(deploy.DeployCmd)
 	rootCmd.AddCommand(tunnel.TunnelCmd)
+	rootCmd.AddCommand(channel.ChannelCmd)
 	rootCmd.AddCommand(expose.ExposeCmd)
 	rootCmd.AddCommand(infra.NewInfraCmd())
 	rootCmd.AddCommand(jobs.JobsCmd)
