@@ -43,6 +43,13 @@ Examples:
 		deps.Printer.Print(fmt.Sprintf("   Services: %d, Networks: %d, Volumes: %d, Capabilities: %d\n",
 			len(deployment.Services), len(deployment.Networks), len(deployment.Volumes), len(deployment.CapabilityRequirements)))
 
+		// Validate secret references against the control plane.
+		if warns := compiler.ValidateSecretRefs(ctx, deployment, newSecretsLister(deps.CPlaneClient.Secrets)); len(warns) > 0 {
+			for _, w := range warns {
+				deps.Printer.PrintInfo(fmt.Sprintf("⚠ secret ref '${secret:%s}': %s", w.SecretRef, w.Reason))
+			}
+		}
+
 		// Show capability requirements if present
 		if len(deployment.CapabilityRequirements) > 0 {
 			deps.Printer.PrintSuccess(fmt.Sprintf("📋 Capability requirements: %d", len(deployment.CapabilityRequirements)))

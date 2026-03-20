@@ -191,6 +191,19 @@ func (c *ServerClient) UpdateClusterMemberStatus(ctx context.Context, clusterID,
 	return nil
 }
 
+// UpdateClusterMemberPublicKey registers the agent's ECDSA identity public key
+// in server_api so that origin agents can wrap DEKs for this cluster during replication.
+func (c *ServerClient) UpdateClusterMemberPublicKey(ctx context.Context, clusterID, serverID, publicKeyPEM string) error {
+	var response interface{}
+	payload := map[string]string{
+		"public_key_pem": publicKeyPEM,
+	}
+	if err := c.api.PUT(ctx, fmt.Sprintf("/clusters/%s/members/%s/public-key", clusterID, serverID), payload, &response); err != nil {
+		return fmt.Errorf("failed to update cluster member public key: %w", err)
+	}
+	return nil
+}
+
 // AddSSHKey adds an SSH public key to a server
 func (c *ServerClient) AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error) {
 	payload := map[string]string{

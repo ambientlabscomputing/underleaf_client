@@ -20,6 +20,7 @@ type CPlaneClient struct {
 	Auth        *CPlaneAuthClient
 	Users       *CPlaneUserClient
 	Logs        *LogClient
+	Secrets     *CPlaneSecretsClient
 	config      *policy_manager.ConfigClient
 	httpClient  *http.Client
 	apiClient   *APIClient
@@ -41,6 +42,7 @@ func NewCPlaneClient(config *policy_manager.ConfigClient, h *http.Client) *CPlan
 		Auth:        NewAuthClient(apiClient),
 		Users:       NewUserClient(apiClient),
 		Logs:        NewLogClient(apiClient),
+		Secrets:     NewCPlaneSecretsClient(apiClient),
 	}
 }
 
@@ -61,6 +63,7 @@ type CPlaneServerClient interface {
 	AddSSHKey(ctx context.Context, serverID string, publicKey string, label string) (servertypes.SSHPublicKey, error)
 	ListSSHKeys(ctx context.Context, serverID string) ([]servertypes.SSHPublicKey, error)
 	RemoveSSHKey(ctx context.Context, serverID string, keyID string) error
+	UpdateClusterMemberPublicKey(ctx context.Context, clusterID, serverID, publicKeyPEM string) error
 }
 
 func NewCPlaneServerClient(config *policy_manager.ConfigClient, a *APIClient) CPlaneServerClient {

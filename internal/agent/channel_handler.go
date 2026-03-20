@@ -74,6 +74,9 @@ type ChannelBindCompletedPayload struct {
 	Role      string `json:"role"`
 	Status    string `json:"status"` // "active" or "error"
 	Error     string `json:"error,omitempty"`
+	// LocalAddr is the loopback listen address of the initiator relay socket.
+	// Only present for the "initiator" role; empty for "listener".
+	LocalAddr string `json:"local_addr,omitempty"`
 }
 
 // HandleChannelBindCompleted processes a channel.bind.completed Spine event (emitted by MMA via kernel).
@@ -95,7 +98,7 @@ func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID
 	logger.Info("handling channel bind completed event from Spine")
 
 	if channelClient != nil {
-		if err := channelClient.PostChannelResult(ctx, payload.ChannelID, serverID, payload.Role, payload.Status, payload.Error); err != nil {
+		if err := channelClient.PostChannelResult(ctx, payload.ChannelID, serverID, payload.Role, payload.Status, payload.Error, payload.LocalAddr); err != nil {
 			logger.Error("failed to post channel result to server_api", "error", err)
 			return err
 		}

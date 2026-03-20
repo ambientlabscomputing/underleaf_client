@@ -43,6 +43,13 @@ Examples:
 		}
 		deps.Printer.PrintSuccess(fmt.Sprintf("✅ Loaded: %s (v%d)", deployment.Slug, deployment.Version))
 
+		// Validate secret references against the control plane.
+		if warns := compiler.ValidateSecretRefs(ctx, deployment, newSecretsLister(deps.CPlaneClient.Secrets)); len(warns) > 0 {
+			for _, w := range warns {
+				deps.Printer.PrintInfo(fmt.Sprintf("⚠ secret ref '${secret:%s}': %s", w.SecretRef, w.Reason))
+			}
+		}
+
 		c := compiler.NewCompiler()
 		graph, err := c.Compile(deployment)
 		if err != nil {

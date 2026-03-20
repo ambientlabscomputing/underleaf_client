@@ -15,16 +15,17 @@ type CreateChannelRequest struct {
 
 // ChannelRecord mirrors the server_api Channel type for CLI use.
 type ChannelRecord struct {
-	ID             string `json:"id"`
-	OrgID          string `json:"org_id"`
-	SourceServerID string `json:"source_server_id"`
-	DestServerID   string `json:"dest_server_id"`
-	Purpose        string `json:"purpose"`
-	Status         string `json:"status"`
-	ErrorMessage   string `json:"error_message"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	ExpiresAt      string `json:"expires_at"`
+	ID                 string `json:"id"`
+	OrgID              string `json:"org_id"`
+	SourceServerID     string `json:"source_server_id"`
+	DestServerID       string `json:"dest_server_id"`
+	Purpose            string `json:"purpose"`
+	Status             string `json:"status"`
+	ErrorMessage       string `json:"error_message"`
+	InitiatorLocalAddr string `json:"initiator_local_addr,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
+	ExpiresAt          string `json:"expires_at"`
 }
 
 // CreateChannelResponse is returned by server_api POST /channels.
@@ -101,17 +102,20 @@ func (c *CPlaneChannelClient) QueryChannels(ctx context.Context, sourceServerID,
 }
 
 // PostChannelResult reports a bind result for a channel to server_api.
-func (c *CPlaneChannelClient) PostChannelResult(ctx context.Context, channelID, serverID, role, status, errMsg string) error {
+// localAddr is the loopback relay address for the initiator role (empty for listener).
+func (c *CPlaneChannelClient) PostChannelResult(ctx context.Context, channelID, serverID, role, status, errMsg, localAddr string) error {
 	req := struct {
-		ServerID string `json:"server_id"`
-		Role     string `json:"role"`
-		Status   string `json:"status"`
-		Error    string `json:"error,omitempty"`
+		ServerID  string `json:"server_id"`
+		Role      string `json:"role"`
+		Status    string `json:"status"`
+		Error     string `json:"error,omitempty"`
+		LocalAddr string `json:"local_addr,omitempty"`
 	}{
-		ServerID: serverID,
-		Role:     role,
-		Status:   status,
-		Error:    errMsg,
+		ServerID:  serverID,
+		Role:      role,
+		Status:    status,
+		Error:     errMsg,
+		LocalAddr: localAddr,
 	}
 
 	if err := c.api.POST(ctx, fmt.Sprintf("/channels/%s/results", channelID), req, nil); err != nil {

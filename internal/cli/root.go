@@ -14,6 +14,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/local"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/mmesh"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/provider"
+	"github.com/ambientlabscomputing/underleaf_client/internal/commands/secrets"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/servers"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/templates"
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/tunnel"
@@ -89,6 +90,7 @@ func init() {
 	rootCmd.AddCommand(cluster.ClusterCmd)
 	rootCmd.AddCommand(mmesh.MMeshCmd)
 	rootCmd.AddCommand(provider.ProviderCmd)
+	rootCmd.AddCommand(secrets.SecretsCmd)
 }
 
 func Execute(ctx context.Context) error {

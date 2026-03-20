@@ -49,23 +49,24 @@ type ManagedProcess struct {
 
 // Dependencies holds all agent dependencies
 type Dependencies struct {
-	Config            policy_manager.ConfigClient
-	PolicyManager     policy_manager.PolicyManager
-	Server            *Server
-	CommandHandler    *execpkg.CommandHandler
-	MetricsCollector  *MetricsCollector
-	ClusterReporter   *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
-	SpineClient       *spine.Client          // Mycelium Spine client for cleanup on shutdown
-	UpdateManager     *updater.UpdateManager // Update manager for auto-updates
-	CommandDrainer    *CommandDrainer        // Command drainer for graceful updates
-	RaftNode          *raft.Node             // Raft cluster node for KV quorum
-	EventStreamServer *EventStreamServer     // UA→MMA event stream server
-	SyscallServer     *kernel.SyscallServer  // Kernel syscall server for UMCs
-	KeyManager        keymanager.KeyManager  // Key manager for crypto operations
-	CapabilityManager interface{}            // Capability manager (type from internal/capability)
-	DeploymentEngine  *ManagedProcess        // Deployment engine UMC process
-	CronEngine        *ManagedProcess        // Cron engine UMC process (managed by deployment engine supervisor)
-	MMA               *ManagedProcess        // Mycelium Mesh Agent UMC process (dev mode)
+	Config             policy_manager.ConfigClient
+	PolicyManager      policy_manager.PolicyManager
+	Server             *Server
+	CommandHandler     *execpkg.CommandHandler
+	MetricsCollector   *MetricsCollector
+	ClusterReporter    *ClusterStatusReporter // Cluster status reporter for Raft cluster heartbeats
+	SecretSyncReporter *SecretSyncReporter    // Secret sync reporter for secret metadata sync
+	SpineClient        *spine.Client          // Mycelium Spine client for cleanup on shutdown
+	UpdateManager      *updater.UpdateManager // Update manager for auto-updates
+	CommandDrainer     *CommandDrainer        // Command drainer for graceful updates
+	RaftNode           *raft.Node             // Raft cluster node for KV quorum
+	EventStreamServer  *EventStreamServer     // UA→MMA event stream server
+	SyscallServer      *kernel.SyscallServer  // Kernel syscall server for UMCs
+	KeyManager         keymanager.KeyManager  // Key manager for crypto operations
+	CapabilityManager  interface{}            // Capability manager (type from internal/capability)
+	DeploymentEngine   *ManagedProcess        // Deployment engine UMC process
+	CronEngine         *ManagedProcess        // Cron engine UMC process (managed by deployment engine supervisor)
+	MMA                *ManagedProcess        // Mycelium Mesh Agent UMC process (dev mode)
 }
 
 // getConfigValue tries to get a value with fallback to non-prefixed key for backward compatibility
@@ -521,6 +522,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 	// Initialize Raft node if configured (raftNode already declared earlier for Spine handler closures)
 	var clusterReporter *ClusterStatusReporter
+	var secretSyncReporter *SecretSyncReporter
 	// Try snapshot config first, fall back to simple config for local-only testing
 	raftConfig := getRaftConfigFromSnapshot(snapshotClient)
 	if raftConfig == nil {
@@ -726,6 +728,22 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		keyManager = nil
 	}
 
+	// Register identity public key with control plane (for secret replication DEK wrapping)
+	if keyManager != nil && clusterID != "" && clusterID != "default-cluster" {
+		go func() {
+			pubKeyPEM, pkErr := keyManager.ExportPublicKey()
+			if pkErr != nil {
+				slog.Warn("failed to export public key for registration", "error", pkErr)
+				return
+			}
+			if regErr := cplaneClient.Servers.UpdateClusterMemberPublicKey(ctx, clusterID, serverID.(string), string(pubKeyPEM)); regErr != nil {
+				slog.Warn("failed to register identity public key with control plane", "error", regErr)
+			} else {
+				slog.Info("registered identity public key with control plane", "cluster_id", clusterID)
+			}
+		}()
+	}
+
 	// Create SecretStore for secret management if Raft is available
 	var secretStore *raft.SecretStore
 	if raftNode != nil {
@@ -746,6 +764,19 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		}
 	} else {
 		slog.Info("raft node not available, secret store disabled")
+	}
+
+	// Start secret sync reporter if secretStore is available
+	if secretStore != nil {
+		secretSyncReporter = NewSecretSyncReporter(
+			serverID.(string),
+			clusterID,
+			secretStore,
+			cplaneClient.Secrets,
+			DefaultSecretSyncInterval,
+		)
+		secretSyncReporter.Start(ctx)
+		slog.Info("secret sync reporter started")
 	}
 
 	// Get organization ID from config
@@ -1094,23 +1125,24 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	slog.Info("agent wired successfully", "port", port)
 
 	return &Dependencies{
-		Config:            snapshotClient,
-		PolicyManager:     policyManager,
-		Server:            server,
-		CommandHandler:    commandHandler,
-		MetricsCollector:  metricsCollector,
-		ClusterReporter:   clusterReporter,
-		SpineClient:       spineClient, // Store spine client for cleanup
-		UpdateManager:     updateManager,
-		CommandDrainer:    drainer,
-		RaftNode:          raftNode,
-		SyscallServer:     syscallServer,
-		KeyManager:        keyManager,
-		EventStreamServer: eventStreamServer,
-		CapabilityManager: capabilityManager,
-		DeploymentEngine:  deploymentEngine,
-		CronEngine:        nil, // Managed by deployment engine supervisor
-		MMA:               mma,
+		Config:             snapshotClient,
+		PolicyManager:      policyManager,
+		Server:             server,
+		CommandHandler:     commandHandler,
+		MetricsCollector:   metricsCollector,
+		ClusterReporter:    clusterReporter,
+		SecretSyncReporter: secretSyncReporter,
+		SpineClient:        spineClient, // Store spine client for cleanup
+		UpdateManager:      updateManager,
+		CommandDrainer:     drainer,
+		RaftNode:           raftNode,
+		SyscallServer:      syscallServer,
+		KeyManager:         keyManager,
+		EventStreamServer:  eventStreamServer,
+		CapabilityManager:  capabilityManager,
+		DeploymentEngine:   deploymentEngine,
+		CronEngine:         nil, // Managed by deployment engine supervisor
+		MMA:                mma,
 	}, nil
 }
 

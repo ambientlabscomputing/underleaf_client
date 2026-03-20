@@ -101,6 +101,36 @@ func PromptInput(prompt, placeholder string) (string, error) {
 	return "", nil
 }
 
+// PromptSecret shows a masked input prompt (for passwords/secrets) and returns the value.
+func PromptSecret(prompt string) (string, error) {
+	ti := textinput.New()
+	ti.Placeholder = "••••••••"
+	ti.EchoMode = textinput.EchoPassword
+	ti.EchoCharacter = '•'
+	ti.Focus()
+	ti.CharLimit = 4096
+	ti.Width = 50
+
+	m := InputModel{
+		textInput: ti,
+		prompt:    prompt,
+	}
+
+	p := tea.NewProgram(m)
+	finalModel, err := p.Run()
+	if err != nil {
+		return "", err
+	}
+
+	if im, ok := finalModel.(InputModel); ok {
+		if im.submitted {
+			return im.GetValue(), nil
+		}
+	}
+
+	return "", nil
+}
+
 // ConfirmModel is a Bubble Tea model for yes/no confirmation
 type ConfirmModel struct {
 	prompt   string
