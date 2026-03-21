@@ -237,7 +237,9 @@ func (ss *SecretStore) Get(ctx context.Context, secretPath string, opts *SecretG
 
 	// Retrieve version data
 	versionKey := ss.versionKey(secretPath, version)
-	entry, err := ss.kv.Get(versionKey, ReadModeLinearizable)
+	// Use stale read: secret data is Raft-committed and safe to read
+	// from any node's local FSM, enabling follower reads.
+	entry, err := ss.kv.Get(versionKey, ReadModeStale)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get version: %w", err)
 	}
@@ -398,7 +400,9 @@ func (ss *SecretStore) List(ctx context.Context, prefix string, opts *SecretList
 	metadataPrefix := path.Join(secretPrefix, "metadata", prefix)
 
 	// List all metadata keys
-	entries, err := ss.kv.List(metadataPrefix, ReadModeLinearizable)
+	// Use stale read: metadata is Raft-committed and safe to read
+	// from any node's local FSM, enabling follower reads.
+	entries, err := ss.kv.List(metadataPrefix, ReadModeStale)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
 	}
@@ -491,7 +495,9 @@ func (ss *SecretStore) versionKey(secretPath string, version uint64) string {
 // getSecret retrieves secret metadata from the KV store
 func (ss *SecretStore) getSecret(secretPath string) (*Secret, error) {
 	metadataKey := ss.metadataKey(secretPath)
-	entry, err := ss.kv.Get(metadataKey, ReadModeLinearizable)
+	// Use stale read: metadata is Raft-committed and safe to read
+	// from any node's local FSM, enabling follower reads.
+	entry, err := ss.kv.Get(metadataKey, ReadModeStale)
 	if err != nil {
 		return nil, err
 	}

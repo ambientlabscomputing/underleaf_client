@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
+
+var statusOutputFormat string
 
 var statusCmd = &cobra.Command{
 	Use:   "status <name>",
@@ -42,6 +45,15 @@ along with the sync status and the version each target has acknowledged.
 
 		if found == nil {
 			return fmt.Errorf("secret %q not found in control plane", name)
+		}
+
+		if statusOutputFormat == "json" {
+			out, err := json.Marshal(found)
+			if err != nil {
+				return fmt.Errorf("failed to marshal JSON: %w", err)
+			}
+			fmt.Println(string(out))
+			return nil
 		}
 
 		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
@@ -103,6 +115,10 @@ func stateColor(state string) string {
 	default:
 		return state
 	}
+}
+
+func init() {
+	statusCmd.Flags().StringVarP(&statusOutputFormat, "output", "o", "", "Output format: 'json' for machine-readable output")
 }
 
 func formatRow(cols []string, widths []int) string {

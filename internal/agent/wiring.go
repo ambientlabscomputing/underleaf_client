@@ -398,6 +398,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	// These will be initialized later in the code, but closures capture them by reference
 	var raftNode *raft.Node
 	var eventStreamServer *EventStreamServer
+	var replicationManager *SecretReplicationManager
 
 	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
 	// Deployments are now handled by the deployment_engine UMC via syscalls
@@ -492,7 +493,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 		// Handle channel bind completed events from MMA (UNDF-111)
 		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels); err != nil {
+			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager); err != nil {
 				slog.Warn("failed to handle channel bind completed", "error", err)
 			}
 		})
@@ -543,7 +544,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		}
 
 		var err error
-		raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID)
+		raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID, nil)
 		if err != nil {
 			slog.Warn("failed to initialize raft node", "error", err)
 			// Don't fail agent startup if Raft fails - it's optional
@@ -609,7 +610,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 				// Note: syscallServer and keyManager haven't been created yet at this point
 				// SecretStore will be created later in the synchronous path after syscallServer setup
-				raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID)
+				raftNode, err = initializeRaftNode(ctx, raftConfig, serverID.(string), nil, nil, clusterID, nil)
 				if err != nil {
 					slog.Warn("failed to initialize raft node from snapshot", "error", err)
 				} else {
@@ -746,18 +747,20 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 	// Create SecretStore for secret management if Raft is available
 	var secretStore *raft.SecretStore
+	var sealMgr *raft.SealManager
 	if raftNode != nil {
 		// SecretStore requires a SealManager, which requires KeyManager
 		if keyManager != nil {
 			// Create SecretStore with auto-init/unseal
 			// Note: Initialize() may fail if raft leadership isn't ready yet
 			// In that case, the leader-election goroutine will retry after leader is elected
-			secretStore, err = initAndUnsealSecretStore(ctx, raftNode, clusterID, nodeID, keyManager, slog.Default())
+			secretStore, sealMgr, err = initAndUnsealSecretStore(ctx, raftNode, clusterID, nodeID, keyManager, slog.Default())
 			if err != nil {
 				slog.Warn("failed to create secret store in synchronous path", "error", err)
 				// Don't fail agent startup - secret store can be initialized later
 				// The async path (after leader election) will retry
 				secretStore = nil
+				sealMgr = nil
 			}
 		} else {
 			slog.Warn("cannot create secret store: keyManager is nil")
@@ -766,7 +769,17 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		slog.Info("raft node not available, secret store disabled")
 	}
 
+	// Wire secret dependencies into the HTTP server so vault lifecycle
+	// endpoints (init/unseal/seal/status) and secret CRUD work correctly.
+	if sealMgr != nil {
+		server.SetSealManager(sealMgr)
+	}
+	if secretStore != nil {
+		server.SetSecretStore(secretStore)
+	}
+
 	// Start secret sync reporter if secretStore is available
+	var replicationListenAddr string
 	if secretStore != nil {
 		secretSyncReporter = NewSecretSyncReporter(
 			serverID.(string),
@@ -777,6 +790,42 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		)
 		secretSyncReporter.Start(ctx)
 		slog.Info("secret sync reporter started")
+
+		// Start secret replication manager: prepares ECIES-wrapped payloads and
+		// delivers them over Hyphae channels when triggered by channel.bind.completed.
+		replicationManager = NewSecretReplicationManager(
+			serverID.(string),
+			clusterID,
+			secretStore,
+			keyManager,
+			cplaneClient.Secrets,
+		)
+
+		// Start the destination-side TCP listener so MMA can forward inbound
+		// replication streams to us via UA_SECRET_REPLICATION_ADDR.
+		if addr, listenErr := StartReplicationListener(
+			ctx,
+			secretStore,
+			keyManager,
+			cplaneClient.Secrets,
+			serverID.(string),
+			clusterID,
+		); listenErr != nil {
+			slog.Warn("failed to start secret replication listener", "error", listenErr)
+		} else {
+			replicationListenAddr = addr
+			slog.Info("secret replication listener started", "addr", addr)
+		}
+
+		// Run the periodic replication scheduler (leader-gated).
+		safeGo("secretReplicationLoop", func() {
+			RunReplicationLoop(ctx, replicationManager, func() bool {
+				if raftNode == nil {
+					return false
+				}
+				return raftNode.IsLeader()
+			})
+		})
 	}
 
 	// Get organization ID from config
@@ -823,11 +872,15 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				slog.Info("retrying secret store creation after leader election")
 				retryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
-				store, err := initAndUnsealSecretStore(retryCtx, raftNode, clusterID, nodeID, keyManager, slog.Default())
+				store, sm, err := initAndUnsealSecretStore(retryCtx, raftNode, clusterID, nodeID, keyManager, slog.Default())
 				if err != nil {
 					slog.Warn("failed to create secret store in async retry", "error", err)
 				} else {
 					syscallServer.UpdateSecretStore(store)
+					if sm != nil {
+						server.SetSealManager(sm)
+					}
+					server.SetSecretStore(store)
 					slog.Info("secret store created and wired in async retry after leader election")
 				}
 			}()
@@ -940,6 +993,11 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		if devHyphaeTunnelAddr != "" {
 			baseEnv["HYPHAE_ENABLED"] = "true"
 			baseEnv["HYPHAE_TUNNEL_ADDR"] = devHyphaeTunnelAddr
+		}
+		// Inject the secret replication listener address so MMA can route inbound
+		// secret-replication channels to the agent's TCP handler.
+		if replicationListenAddr != "" {
+			baseEnv["UA_SECRET_REPLICATION_ADDR"] = replicationListenAddr
 		}
 		mergedEnv := devMMAEnv(devConfig, baseEnv)
 
@@ -1501,15 +1559,17 @@ func getRaftConfigFromMap(raftMap map[string]interface{}) *raft.NodeConfig {
 	return cfg
 }
 
-// initAndUnsealSecretStore creates a SecretStore with automatic initialization and unsealing
-func initAndUnsealSecretStore(ctx context.Context, raftNode *raft.Node, clusterID, nodeID string, keyManager keymanager.KeyManager, logger *slog.Logger) (*raft.SecretStore, error) {
+// initAndUnsealSecretStore creates a SecretStore with automatic initialization and unsealing.
+// Returns both the SecretStore and SealManager so the caller can wire the SealManager
+// into the HTTP server for vault lifecycle endpoints (init/unseal/seal/status).
+func initAndUnsealSecretStore(ctx context.Context, raftNode *raft.Node, clusterID, nodeID string, keyManager keymanager.KeyManager, logger *slog.Logger) (*raft.SecretStore, *raft.SealManager, error) {
 	if raftNode == nil {
 		logger.Warn("cannot create secret store: raftNode is nil")
-		return nil, fmt.Errorf("raftNode is nil")
+		return nil, nil, fmt.Errorf("raftNode is nil")
 	}
 	if keyManager == nil {
 		logger.Warn("cannot create secret store: keyManager is nil")
-		return nil, fmt.Errorf("keyManager is nil")
+		return nil, nil, fmt.Errorf("keyManager is nil")
 	}
 
 	logger.Info("creating secret store", "clusterID", clusterID, "nodeID", nodeID)
@@ -1521,7 +1581,7 @@ func initAndUnsealSecretStore(ctx context.Context, raftNode *raft.Node, clusterI
 	sealManager, err := raft.NewSealManager(raftNode, clusterID, nodeID, kmConfig)
 	if err != nil {
 		logger.Warn("failed to create seal manager", "error", err)
-		return nil, fmt.Errorf("failed to create seal manager: %w", err)
+		return nil, nil, fmt.Errorf("failed to create seal manager: %w", err)
 	}
 
 	// Auto-initialize if not already initialized (fresh cluster)
@@ -1559,11 +1619,11 @@ func initAndUnsealSecretStore(ctx context.Context, raftNode *raft.Node, clusterI
 		"initialized", sealManager.IsInitialized(),
 		"sealed", sealManager.IsSealed())
 
-	return secretStore, nil
+	return secretStore, sealManager, nil
 }
 
 // initializeRaftNode creates and starts a Raft cluster node
-func initializeRaftNode(ctx context.Context, config *raft.NodeConfig, serverIDStr string, syscallServer *kernel.SyscallServer, keyManager keymanager.KeyManager, clusterID string) (*raft.Node, error) {
+func initializeRaftNode(ctx context.Context, config *raft.NodeConfig, serverIDStr string, syscallServer *kernel.SyscallServer, keyManager keymanager.KeyManager, clusterID string, server *Server) (*raft.Node, error) {
 	// Get logger from context - it's the best configured context
 	logger := slog.Default().With("component", "raft", "node_id", config.NodeID)
 
@@ -1591,11 +1651,17 @@ func initializeRaftNode(ctx context.Context, config *raft.NodeConfig, serverIDSt
 
 			// Create SecretStore now that raft is ready (with init/unseal)
 			if syscallServer != nil && keyManager != nil {
-				secretStore, err := initAndUnsealSecretStore(context.Background(), node, clusterID, serverIDStr, keyManager, logger)
+				secretStore, sm, err := initAndUnsealSecretStore(context.Background(), node, clusterID, serverIDStr, keyManager, logger)
 				if err != nil {
 					logger.Warn("failed to create secret store after leader election", "error", err)
 				} else {
 					syscallServer.UpdateSecretStore(secretStore)
+					if server != nil {
+						if sm != nil {
+							server.SetSealManager(sm)
+						}
+						server.SetSecretStore(secretStore)
+					}
 					logger.Info("secret store initialized and wired after leader election")
 				}
 			} else {
@@ -1655,7 +1721,7 @@ func watchConfigForRaftInitialization(ctx context.Context, manager policy_manage
 			}
 
 			// Initialize Raft node (with syscallServer and keyManager for async SecretStore creation)
-			raftNode, err := initializeRaftNode(ctx, raftConfig, serverID, syscallServer, keyManager, clusterID)
+			raftNode, err := initializeRaftNode(ctx, raftConfig, serverID, syscallServer, keyManager, clusterID, server)
 			if err != nil {
 				logger.Warn("failed to initialize raft node after cluster assignment", "error", err)
 				continue

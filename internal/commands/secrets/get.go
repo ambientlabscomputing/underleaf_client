@@ -11,7 +11,8 @@ import (
 )
 
 var (
-	getVersion int
+	getVersion      int
+	getOutputFormat string
 )
 
 var getCmd = &cobra.Command{
@@ -31,7 +32,7 @@ The value is fetched directly from the agent — it never transits the cloud.
 		port := getAgentPort(ctx)
 		client := agent.NewClient(port)
 
-		path := fmt.Sprintf("/api/v1/secrets/%s", url.PathEscape(name))
+		path := fmt.Sprintf("/api/v1/secrets/get/%s", url.PathEscape(name))
 		if getVersion > 0 {
 			path = fmt.Sprintf("%s?version=%d", path, getVersion)
 		}
@@ -44,6 +45,11 @@ The value is fetched directly from the agent — it never transits the cloud.
 		var result map[string]interface{}
 		if err := json.Unmarshal(resp, &result); err != nil {
 			return fmt.Errorf("failed to parse agent response: %w", err)
+		}
+
+		if getOutputFormat == "json" {
+			fmt.Println(string(resp))
+			return nil
 		}
 
 		printer.PrintSuccess(fmt.Sprintf("Name:    %s", name))
@@ -62,5 +68,6 @@ The value is fetched directly from the agent — it never transits the cloud.
 
 func init() {
 	getCmd.Flags().IntVar(&getVersion, "version", 0, "Secret version to retrieve (default: latest)")
+	getCmd.Flags().StringVarP(&getOutputFormat, "output", "o", "", "Output format: 'json' for machine-readable output")
 	getCmd.Flags().IntVarP(&agentPort, "port", "p", 0, "Agent port (default: 2240)")
 }

@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"sync"
+	"time"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -31,33 +34,40 @@ import (
 //  3. Decrypts Ciphertext with the recovered DEK (AES-256-GCM).
 //  4. Stores the plaintext secret in its local SecretStore.
 type ReplicationPayload struct {
-	ChannelID        string `json:"channel_id"`
-	GrantJWT         string `json:"grant_jwt"`
-	SecretID         string `json:"secret_id"`
-	SecretName       string `json:"secret_name"`
-	Version          uint64 `json:"version"`
-	EphemeralPubKey  []byte `json:"ephemeral_pub_key"` // PKIX DER bytes of ephemeral ECDH P-256 key
-	WrappedDEK       []byte `json:"wrapped_dek"`       // AES-256-GCM encrypted DEK using ECDH shared secret
-	WrappedDEKNonce  []byte `json:"wrapped_dek_nonce"` // AES-256-GCM nonce for wrapped DEK
-	Ciphertext       []byte `json:"ciphertext"`        // AES-256-GCM encrypted secret data
-	CiphertextNonce  []byte `json:"ciphertext_nonce"`  // AES-256-GCM nonce for ciphertext
-	EncryptedMapJSON []byte `json:"-"`                 // placeholder for map → JSON → encrypt
+	ChannelID       string `json:"channel_id"`
+	GrantJWT        string `json:"grant_jwt"`
+	SecretID        string `json:"secret_id"`
+	SecretName      string `json:"secret_name"`
+	Version         uint64 `json:"version"`
+	EphemeralPubKey []byte `json:"ephemeral_pub_key"` // PKIX DER bytes of ephemeral ECDH P-256 key
+	WrappedDEK      []byte `json:"wrapped_dek"`       // AES-256-GCM encrypted DEK using ECDH shared secret
+	WrappedDEKNonce []byte `json:"wrapped_dek_nonce"` // AES-256-GCM nonce for wrapped DEK
+	Ciphertext      []byte `json:"ciphertext"`        // AES-256-GCM encrypted secret data
+	CiphertextNonce []byte `json:"ciphertext_nonce"`  // AES-256-GCM nonce for ciphertext
+}
+
+// pendingDeliveryRecord holds a prepared ReplicationPayload that is waiting for
+// the Hyphae channel to become active before transmission. Keyed by channelID.
+type pendingDeliveryRecord struct {
+	payload       *ReplicationPayload
+	destClusterID string
+	destServerID  string
 }
 
 // SecretReplicationManager orchestrates secret replication from this cluster to
 // peer clusters that have pending replication targets in server_api.
 //
-// Architecture note: This manager prepares the grant and wrapped payload. The
-// actual byte delivery over the Hyphae relay channel happens via the
-// channel.bind.request Spine event flow (see channel_handler.go and the MMA
-// HyphaeProvider). Phase 5 will wire the delivery over the established yamux
-// stream.
+// Architecture: The manager prepares the ECIES-wrapped payload and queues it in
+// pendingDeliveries. When the Hyphae channel becomes active (channel.bind.completed
+// event via channel_handler.go), DeliverPendingPayload transmits the payload over
+// the relay loopback socket opened by MMA's HyphaeProvider.
 type SecretReplicationManager struct {
-	serverID    string
-	clusterID   string
-	secretStore *raft.SecretStore
-	keyManager  keymanager.KeyManager
-	secrets     *controlplane.CPlaneSecretsClient
+	serverID          string
+	clusterID         string
+	secretStore       *raft.SecretStore
+	keyManager        keymanager.KeyManager
+	secrets           *controlplane.CPlaneSecretsClient
+	pendingDeliveries sync.Map // channelID → *pendingDeliveryRecord
 }
 
 // NewSecretReplicationManager creates a new SecretReplicationManager.
@@ -81,7 +91,7 @@ func NewSecretReplicationManager(
 //  1. Issues a replication grant (creates a Hyphae channel).
 //  2. Wraps the DEK for the destination using ECIES.
 //  3. Packages the ReplicationPayload.
-//  4. TODO(Phase 5): Delivers the payload over the established Hyphae channel.
+//  4. Queues the payload for delivery once the Hyphae channel becomes active.
 func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 	if m.secretStore == nil || m.keyManager == nil {
 		return fmt.Errorf("SecretReplicationManager: secret store or key manager not available")
@@ -204,16 +214,104 @@ func (m *SecretReplicationManager) replicateToTarget(ctx context.Context, secret
 		CiphertextNonce: nonce,
 	}
 
-	// TODO(Phase 5): Deliver payload over the Hyphae relay channel established by
-	// the channel.bind.request Spine event (channel_handler.go → MMA → Hyphae).
-	// For now, log the channel ID for monitoring.
-	slog.Info("replication: grant issued and payload prepared (delivery pending Phase 5)",
+	// Store the payload keyed by channelID so that HandleChannelBindCompleted
+	// can deliver it once the Hyphae relay channel becomes active.
+	m.pendingDeliveries.Store(grantResp.ChannelID, &pendingDeliveryRecord{
+		payload:       payload,
+		destClusterID: destClusterID,
+		destServerID:  destServerID,
+	})
+	slog.Info("replication: payload queued for Hyphae delivery",
 		"channel_id", payload.ChannelID,
 		"secret_id", secretID,
 		"dest_cluster", destClusterID,
 		"version", payload.Version)
 
 	return nil
+}
+
+// ─────────────────────────── Pending delivery helpers ─────────────────────────
+
+// HasPendingDelivery reports whether the manager has a queued payload for
+// the given channelID. Used by HandleChannelBindCompleted to decide whether
+// to trigger delivery after the initiator relay socket is ready.
+func (m *SecretReplicationManager) HasPendingDelivery(channelID string) bool {
+	_, ok := m.pendingDeliveries.Load(channelID)
+	return ok
+}
+
+// DeliverPendingPayload connects to localAddr (the loopback relay socket
+// opened by MMA's HyphaeProvider on the initiator side), transmits the
+// queued ReplicationPayload as JSON, reads the ack, then updates server_api.
+//
+// Called from HandleChannelBindCompleted in a goroutine after the initiator
+// channel.bind.completed event arrives with status=="active".
+func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, channelID, localAddr string) {
+	val, ok := m.pendingDeliveries.LoadAndDelete(channelID)
+	if !ok {
+		slog.Warn("DeliverPendingPayload: no pending delivery for channel", "channel_id", channelID)
+		return
+	}
+	rec := val.(*pendingDeliveryRecord)
+
+	logger := slog.Default().With("channel_id", channelID, "secret_id", rec.payload.SecretID, "dest_cluster", rec.destClusterID)
+	logger.Info("replication: initiating payload delivery over Hyphae channel")
+
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", localAddr)
+	if err != nil {
+		logger.Error("replication: failed to dial Hyphae relay socket", "addr", localAddr, "error", err)
+		return
+	}
+	defer conn.Close()
+
+	// Transmit payload as a single JSON frame.
+	if err := json.NewEncoder(conn).Encode(rec.payload); err != nil {
+		logger.Error("replication: failed to send payload", "error", err)
+		return
+	}
+
+	// Read ack from the destination agent.
+	var ack replicationAck
+	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
+		logger.Error("replication: failed to read ack", "error", err)
+		return
+	}
+	if ack.Status != "ok" {
+		logger.Error("replication: destination returned error ack", "error", ack.ErrMsg)
+		return
+	}
+	logger.Info("replication: payload delivered, ack received")
+
+	// Update the replication target status to "delivered" in server_api.
+	m.updateReplicationTargetStatus(ctx, rec.payload.SecretID, rec.destClusterID, "delivered")
+}
+
+// updateReplicationTargetStatus fetches the current SecretMetadata, updates
+// the status of the matching replication target, and PATCHes server_api.
+func (m *SecretReplicationManager) updateReplicationTargetStatus(ctx context.Context, secretID, clusterID, status string) {
+	remote, err := m.secrets.GetSecretMetadata(ctx, secretID)
+	if err != nil {
+		slog.Warn("replication: failed to fetch metadata for status update", "secret_id", secretID, "error", err)
+		return
+	}
+	updated := make([]controlplane.ReplicationTarget, len(remote.ReplicationTargets))
+	copy(updated, remote.ReplicationTargets)
+	for i := range updated {
+		if updated[i].ClusterID == clusterID {
+			updated[i].Status = status
+			break
+		}
+	}
+	if _, err := m.secrets.PatchSecretMetadata(ctx, secretID, controlplane.PatchSecretMetadataRequest{
+		ReplicationTargets: &updated,
+	}); err != nil {
+		slog.Warn("replication: failed to patch replication target status",
+			"secret_id", secretID, "cluster_id", clusterID, "status", status, "error", err)
+		return
+	}
+	slog.Info("replication: updated target status in server_api",
+		"secret_id", secretID, "cluster_id", clusterID, "status", status)
 }
 
 // ─────────────────────────────── ECIES helpers ────────────────────────────────
@@ -286,6 +384,20 @@ func eciesWrapKey(recipientPubKeyPEM string, plainKey []byte) (wrappedKey, ephPu
 	return wrapped, ephPubDERBytes, gcmNonce, nil
 }
 
+// aesGCMDecrypt decrypts ciphertext produced by aesGCMEncrypt.
+// key must be 32 bytes (AES-256). Returns the plaintext or an error.
+func aesGCMDecrypt(key, ciphertext, nonce []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	return gcm.Open(nil, nonce, ciphertext, nil)
+}
+
 // aesGCMEncrypt encrypts plaintext with key (must be 32 bytes for AES-256).
 // Returns (ciphertext, nonce, error).
 func aesGCMEncrypt(key, plaintext []byte) (ciphertext, nonce []byte, err error) {
@@ -333,10 +445,36 @@ func UnwrapReplicationPayload(payload *ReplicationPayload, km keymanager.KeyMana
 	}
 
 	// Derive the ECDH shared secret using our local identity private key.
-	// TODO(Phase 5): Replace with km.ECDHAgree(ephPub) to derive the shared secret
-	// and reconstruct the HKDF wrapping key for DEK unwrapping.
-	_ = ephPub
-	return nil, fmt.Errorf("UnwrapReplicationPayload: ECDH unwrap not yet implemented (Phase 5)")
+	rawSecret, err := km.ECDHAgree(ephPub)
+	if err != nil {
+		return nil, fmt.Errorf("UnwrapReplicationPayload: ECDH key agreement: %w", err)
+	}
+
+	// Derive the wrapping key via HKDF-SHA256 (same parameters used by eciesWrapKey).
+	hkdfReader := hkdf.New(sha256.New, rawSecret, nil, []byte("underleaf-secret-replication"))
+	wrappingKey := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, wrappingKey); err != nil {
+		return nil, fmt.Errorf("UnwrapReplicationPayload: HKDF: %w", err)
+	}
+
+	// Unwrap the DEK.
+	plainDEK, err := aesGCMDecrypt(wrappingKey, payload.WrappedDEK, payload.WrappedDEKNonce)
+	if err != nil {
+		return nil, fmt.Errorf("UnwrapReplicationPayload: unwrap DEK: %w", err)
+	}
+
+	// Decrypt the secret data with the recovered DEK.
+	plainJSON, err := aesGCMDecrypt(plainDEK, payload.Ciphertext, payload.CiphertextNonce)
+	if err != nil {
+		return nil, fmt.Errorf("UnwrapReplicationPayload: decrypt secret data: %w", err)
+	}
+
+	// Unmarshal the secret map.
+	var secretData map[string]interface{}
+	if err := json.Unmarshal(plainJSON, &secretData); err != nil {
+		return nil, fmt.Errorf("UnwrapReplicationPayload: unmarshal secret data: %w", err)
+	}
+	return secretData, nil
 }
 
 // extractECDHRawPoint extracts the raw uncompressed point bytes from a PKIX
@@ -347,4 +485,152 @@ func extractECDHRawPoint(pkixDER []byte) []byte {
 		return pkixDER
 	}
 	return pkixDER[len(pkixDER)-65:]
+}
+
+// ─────────────────────────── Listener (destination side) ──────────────────────
+
+// replicationAck is the one-shot reply sent from the destination agent back to
+// the origin agent after a ReplicationPayload is received and stored.
+type replicationAck struct {
+	Status string `json:"status"` // "ok" | "error"
+	ErrMsg string `json:"error,omitempty"`
+}
+
+// StartReplicationListener starts a TCP server on a random loopback port that
+// accepts inbound ReplicationPayload frames relayed by the MMA HyphaeProvider.
+// The listener address is returned so the caller can inject it into MMA via
+// the UA_SECRET_REPLICATION_ADDR environment variable.
+//
+// Each accepted connection is handled in its own goroutine and:
+//  1. Reads one JSON-encoded ReplicationPayload.
+//  2. Calls UnwrapReplicationPayload to decrypt and validate.
+//  3. Stores the secret in the local SecretStore.
+//  4. Writes a replicationAck and closes the connection.
+//  5. PATCHes server_api to advance the target status to "acknowledged".
+func StartReplicationListener(
+	ctx context.Context,
+	secretStore *raft.SecretStore,
+	km keymanager.KeyManager,
+	secrets *controlplane.CPlaneSecretsClient,
+	serverID, clusterID string,
+) (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", fmt.Errorf("StartReplicationListener: listen: %w", err)
+	}
+
+	go func() {
+		defer ln.Close()
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					slog.Warn("replication listener: accept error", "error", err)
+					continue
+				}
+			}
+			go handleReplicationConnection(conn, km, secretStore, secrets, clusterID)
+		}
+	}()
+
+	// Close listener when context is cancelled.
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
+
+	return ln.Addr().String(), nil
+}
+
+// handleReplicationConnection processes a single inbound replication connection.
+func handleReplicationConnection(
+	conn net.Conn,
+	km keymanager.KeyManager,
+	secretStore *raft.SecretStore,
+	secrets *controlplane.CPlaneSecretsClient,
+	localClusterID string,
+) {
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+
+	var payload ReplicationPayload
+	if err := json.NewDecoder(conn).Decode(&payload); err != nil {
+		slog.Warn("replication connection: failed to decode payload", "error", err)
+		json.NewEncoder(conn).Encode(replicationAck{Status: "error", ErrMsg: "decode: " + err.Error()})
+		return
+	}
+
+	logger := slog.Default().With("channel_id", payload.ChannelID, "secret_id", payload.SecretID)
+	logger.Info("replication: received payload, unwrapping")
+
+	secretData, err := UnwrapReplicationPayload(&payload, km)
+	if err != nil {
+		logger.Error("replication: failed to unwrap payload", "error", err)
+		json.NewEncoder(conn).Encode(replicationAck{Status: "error", ErrMsg: "unwrap: " + err.Error()})
+		return
+	}
+
+	// Store using the secret name as the path under "secrets/".
+	secretPath := "secrets/" + payload.SecretName
+	if _, err := secretStore.Put(context.Background(), secretPath, secretData, nil); err != nil {
+		logger.Error("replication: failed to store secret", "path", secretPath, "error", err)
+		json.NewEncoder(conn).Encode(replicationAck{Status: "error", ErrMsg: "store: " + err.Error()})
+		return
+	}
+	logger.Info("replication: secret stored successfully", "path", secretPath)
+
+	// Acknowledge to sender.
+	if err := json.NewEncoder(conn).Encode(replicationAck{Status: "ok"}); err != nil {
+		logger.Warn("replication: failed to write ack", "error", err)
+	}
+
+	// Advance our cluster's target status to "acknowledged" in server_api.
+	if secrets != nil && payload.SecretID != "" {
+		go func() {
+			remote, err := secrets.GetSecretMetadata(context.Background(), payload.SecretID)
+			if err != nil {
+				logger.Warn("replication: could not fetch metadata to acknowledge", "error", err)
+				return
+			}
+			updated := make([]controlplane.ReplicationTarget, len(remote.ReplicationTargets))
+			copy(updated, remote.ReplicationTargets)
+			for i := range updated {
+				if updated[i].ClusterID == localClusterID {
+					updated[i].Status = "acknowledged"
+					break
+				}
+			}
+			if _, err := secrets.PatchSecretMetadata(context.Background(), payload.SecretID,
+				controlplane.PatchSecretMetadataRequest{ReplicationTargets: &updated}); err != nil {
+				logger.Warn("replication: failed to acknowledge in server_api", "error", err)
+			} else {
+				logger.Info("replication: acknowledged in server_api")
+			}
+		}()
+	}
+}
+
+// ──────────────────────────── Periodic scheduler ──────────────────────────────
+
+// RunReplicationLoop runs ReplicatePending on a fixed interval, gated on
+// cluster leadership. It blocks until ctx is cancelled.
+func RunReplicationLoop(ctx context.Context, mgr *SecretReplicationManager, isLeader func() bool) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if isLeader != nil && !isLeader() {
+				continue
+			}
+			if err := mgr.ReplicatePending(ctx); err != nil {
+				slog.Warn("replication loop: error during ReplicatePending", "error", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }

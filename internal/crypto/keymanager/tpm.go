@@ -6,6 +6,7 @@ package keymanager
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -795,4 +796,67 @@ func (km *tpmKeyManager) ExportPublicKey() ([]byte, error) {
 	}
 
 	return pem.EncodeToMemory(pemBlock), nil
+}
+
+// ECDHAgree performs ECDH key agreement using the TPM identity private key.
+// It loads the identity key into the TPM, then executes TPM2_ECDH_ZGen with
+// the provided peer P-256 public key, returning the shared secret X-coordinate.
+func (km *tpmKeyManager) ECDHAgree(peerPublicKey *ecdh.PublicKey) ([]byte, error) {
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+	if km.tpm == nil {
+		return nil, fmt.Errorf("ECDHAgree: TPM not available")
+	}
+
+	// Load the identity key into the TPM.
+	load := tpm2.Load{
+		ParentHandle: tpm2.AuthHandle{
+			Handle: km.srkHandle,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPrivate: km.identityKeyBlob,
+		InPublic:  km.identityKeyPub,
+	}
+	loadRsp, err := load.Execute(km.tpm)
+	if err != nil {
+		return nil, fmt.Errorf("ECDHAgree: TPM Load identity key: %w", err)
+	}
+	defer func() {
+		flush := tpm2.FlushContext{FlushHandle: loadRsp.ObjectHandle}
+		flush.Execute(km.tpm)
+	}()
+
+	// Extract X and Y from the uncompressed point bytes (0x04 || X(32) || Y(32)).
+	raw := peerPublicKey.Bytes()
+	if len(raw) != 65 || raw[0] != 0x04 {
+		return nil, fmt.Errorf("ECDHAgree: unexpected peer key format (len=%d, prefix=0x%02x)", len(raw), raw[0])
+	}
+
+	// Execute TPM2_ECDH_ZGen: multiply the identity private key by the peer point.
+	ecdhCmd := tpm2.ECDHZGen{
+		KeyHandle: tpm2.AuthHandle{
+			Handle: loadRsp.ObjectHandle,
+			Auth:   tpm2.PasswordAuth(nil),
+		},
+		InPoint: tpm2.New2B(tpm2.TPMSECCPoint{
+			X: tpm2.TPM2BECCParameter{Buffer: raw[1:33]},
+			Y: tpm2.TPM2BECCParameter{Buffer: raw[33:65]},
+		}),
+	}
+	ecdhRsp, err := ecdhCmd.Execute(km.tpm)
+	if err != nil {
+		return nil, fmt.Errorf("ECDHAgree: TPM2_ECDH_ZGen: %w", err)
+	}
+
+	outPoint, err := ecdhRsp.OutPoint.Contents()
+	if err != nil {
+		return nil, fmt.Errorf("ECDHAgree: parse output point: %w", err)
+	}
+
+	// Return the shared secret X-coordinate (matching Go crypto/ecdh ECDH output).
+	return outPoint.X.Buffer, nil
 }

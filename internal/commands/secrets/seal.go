@@ -28,6 +28,7 @@ generated during init.
 var (
 	sealShares    int
 	sealThreshold int
+	unsealKey     string
 )
 
 var vaultInitCmd = &cobra.Command{
@@ -105,18 +106,24 @@ is unsealed again.
 var vaultUnsealCmd = &cobra.Command{
 	Use:   "unseal",
 	Short: "Unseal the local secret vault",
-	Long: `Unseal the local secret vault. You will be prompted for a key share.
+	Long: `Unseal the local secret vault. You will be prompted for a key share
+unless --key is provided.
 Run this command multiple times (once per share) until the threshold is met.
 
-  ufctl secrets vault unseal`,
+  ufctl secrets vault unseal
+  ufctl secrets vault unseal --key <share>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		printer := ui.GetPrinter(ctx)
 
-		share, err := ui.PromptSecret("Key share:")
-		if err != nil {
-			return fmt.Errorf("failed to read key share: %w", err)
+		share := unsealKey
+		if share == "" {
+			var err error
+			share, err = ui.PromptSecret("Key share:")
+			if err != nil {
+				return fmt.Errorf("failed to read key share: %w", err)
+			}
 		}
 		if share == "" {
 			return fmt.Errorf("key share cannot be empty")
@@ -189,6 +196,9 @@ func init() {
 	// Flag on vault init subcommand
 	vaultInitCmd.Flags().IntVar(&sealShares, "shares", 5, "Number of key shares to generate")
 	vaultInitCmd.Flags().IntVar(&sealThreshold, "threshold", 3, "Number of shares required to unseal")
+
+	// Flag on vault unseal subcommand
+	vaultUnsealCmd.Flags().StringVar(&unsealKey, "key", "", "Key share (omit for interactive prompt)")
 
 	// Port flag on each vault subcommand
 	vaultInitCmd.Flags().IntVarP(&agentPort, "port", "p", 0, "Agent port (default: 2240)")

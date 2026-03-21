@@ -81,7 +81,9 @@ type ChannelBindCompletedPayload struct {
 
 // HandleChannelBindCompleted processes a channel.bind.completed Spine event (emitted by MMA via kernel).
 // Reports the bind result to server_api so the channel status transitions to "active" (or "error").
-func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID string, channelClient *controlplane.CPlaneChannelClient) error {
+// If replicationManager is non-nil and there is a pending delivery for the channel (initiator side),
+// DeliverPendingPayload is invoked in a goroutine once the relay socket is ready.
+func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID string, channelClient *controlplane.CPlaneChannelClient, replicationManager *SecretReplicationManager) error {
 	logger := slog.Default().With("spine_event", "channel.bind.completed")
 
 	var payload ChannelBindCompletedPayload
@@ -105,6 +107,16 @@ func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID
 		logger.Info("channel bind result reported to server_api", "status", payload.Status)
 	} else {
 		logger.Warn("channel client not available, skipping result report")
+	}
+
+	// For secret-replication channels on the initiator side, trigger TCP delivery
+	// once the relay socket (LocalAddr) is ready.
+	if replicationManager != nil &&
+		payload.Role == "initiator" &&
+		payload.Status == "active" &&
+		payload.LocalAddr != "" &&
+		replicationManager.HasPendingDelivery(payload.ChannelID) {
+		go replicationManager.DeliverPendingPayload(ctx, payload.ChannelID, payload.LocalAddr)
 	}
 
 	return nil

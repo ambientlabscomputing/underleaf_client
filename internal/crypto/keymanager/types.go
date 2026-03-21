@@ -1,6 +1,7 @@
 package keymanager
 
 import (
+	"crypto/ecdh"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -64,6 +65,11 @@ type KeyManager interface {
 	// ExportPublicKey exports the public key corresponding to the identity key
 	// Returns the public key in PEM format
 	ExportPublicKey() ([]byte, error)
+
+	// ECDHAgree performs ECDH key agreement using the node's identity private key
+	// and the given peer public key. Returns the raw shared secret (X-coordinate
+	// of the resulting curve point for P-256). Used for ECIES-based secret replication.
+	ECDHAgree(peerPublicKey *ecdh.PublicKey) ([]byte, error)
 
 	// GetBackendInfo returns information about the active backend
 	GetBackendInfo() BackendInfo

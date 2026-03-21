@@ -186,8 +186,10 @@ func (sm *SealManager) Unseal(ctx context.Context) error {
 		return fmt.Errorf("cluster not ready: %w", err)
 	}
 
-	// Retrieve the master key blob from KV store
-	entry, err := sm.kv.Get(masterKeyBlobPath, ReadModeLinearizable)
+	// Retrieve the master key blob from KV store.
+	// Use stale read: the blob is immutable after init and replicated
+	// via Raft, so followers can safely read from their local FSM.
+	entry, err := sm.kv.Get(masterKeyBlobPath, ReadModeStale)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve master key blob: %w", err)
 	}
@@ -383,7 +385,9 @@ func (sm *SealManager) loadStateLocked() error {
 	return nil
 }
 
-// waitForReady waits for the cluster to be ready
+// waitForReady waits for the cluster to be ready.
+// Any node (leader or follower) is considered ready once it has applied
+// at least one Raft log entry, indicating the FSM is populated.
 func (sm *SealManager) waitForReady(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -393,8 +397,7 @@ func (sm *SealManager) waitForReady(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			if sm.node.IsLeader() {
-				// Give it a moment to stabilize
+			if sm.node.raft != nil && sm.node.raft.AppliedIndex() > 0 {
 				time.Sleep(100 * time.Millisecond)
 				return nil
 			}

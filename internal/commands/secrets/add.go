@@ -15,6 +15,7 @@ import (
 var (
 	addScope   string
 	addCluster string
+	addValue   string
 )
 
 var addCmd = &cobra.Command{
@@ -40,21 +41,31 @@ be scheduled automatically. For cluster-scoped secrets, the value stays local.
 
 		printer.Print(fmt.Sprintf("Creating secret %q with scope: %s", name, addScope))
 
-		// Prompt for secret value (masked input)
-		value, err := ui.PromptSecret("Secret value:")
-		if err != nil {
-			return fmt.Errorf("failed to read secret: %w", err)
-		}
+		// Use --value flag if provided, otherwise prompt interactively
+		value := addValue
 		if value == "" {
-			return fmt.Errorf("secret value cannot be empty")
+			var err error
+			value, err = ui.PromptSecret("Secret value:")
+			if err != nil {
+				return fmt.Errorf("failed to read secret: %w", err)
+			}
+			if value == "" {
+				return fmt.Errorf("secret value cannot be empty")
+			}
 		}
 
 		// Store on local agent
 		port := getAgentPort(ctx)
 		client := agent.NewClient(port)
 
-		payload, _ := json.Marshal(map[string]string{"value": value})
-		_, err = client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/%s", url.PathEscape(name)), payload)
+		// Check if the secret already exists — add must not silently overwrite.
+		_, getErr := client.DoRequest("GET", fmt.Sprintf("/api/v1/secrets/get/%s", url.PathEscape(name)), nil)
+		if getErr == nil {
+			return fmt.Errorf("secret %q already exists; use 'ufctl secrets rotate' to update it", name)
+		}
+
+		payload, _ := json.Marshal(map[string]interface{}{"data": map[string]string{"value": value}})
+		_, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/put/%s", url.PathEscape(name)), payload)
 		if err != nil {
 			return fmt.Errorf("failed to store secret on local agent: %w", err)
 		}
@@ -97,5 +108,6 @@ be scheduled automatically. For cluster-scoped secrets, the value stays local.
 func init() {
 	addCmd.Flags().StringVar(&addScope, "scope", "cluster", "Secret scope: 'org' (replicate to all clusters) or 'cluster' (local only)")
 	addCmd.Flags().StringVar(&addCluster, "cluster", "", "Origin cluster ID (defaults to local cluster from config)")
+	addCmd.Flags().StringVar(&addValue, "value", "", "Secret value (skips interactive prompt)")
 	addCmd.Flags().IntVarP(&agentPort, "port", "p", 0, "Agent port (default: 2240)")
 }

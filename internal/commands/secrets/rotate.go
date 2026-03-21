@@ -15,6 +15,7 @@ import (
 
 var (
 	rotateFingerprint string
+	rotateValue       string
 )
 
 var rotateCmd = &cobra.Command{
@@ -31,21 +32,25 @@ will receive the updated value on next sync.
 		printer := ui.GetPrinter(ctx)
 		name := args[0]
 
-		// Prompt for new secret value
-		newValue, err := ui.PromptSecret("New secret value:")
-		if err != nil {
-			return fmt.Errorf("failed to read secret: %w", err)
-		}
+		// Use --value flag if provided, otherwise prompt interactively
+		newValue := rotateValue
 		if newValue == "" {
-			return fmt.Errorf("secret value cannot be empty")
+			var err error
+			newValue, err = ui.PromptSecret("New secret value:")
+			if err != nil {
+				return fmt.Errorf("failed to read secret: %w", err)
+			}
+			if newValue == "" {
+				return fmt.Errorf("secret value cannot be empty")
+			}
 		}
 
 		// Pass the new value to the local agent (agent handles versioning internally)
 		port := getAgentPort(ctx)
 		client := agent.NewClient(port)
 
-		payload, _ := json.Marshal(map[string]string{"value": newValue})
-		respBytes, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/%s", url.PathEscape(name)), payload)
+		payload, _ := json.Marshal(map[string]interface{}{"data": map[string]string{"value": newValue}})
+		respBytes, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/put/%s", url.PathEscape(name)), payload)
 		if err != nil {
 			return fmt.Errorf("failed to update secret on local agent: %w", err)
 		}
@@ -110,4 +115,5 @@ will receive the updated value on next sync.
 func init() {
 	rotateCmd.Flags().IntVarP(&agentPort, "port", "p", 0, "Agent port (default: 2240)")
 	rotateCmd.Flags().StringVar(&rotateFingerprint, "fingerprint", "", "Optional fingerprint/hash of the new secret value")
+	rotateCmd.Flags().StringVar(&rotateValue, "value", "", "New secret value (skips interactive prompt)")
 }

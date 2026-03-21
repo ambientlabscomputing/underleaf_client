@@ -3,6 +3,7 @@ package keymanager
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/sha256"
@@ -429,6 +430,27 @@ func (km *softwareKeyManager) SignWithIdentityKey(data []byte) ([]byte, error) {
 	}
 
 	return signature, nil
+}
+
+// ECDHAgree performs ECDH key agreement using the software identity private key.
+// The identity key is ECDSA P-256; Go's ecdsa.PrivateKey.ECDH() converts it to
+// an ecdh.PrivateKey for the actual Diffie-Hellman operation.
+func (km *softwareKeyManager) ECDHAgree(peerPublicKey *ecdh.PublicKey) ([]byte, error) {
+	km.mu.RLock()
+	defer km.mu.RUnlock()
+
+	if km.sealed {
+		return nil, ErrSealedKey
+	}
+	if km.identityKey == nil {
+		return nil, fmt.Errorf("ECDHAgree: identity key not available")
+	}
+
+	ecdhPriv, err := km.identityKey.ECDH()
+	if err != nil {
+		return nil, fmt.Errorf("ECDHAgree: convert identity key to ecdh: %w", err)
+	}
+	return ecdhPriv.ECDH(peerPublicKey)
 }
 
 // ExportPublicKey exports the ECDSA public key in PEM format (PKIX)

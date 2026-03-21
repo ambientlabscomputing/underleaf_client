@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,9 +12,10 @@ import (
 )
 
 var (
-	listScope string
-	listState string
-	listName  string
+	listScope        string
+	listState        string
+	listName         string
+	listOutputFormat string
 )
 
 var listCmd = &cobra.Command{
@@ -31,7 +33,20 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(resp.Results) == 0 {
+			if listOutputFormat == "json" {
+				fmt.Println("[]")
+				return nil
+			}
 			printer.Print("No secrets found.")
+			return nil
+		}
+
+		if listOutputFormat == "json" {
+			out, err := json.Marshal(resp.Results)
+			if err != nil {
+				return fmt.Errorf("failed to marshal JSON: %w", err)
+			}
+			fmt.Println(string(out))
 			return nil
 		}
 
@@ -87,4 +102,5 @@ func init() {
 	listCmd.Flags().StringVar(&listScope, "scope", "", "Filter by scope (org|cluster)")
 	listCmd.Flags().StringVar(&listState, "state", "", "Filter by state (active|rotating|revoked)")
 	listCmd.Flags().StringVar(&listName, "name", "", "Filter by name (partial match)")
+	listCmd.Flags().StringVarP(&listOutputFormat, "output", "o", "", "Output format: 'json' for machine-readable output")
 }

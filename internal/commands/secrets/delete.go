@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var deleteForce bool
+
 var deleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Revoke a secret",
@@ -24,20 +26,22 @@ in the control plane. The revocation is broadcast to all clusters that hold a co
 		printer := ui.GetPrinter(ctx)
 		name := args[0]
 
-		confirmed, err := ui.Confirm(fmt.Sprintf("This will revoke %q across all clusters. Continue?", name))
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			printer.Print("Aborted.")
-			return nil
+		if !deleteForce {
+			confirmed, err := ui.Confirm(fmt.Sprintf("This will revoke %q across all clusters. Continue?", name))
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				printer.Print("Aborted.")
+				return nil
+			}
 		}
 
 		// Delete from local agent
 		port := getAgentPort(ctx)
 		client := agent.NewClient(port)
 
-		_, err = client.DoRequest("DELETE", fmt.Sprintf("/api/v1/secrets/%s", url.PathEscape(name)), nil)
+		_, err := client.DoRequest("DELETE", fmt.Sprintf("/api/v1/secrets/delete/%s", url.PathEscape(name)), nil)
 		if err != nil {
 			return fmt.Errorf("failed to delete secret from local agent: %w", err)
 		}
@@ -77,5 +81,6 @@ in the control plane. The revocation is broadcast to all clusters that hold a co
 }
 
 func init() {
+	deleteCmd.Flags().BoolVar(&deleteForce, "force", false, "Skip confirmation prompt")
 	deleteCmd.Flags().IntVarP(&agentPort, "port", "p", 0, "Agent port (default: 2240)")
 }
