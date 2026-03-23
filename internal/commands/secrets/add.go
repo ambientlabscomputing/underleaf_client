@@ -64,25 +64,18 @@ be scheduled automatically. For cluster-scoped secrets, the value stays local.
 			return fmt.Errorf("secret %q already exists; use 'ufctl secrets rotate' to update it", name)
 		}
 
-		payload, _ := json.Marshal(map[string]interface{}{"data": map[string]string{"value": value}})
-		_, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/put/%s", url.PathEscape(name)), payload)
-		if err != nil {
-			return fmt.Errorf("failed to store secret on local agent: %w", err)
-		}
-
-		printer.PrintSuccess("Secret stored locally (version 1)")
-
 		// Determine origin cluster ID
 		originCluster := addCluster
 		if originCluster == "" {
-			// Try to read from config
 			deps := utils.NewDependencyManager(ctx)
 			if clusterID, ok := deps.ConfigClient.Get("local.cluster_id"); ok && clusterID != nil {
 				originCluster = fmt.Sprintf("%v", clusterID)
 			}
 		}
 
-		// Register metadata with control plane
+		// Register metadata with control plane FIRST so we can store the
+		// server_api ID in the local secret's custom metadata. The replication
+		// loop uses this ID to correlate local secrets with server_api records.
 		deps := utils.NewDependencyManager(ctx)
 		req := controlplane.CreateSecretMetadataRequest{
 			Name:            name,
@@ -90,15 +83,31 @@ be scheduled automatically. For cluster-scoped secrets, the value stays local.
 			OriginClusterID: originCluster,
 		}
 
-		meta, err := deps.CPlaneClient.Secrets.CreateSecretMetadata(ctx, req)
-		if err != nil {
-			printer.PrintWarning(fmt.Sprintf("Secret stored locally but failed to sync metadata: %v", err))
-			return nil
+		customMeta := map[string]string{}
+		meta, regErr := deps.CPlaneClient.Secrets.CreateSecretMetadata(ctx, req)
+		if regErr != nil {
+			printer.PrintWarning(fmt.Sprintf("Failed to sync metadata to control plane: %v", regErr))
+			printer.PrintWarning("Secret will be stored locally without a control plane link.")
+		} else {
+			customMeta["server_api_id"] = meta.ID
 		}
 
-		printer.PrintSuccess(fmt.Sprintf("Metadata synced to control plane (id: %s)", meta.ID))
-		if meta.Scope == "org" {
-			printer.Print("Replication to org clusters will be scheduled.")
+		payload, _ := json.Marshal(map[string]interface{}{
+			"data":            map[string]string{"value": value},
+			"custom_metadata": customMeta,
+		})
+		_, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/put/%s", url.PathEscape(name)), payload)
+		if err != nil {
+			return fmt.Errorf("failed to store secret on local agent: %w", err)
+		}
+
+		printer.PrintSuccess("Secret stored locally (version 1)")
+
+		if regErr == nil {
+			printer.PrintSuccess(fmt.Sprintf("Metadata synced to control plane (id: %s)", meta.ID))
+			if meta.Scope == "org" {
+				printer.Print("Replication to org clusters will be scheduled.")
+			}
 		}
 
 		return nil

@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -112,20 +113,41 @@ func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 			continue
 		}
 
-		remote, err := m.secrets.GetSecretMetadata(ctx, secretID)
+		// Use a per-operation timeout so a single slow server_api response
+		// does not stall the entire replication cycle.
+		metaCtx, metaCancel := context.WithTimeout(ctx, 10*time.Second)
+		remote, err := m.secrets.GetSecretMetadata(metaCtx, secretID)
+		metaCancel()
 		if err != nil {
 			slog.Warn("replication: failed to get remote metadata", "secret_id", secretID, "error", err)
 			continue
 		}
 
-		// Only replicate org-scoped secrets that originate from this cluster.
+		// Only replicate org-scoped, active secrets that originate from this cluster.
 		if remote.Scope != "org" || remote.OriginClusterID != m.clusterID {
+			continue
+		}
+		if remote.State == "revoked" || remote.State == "deleted" {
 			continue
 		}
 
 		for _, target := range remote.ReplicationTargets {
-			if target.Status != "pending" {
-				continue
+			// Skip targets that are fully synced at the current version.
+			// Allow re-replication when the secret was rotated (CurrentVersion >
+			// SyncedVersion) even if the previous delivery was "delivered" or
+			// "acknowledged" — a late-arriving ack from the destination can
+			// overwrite the "pending" written by `ufctl secrets rotate`, causing
+			// the target to appear synced when it actually needs re-delivery.
+			switch target.Status {
+			case "pending", "granted":
+				// always attempt delivery
+			case "delivered", "acknowledged":
+				if target.SyncedVersion >= remote.CurrentVersion {
+					continue // fully synced at current version
+				}
+				// SyncedVersion < CurrentVersion: secret was rotated, re-replicate
+			default:
+				continue // "failed" or unknown — skip
 			}
 			// Require a specific destination server ID — a cluster ID alone is not
 			// sufficient to identify the channel endpoint. The server ID is populated
@@ -136,7 +158,10 @@ func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 					"secret_id", secretID, "dest_cluster", target.ClusterID)
 				continue
 			}
-			if err := m.replicateToTarget(ctx, secretID, meta.Path, remote, target.ClusterID, target.ServerID); err != nil {
+			targetCtx, targetCancel := context.WithTimeout(ctx, 10*time.Second)
+			err := m.replicateToTarget(targetCtx, secretID, meta.Path, remote, target.ClusterID, target.ServerID)
+			targetCancel()
+			if err != nil {
 				slog.Warn("replication: failed to replicate to target",
 					"secret_id", secretID,
 					"dest_cluster", target.ClusterID,
@@ -257,61 +282,135 @@ func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, ch
 	logger := slog.Default().With("channel_id", channelID, "secret_id", rec.payload.SecretID, "dest_cluster", rec.destClusterID)
 	logger.Info("replication: initiating payload delivery over Hyphae channel")
 
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", localAddr)
-	if err != nil {
-		logger.Error("replication: failed to dial Hyphae relay socket", "addr", localAddr, "error", err)
-		return
+	// Retry delivery with graduated backoff. The MMA relay goroutine may not
+	// have called Accept() yet when channel.bind.completed fires (the OS-level
+	// listener is ready but the goroutine scheduling gap means the first dial
+	// can arrive before Accept blocks). Starting with a short probe (200ms)
+	// avoids an unnecessary 500ms fixed delay on fast systems.
+	const maxAttempts = 5
+	backoffs := []time.Duration{200 * time.Millisecond, 1 * time.Second, 2 * time.Second, 4 * time.Second}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := m.deliverOnce(ctx, logger, localAddr, rec.payload); err != nil {
+			lastErr = err
+			if attempt < maxAttempts {
+				backoff := backoffs[attempt-1]
+				logger.Warn("replication: delivery attempt failed, retrying",
+					"attempt", attempt, "backoff", backoff, "error", err)
+				select {
+				case <-time.After(backoff):
+				case <-ctx.Done():
+					logger.Error("replication: context cancelled during retry",
+						"attempt", attempt, "error", ctx.Err())
+					m.pendingDeliveries.Store(channelID, rec)
+					return
+				}
+				continue
+			}
+		} else {
+			lastErr = nil
+			break
+		}
 	}
-	defer conn.Close()
-
-	// Transmit payload as a single JSON frame.
-	if err := json.NewEncoder(conn).Encode(rec.payload); err != nil {
-		logger.Error("replication: failed to send payload", "error", err)
-		return
-	}
-
-	// Read ack from the destination agent.
-	var ack replicationAck
-	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
-		logger.Error("replication: failed to read ack", "error", err)
-		return
-	}
-	if ack.Status != "ok" {
-		logger.Error("replication: destination returned error ack", "error", ack.ErrMsg)
+	if lastErr != nil {
+		// Re-queue the payload so the next channel.bind.completed event or
+		// replication loop tick can retry without waiting for a full grant cycle.
+		logger.Error("replication: all delivery attempts failed, re-queuing for retry", "error", lastErr)
+		m.pendingDeliveries.Store(channelID, rec)
 		return
 	}
 	logger.Info("replication: payload delivered, ack received")
 
-	// Update the replication target status to "delivered" in server_api.
-	m.updateReplicationTargetStatus(ctx, rec.payload.SecretID, rec.destClusterID, "delivered")
+	// Update the replication target status to "delivered" in server_api,
+	// recording the version so the loop can detect rotation.
+	m.updateReplicationTargetStatus(ctx, rec.payload.SecretID, rec.destClusterID, "delivered", rec.payload.Version)
+}
+
+// deliverOnce dials the MMA relay socket, sends the payload, and reads the ack.
+func (m *SecretReplicationManager) deliverOnce(ctx context.Context, logger *slog.Logger, localAddr string, payload *ReplicationPayload) error {
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", localAddr)
+	if err != nil {
+		return fmt.Errorf("dial relay socket %s: %w", localAddr, err)
+	}
+	defer conn.Close()
+
+	if err := json.NewEncoder(conn).Encode(payload); err != nil {
+		return fmt.Errorf("send payload: %w", err)
+	}
+
+	var ack replicationAck
+	if err := json.NewDecoder(conn).Decode(&ack); err != nil {
+		return fmt.Errorf("read ack: %w", err)
+	}
+	if ack.Status != "ok" {
+		return fmt.Errorf("destination error: %s", ack.ErrMsg)
+	}
+	return nil
 }
 
 // updateReplicationTargetStatus fetches the current SecretMetadata, updates
 // the status of the matching replication target, and PATCHes server_api.
-func (m *SecretReplicationManager) updateReplicationTargetStatus(ctx context.Context, secretID, clusterID, status string) {
-	remote, err := m.secrets.GetSecretMetadata(ctx, secretID)
-	if err != nil {
-		slog.Warn("replication: failed to fetch metadata for status update", "secret_id", secretID, "error", err)
-		return
-	}
-	updated := make([]controlplane.ReplicationTarget, len(remote.ReplicationTargets))
-	copy(updated, remote.ReplicationTargets)
-	for i := range updated {
-		if updated[i].ClusterID == clusterID {
-			updated[i].Status = status
-			break
+// Retries up to 3 times with 2s backoff to handle transient server_api errors.
+// If version > 0, SyncedVersion on the target is also updated so the rotation
+// detection in ReplicatePending can compare against CurrentVersion.
+func (m *SecretReplicationManager) updateReplicationTargetStatus(ctx context.Context, secretID, clusterID, status string, version uint64) {
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		opCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		remote, err := m.secrets.GetSecretMetadata(opCtx, secretID)
+		cancel()
+		if err != nil {
+			if attempt == maxAttempts {
+				slog.Error("replication: failed to fetch metadata for status update (all retries exhausted)",
+					"secret_id", secretID, "error", err)
+				return
+			}
+			slog.Warn("replication: failed to fetch metadata for status update, retrying",
+				"secret_id", secretID, "attempt", attempt, "error", err)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+			continue
 		}
-	}
-	if _, err := m.secrets.PatchSecretMetadata(ctx, secretID, controlplane.PatchSecretMetadataRequest{
-		ReplicationTargets: &updated,
-	}); err != nil {
-		slog.Warn("replication: failed to patch replication target status",
-			"secret_id", secretID, "cluster_id", clusterID, "status", status, "error", err)
+
+		updated := make([]controlplane.ReplicationTarget, len(remote.ReplicationTargets))
+		copy(updated, remote.ReplicationTargets)
+		for i := range updated {
+			if updated[i].ClusterID == clusterID {
+				updated[i].Status = status
+				if version > 0 {
+					updated[i].SyncedVersion = version
+				}
+				break
+			}
+		}
+		patchCtx, patchCancel := context.WithTimeout(ctx, 10*time.Second)
+		_, patchErr := m.secrets.PatchSecretMetadata(patchCtx, secretID, controlplane.PatchSecretMetadataRequest{
+			ReplicationTargets: &updated,
+		})
+		patchCancel()
+		if patchErr != nil {
+			if attempt == maxAttempts {
+				slog.Error("replication: failed to patch replication target status (all retries exhausted)",
+					"secret_id", secretID, "cluster_id", clusterID, "status", status, "error", patchErr)
+				return
+			}
+			slog.Warn("replication: failed to patch replication target status, retrying",
+				"secret_id", secretID, "attempt", attempt, "error", patchErr)
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+		slog.Info("replication: updated target status in server_api",
+			"secret_id", secretID, "cluster_id", clusterID, "status", status)
 		return
 	}
-	slog.Info("replication: updated target status in server_api",
-		"secret_id", secretID, "cluster_id", clusterID, "status", status)
 }
 
 // ─────────────────────────────── ECIES helpers ────────────────────────────────
@@ -536,11 +635,8 @@ func StartReplicationListener(
 		}
 	}()
 
-	// Close listener when context is cancelled.
-	go func() {
-		<-ctx.Done()
-		ln.Close()
-	}()
+	// The accept goroutine above defers ln.Close() and checks ctx.Done() on
+	// every accept error, so no second closer goroutine is needed.
 
 	return ln.Addr().String(), nil
 }
@@ -573,11 +669,15 @@ func handleReplicationConnection(
 		return
 	}
 
-	// Store using the secret name as the path under "secrets/".
-	secretPath := "secrets/" + payload.SecretName
-	if _, err := secretStore.Put(context.Background(), secretPath, secretData, nil); err != nil {
-		logger.Error("replication: failed to store secret", "path", secretPath, "error", err)
-		json.NewEncoder(conn).Encode(replicationAck{Status: "error", ErrMsg: "store: " + err.Error()})
+	// Store using the secret name as the path (SecretStore adds /secrets prefix internally).
+	secretPath := payload.SecretName
+	storeCtx, storeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	_, storeErr := secretStore.Put(storeCtx, secretPath, secretData, nil)
+	storeCancel()
+	if storeErr != nil {
+		logger.Error("replication: failed to store secret", "path", secretPath, "error", storeErr)
+		//nolint:errcheck
+		json.NewEncoder(conn).Encode(replicationAck{Status: "error", ErrMsg: "store: " + storeErr.Error()})
 		return
 	}
 	logger.Info("replication: secret stored successfully", "path", secretPath)
@@ -590,7 +690,9 @@ func handleReplicationConnection(
 	// Advance our cluster's target status to "acknowledged" in server_api.
 	if secrets != nil && payload.SecretID != "" {
 		go func() {
-			remote, err := secrets.GetSecretMetadata(context.Background(), payload.SecretID)
+			ackCtx, ackCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer ackCancel()
+			remote, err := secrets.GetSecretMetadata(ackCtx, payload.SecretID)
 			if err != nil {
 				logger.Warn("replication: could not fetch metadata to acknowledge", "error", err)
 				return
@@ -600,10 +702,15 @@ func handleReplicationConnection(
 			for i := range updated {
 				if updated[i].ClusterID == localClusterID {
 					updated[i].Status = "acknowledged"
+					// Record the version we received so the origin's ReplicatePending
+					// can detect when the secret is rotated (CurrentVersion > SyncedVersion).
+					if payload.Version > 0 {
+						updated[i].SyncedVersion = payload.Version
+					}
 					break
 				}
 			}
-			if _, err := secrets.PatchSecretMetadata(context.Background(), payload.SecretID,
+			if _, err := secrets.PatchSecretMetadata(ackCtx, payload.SecretID,
 				controlplane.PatchSecretMetadataRequest{ReplicationTargets: &updated}); err != nil {
 				logger.Warn("replication: failed to acknowledge in server_api", "error", err)
 			} else {
@@ -617,8 +724,18 @@ func handleReplicationConnection(
 
 // RunReplicationLoop runs ReplicatePending on a fixed interval, gated on
 // cluster leadership. It blocks until ctx is cancelled.
+//
+// The interval defaults to 15s but can be overridden via the
+// UA_REPLICATION_INTERVAL environment variable (e.g. "5s" for E2E tests).
 func RunReplicationLoop(ctx context.Context, mgr *SecretReplicationManager, isLeader func() bool) {
-	ticker := time.NewTicker(60 * time.Second)
+	interval := 15 * time.Second
+	if v := os.Getenv("UA_REPLICATION_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			interval = d
+			slog.Info("replication loop: using custom interval", "interval", interval)
+		}
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {

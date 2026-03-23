@@ -252,8 +252,14 @@ func (sm *SealManager) AutoUnseal(ctx context.Context) error {
 
 // Status returns the current seal status
 func (sm *SealManager) Status(ctx context.Context) (*SealStatus, error) {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Re-check Raft KV if not yet initialized — the leader may have
+	// initialized since this node's SealManager was created.
+	if !sm.initialized {
+		_ = sm.loadStateLocked() // best-effort refresh
+	}
 
 	return sm.getStatusLocked(), nil
 }

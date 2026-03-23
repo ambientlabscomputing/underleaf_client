@@ -49,7 +49,24 @@ will receive the updated value on next sync.
 		port := getAgentPort(ctx)
 		client := agent.NewClient(port)
 
-		payload, _ := json.Marshal(map[string]interface{}{"data": map[string]string{"value": newValue}})
+		// Fetch existing secret to preserve custom_metadata (e.g. server_api_id
+		// needed by the replication loop).
+		var existingCustomMeta map[string]string
+		if getResp, getErr := client.DoRequest("GET", fmt.Sprintf("/api/v1/secrets/get/%s", url.PathEscape(name)), nil); getErr == nil {
+			var parsed struct {
+				Metadata struct {
+					CustomMeta map[string]string `json:"custom_metadata"`
+				} `json:"metadata"`
+			}
+			if json.Unmarshal(getResp, &parsed) == nil && len(parsed.Metadata.CustomMeta) > 0 {
+				existingCustomMeta = parsed.Metadata.CustomMeta
+			}
+		}
+
+		payload, _ := json.Marshal(map[string]interface{}{
+			"data":            map[string]string{"value": newValue},
+			"custom_metadata": existingCustomMeta,
+		})
 		respBytes, err := client.DoRequest("PUT", fmt.Sprintf("/api/v1/secrets/put/%s", url.PathEscape(name)), payload)
 		if err != nil {
 			return fmt.Errorf("failed to update secret on local agent: %w", err)
@@ -97,10 +114,25 @@ will receive the updated value on next sync.
 			CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 		}
 		active := "active"
+
+		// Reset replication targets to "pending" so the replication loop
+		// re-delivers the new version to all destination clusters.
+		var resetTargets *[]controlplane.ReplicationTarget
+		if len(meta.ReplicationTargets) > 0 {
+			targets := make([]controlplane.ReplicationTarget, len(meta.ReplicationTargets))
+			copy(targets, meta.ReplicationTargets)
+			for i := range targets {
+				targets[i].Status = "pending"
+				targets[i].GrantID = ""
+			}
+			resetTargets = &targets
+		}
+
 		_, err = deps.CPlaneClient.Secrets.PatchSecretMetadata(ctx, meta.ID, controlplane.PatchSecretMetadataRequest{
-			State:          &active,
-			CurrentVersion: &newVersion,
-			VersionEntry:   &entry,
+			State:              &active,
+			CurrentVersion:     &newVersion,
+			VersionEntry:       &entry,
+			ReplicationTargets: resetTargets,
 		})
 		if err != nil {
 			printer.PrintWarning(fmt.Sprintf("Secret rotated locally but failed to update control plane version: %v", err))

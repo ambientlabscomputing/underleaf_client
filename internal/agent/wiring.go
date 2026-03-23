@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"crypto/tls"
@@ -398,7 +399,13 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	// These will be initialized later in the code, but closures capture them by reference
 	var raftNode *raft.Node
 	var eventStreamServer *EventStreamServer
-	var replicationManager *SecretReplicationManager
+	// replicationManager is set after vault initialization (sync or async path).
+	// The atomic.Pointer ensures the channel.bind.completed Spine handler always
+	// reads a consistent (possibly nil) value without a data race.
+	var replicationManager atomic.Pointer[SecretReplicationManager]
+	// replicationLoopStarted prevents a second RunReplicationLoop goroutine from
+	// being spawned when both the synchronous and async-retry init paths succeed.
+	var replicationLoopStarted atomic.Bool
 
 	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
 	// Deployments are now handled by the deployment_engine UMC via syscalls
@@ -493,7 +500,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 		// Handle channel bind completed events from MMA (UNDF-111)
 		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager); err != nil {
+			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager.Load()); err != nil {
 				slog.Warn("failed to handle channel bind completed", "error", err)
 			}
 		})
@@ -729,22 +736,6 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		keyManager = nil
 	}
 
-	// Register identity public key with control plane (for secret replication DEK wrapping)
-	if keyManager != nil && clusterID != "" && clusterID != "default-cluster" {
-		go func() {
-			pubKeyPEM, pkErr := keyManager.ExportPublicKey()
-			if pkErr != nil {
-				slog.Warn("failed to export public key for registration", "error", pkErr)
-				return
-			}
-			if regErr := cplaneClient.Servers.UpdateClusterMemberPublicKey(ctx, clusterID, serverID.(string), string(pubKeyPEM)); regErr != nil {
-				slog.Warn("failed to register identity public key with control plane", "error", regErr)
-			} else {
-				slog.Info("registered identity public key with control plane", "cluster_id", clusterID)
-			}
-		}()
-	}
-
 	// Create SecretStore for secret management if Raft is available
 	var secretStore *raft.SecretStore
 	var sealMgr *raft.SealManager
@@ -767,6 +758,37 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		}
 	} else {
 		slog.Info("raft node not available, secret store disabled")
+	}
+
+	// Register identity public key with control plane (for secret replication DEK wrapping).
+	// Uses the SealManager's key manager which gets initialized/unsealed during vault init.
+	if sealMgr != nil && clusterID != "" && clusterID != "default-cluster" {
+		sealMgrKM := sealMgr.KeyManager()
+		go func() {
+			// Retry export+registration: vault may be sealed at startup and only
+			// initialized later via `ufctl secrets vault init`.
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			for attempts := 0; attempts < 30; attempts++ {
+				pubKeyPEM, pkErr := sealMgrKM.ExportPublicKey()
+				if pkErr != nil {
+					slog.Warn("failed to export public key for registration", "error", pkErr)
+					select {
+					case <-ticker.C:
+						continue
+					case <-ctx.Done():
+						return
+					}
+				}
+				if regErr := cplaneClient.Servers.UpdateClusterMemberPublicKey(ctx, clusterID, serverID.(string), string(pubKeyPEM)); regErr != nil {
+					slog.Warn("failed to register identity public key with control plane", "error", regErr)
+				} else {
+					slog.Info("registered identity public key with control plane", "cluster_id", clusterID)
+				}
+				return
+			}
+			slog.Warn("gave up registering identity public key after retries")
+		}()
 	}
 
 	// Wire secret dependencies into the HTTP server so vault lifecycle
@@ -793,20 +815,20 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 		// Start secret replication manager: prepares ECIES-wrapped payloads and
 		// delivers them over Hyphae channels when triggered by channel.bind.completed.
-		replicationManager = NewSecretReplicationManager(
+		replicationManager.Store(NewSecretReplicationManager(
 			serverID.(string),
 			clusterID,
 			secretStore,
-			keyManager,
+			sealMgr.KeyManager(),
 			cplaneClient.Secrets,
-		)
+		))
 
 		// Start the destination-side TCP listener so MMA can forward inbound
 		// replication streams to us via UA_SECRET_REPLICATION_ADDR.
 		if addr, listenErr := StartReplicationListener(
 			ctx,
 			secretStore,
-			keyManager,
+			sealMgr.KeyManager(),
 			cplaneClient.Secrets,
 			serverID.(string),
 			clusterID,
@@ -818,14 +840,18 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		}
 
 		// Run the periodic replication scheduler (leader-gated).
-		safeGo("secretReplicationLoop", func() {
-			RunReplicationLoop(ctx, replicationManager, func() bool {
-				if raftNode == nil {
-					return false
-				}
-				return raftNode.IsLeader()
+		// CompareAndSwap ensures only one loop goroutine ever runs, even if
+		// both the synchronous and async-retry init paths complete.
+		if replicationLoopStarted.CompareAndSwap(false, true) {
+			safeGo("secretReplicationLoop", func() {
+				RunReplicationLoop(ctx, replicationManager.Load(), func() bool {
+					if raftNode == nil {
+						return false
+					}
+					return raftNode.IsLeader()
+				})
 			})
-		})
+		}
 	}
 
 	// Get organization ID from config
@@ -882,6 +908,51 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					}
 					server.SetSecretStore(store)
 					slog.Info("secret store created and wired in async retry after leader election")
+
+					// Start replication components that were skipped because
+					// secretStore was nil during the synchronous path.
+					secretSyncReporter = NewSecretSyncReporter(
+						serverID.(string),
+						clusterID,
+						store,
+						cplaneClient.Secrets,
+						DefaultSecretSyncInterval,
+					)
+					secretSyncReporter.Start(ctx)
+					slog.Info("secret sync reporter started (async retry)")
+
+					replicationManager.Store(NewSecretReplicationManager(
+						serverID.(string),
+						clusterID,
+						store,
+						sm.KeyManager(),
+						cplaneClient.Secrets,
+					))
+
+					if addr, listenErr := StartReplicationListener(
+						ctx,
+						store,
+						sm.KeyManager(),
+						cplaneClient.Secrets,
+						serverID.(string),
+						clusterID,
+					); listenErr != nil {
+						slog.Warn("failed to start secret replication listener (async retry)", "error", listenErr)
+					} else {
+						replicationListenAddr = addr
+						slog.Info("secret replication listener started (async retry)", "addr", addr)
+					}
+
+					if replicationLoopStarted.CompareAndSwap(false, true) {
+						safeGo("secretReplicationLoop", func() {
+							RunReplicationLoop(ctx, replicationManager.Load(), func() bool {
+								if raftNode == nil {
+									return false
+								}
+								return raftNode.IsLeader()
+							})
+						})
+					}
 				}
 			}()
 		}
