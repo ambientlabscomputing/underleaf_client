@@ -26,7 +26,7 @@ var CloseCmd = &cobra.Command{
 		deps := utils.NewDependencyManager(ctx)
 
 		if !closeForce {
-			fmt.Printf("Close tunnel %s? [y/N] ", tunnelID)
+			deps.Printer.Print(fmt.Sprintf("Close tunnel %s? [y/N] ", tunnelID))
 			scanner := bufio.NewScanner(os.Stdin)
 			if scanner.Scan() {
 				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))

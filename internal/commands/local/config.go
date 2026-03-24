@@ -6,6 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -38,7 +39,8 @@ var ConfigCmd = &cobra.Command{
 
 		// Handle --path flag
 		if showPath {
-			fmt.Println(configPath)
+			printer := ui.GetPrinter(ctx)
+			printer.Print(configPath)
 			return nil
 		}
 
@@ -155,16 +157,14 @@ var ConfigCmd = &cobra.Command{
 			if err != nil {
 				// Fallback to direct print
 				deps.Printer.PrintInfo("Configuration at: " + configPath)
-				fmt.Println()
-				fmt.Println(string(prettyYAML))
+				deps.Printer.Print(string(prettyYAML))
 				return nil
 			}
 
 			if err := pagerCmd.Start(); err != nil {
 				// Fallback to direct print
 				deps.Printer.PrintInfo("Configuration at: " + configPath)
-				fmt.Println()
-				fmt.Println(string(prettyYAML))
+				deps.Printer.Print(string(prettyYAML))
 				return nil
 			}
 
@@ -175,8 +175,7 @@ var ConfigCmd = &cobra.Command{
 		} else {
 			// No pager available, print directly
 			deps.Printer.PrintInfo("Configuration at: " + configPath)
-			fmt.Println()
-			fmt.Println(string(prettyYAML))
+			deps.Printer.Print(string(prettyYAML))
 			return nil
 		}
 	},

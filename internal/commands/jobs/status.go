@@ -68,7 +68,9 @@ func watchJobStatus(ctx context.Context, deps *utils.DependencyManager, jobID st
 			}
 
 			// Clear screen and show status
-			fmt.Print("\033[H\033[2J") // Clear screen
+			if ui.IsInteractive() {
+				fmt.Print("\033[H\033[2J") // Clear screen
+			}
 			displayJobStatus(deps.Printer, job, showOutput)
 
 			// If job is completed or failed, stop watching

@@ -6,21 +6,58 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 
 	"github.com/charmbracelet/lipgloss"
-	"gopkg.in/yaml.v3"
 )
 
 // OutputFormat represents the output format for printing
 type OutputFormat string
+
+// PrinterKey is the context key for the Printer
 type PrinterKey struct{}
 
 const (
-	FormatTable OutputFormat = "table"
+	FormatHuman OutputFormat = "human"
+	FormatShell OutputFormat = "shell"
 	FormatJSON  OutputFormat = "json"
-	FormatYAML  OutputFormat = "yaml"
-	FormatWide  OutputFormat = "wide"
+
+	// Deprecated: use FormatHuman
+	FormatTable OutputFormat = "human"
+	// Deprecated: use FormatHuman
+	FormatWide OutputFormat = "human"
+	// Deprecated: use FormatHuman
+	FormatYAML OutputFormat = "human"
 )
+
+// ansiRe matches ANSI escape sequences
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// StripANSI removes ANSI escape codes from a string
+func StripANSI(s string) string {
+	return ansiRe.ReplaceAllString(s, "")
+}
+
+// IsInteractive returns true if stdout is connected to a terminal
+func IsInteractive() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// DetectFormat returns FormatHuman if running interactively, FormatShell otherwise.
+// Respects the NO_COLOR environment variable.
+func DetectFormat() OutputFormat {
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		return FormatShell
+	}
+	if IsInteractive() {
+		return FormatHuman
+	}
+	return FormatShell
+}
 
 // Printer handles output formatting and printing
 type Printer struct {
@@ -36,17 +73,29 @@ func NewPrinter(format OutputFormat) *Printer {
 	}
 }
 
+// NewPrinterToContext creates a Printer and stores it in the context
 func NewPrinterToContext(ctx context.Context, format OutputFormat) (context.Context, *Printer) {
 	printer := NewPrinter(format)
 	ctx = context.WithValue(ctx, PrinterKey{}, printer)
 	return ctx, printer
 }
 
+// GetPrinter retrieves the Printer from context, or creates a default one
 func GetPrinter(ctx context.Context) *Printer {
 	if printer, ok := ctx.Value(PrinterKey{}).(*Printer); ok {
 		return printer
 	}
-	return NewPrinter(FormatTable)
+	return NewPrinter(FormatHuman)
+}
+
+// Format returns the current output format
+func (p *Printer) Format() OutputFormat {
+	return p.format
+}
+
+// SetFormat updates the output format
+func (p *Printer) SetFormat(f OutputFormat) {
+	p.format = f
 }
 
 // WithWriter sets a custom writer for the printer
@@ -55,27 +104,33 @@ func (p *Printer) WithWriter(w io.Writer) *Printer {
 	return p
 }
 
-// Print outputs the data in the configured format
+// Print outputs data in the configured format.
+// Strings: printed as-is (human), ANSI-stripped (shell), or {"msg":"..."} (json).
+// Non-string data: JSON-encoded in all modes.
 func (p *Printer) Print(data interface{}) error {
-	// If it's a string, just print it directly
 	if str, ok := data.(string); ok {
-		fmt.Fprintln(p.writer, str)
-		return nil
+		switch p.format {
+		case FormatJSON:
+			if str == "" {
+				return nil
+			}
+			return p.printJSON(map[string]string{"msg": StripANSI(str)})
+		case FormatShell:
+			fmt.Fprintln(p.writer, StripANSI(str))
+			return nil
+		default:
+			fmt.Fprintln(p.writer, str)
+			return nil
+		}
 	}
 
-	switch p.format {
-	case FormatJSON:
-		return p.printJSON(data)
-	case FormatYAML:
-		return p.printYAML(data)
-	case FormatTable:
-		return p.printTable(data)
-	case FormatWide:
-		return p.printWide(data)
-	default:
-		fmt.Fprintf(p.writer, "%v\n", data)
-		return nil
-	}
+	return p.printJSON(data)
+}
+
+// PrintTable outputs a TableBuilder in the appropriate format
+func (p *Printer) PrintTable(tb *TableBuilder) error {
+	_, err := fmt.Fprintln(p.writer, tb.RenderForFormat(p.format))
+	return err
 }
 
 func (p *Printer) printJSON(data interface{}) error {
@@ -84,34 +139,7 @@ func (p *Printer) printJSON(data interface{}) error {
 	return encoder.Encode(data)
 }
 
-func (p *Printer) printYAML(data interface{}) error {
-	encoder := yaml.NewEncoder(p.writer)
-	encoder.SetIndent(2)
-	defer encoder.Close()
-	return encoder.Encode(data)
-}
-
-func (p *Printer) printTable(data interface{}) error {
-	// For simple strings, just print them
-	if str, ok := data.(string); ok {
-		fmt.Fprintln(p.writer, str)
-		return nil
-	}
-	// For complex data, try to format as JSON by default
-	return p.printJSON(data)
-}
-
-func (p *Printer) printWide(data interface{}) error {
-	// For simple strings, just print them
-	if str, ok := data.(string); ok {
-		fmt.Fprintln(p.writer, str)
-		return nil
-	}
-	// For complex data, format as JSON
-	return p.printJSON(data)
-}
-
-// Styles for output formatting
+// Styles for output formatting (used in human mode)
 var (
 	SuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
 	ErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
@@ -119,41 +147,69 @@ var (
 	InfoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
 )
 
-// PrintSuccess prints a success message using the printer's writer
+// PrintSuccess prints a success message
 func (p *Printer) PrintSuccess(message string) {
-	fmt.Fprintln(p.writer, SuccessStyle.Render("✓ "+message))
+	switch p.format {
+	case FormatJSON:
+		p.printJSON(map[string]string{"level": "success", "msg": message})
+	case FormatShell:
+		fmt.Fprintln(p.writer, "OK: "+message)
+	default:
+		fmt.Fprintln(p.writer, SuccessStyle.Render("✓ "+message))
+	}
 }
 
-// PrintError prints an error message using the printer's writer
+// PrintError prints an error message
 func (p *Printer) PrintError(message string) {
-	fmt.Fprintln(p.writer, ErrorStyle.Render("✗ "+message))
+	switch p.format {
+	case FormatJSON:
+		p.printJSON(map[string]string{"level": "error", "msg": message})
+	case FormatShell:
+		fmt.Fprintln(p.writer, "ERROR: "+message)
+	default:
+		fmt.Fprintln(p.writer, ErrorStyle.Render("✗ "+message))
+	}
 }
 
-// PrintWarning prints a warning message using the printer's writer
+// PrintWarning prints a warning message
 func (p *Printer) PrintWarning(message string) {
-	fmt.Fprintln(p.writer, WarningStyle.Render("⚠ "+message))
+	switch p.format {
+	case FormatJSON:
+		p.printJSON(map[string]string{"level": "warning", "msg": message})
+	case FormatShell:
+		fmt.Fprintln(p.writer, "WARN: "+message)
+	default:
+		fmt.Fprintln(p.writer, WarningStyle.Render("⚠ "+message))
+	}
 }
 
-// PrintInfo prints an info message using the printer's writer
+// PrintInfo prints an info message
 func (p *Printer) PrintInfo(message string) {
-	fmt.Fprintln(p.writer, InfoStyle.Render("ℹ "+message))
+	switch p.format {
+	case FormatJSON:
+		p.printJSON(map[string]string{"level": "info", "msg": message})
+	case FormatShell:
+		fmt.Fprintln(p.writer, "INFO: "+message)
+	default:
+		fmt.Fprintln(p.writer, InfoStyle.Render("ℹ "+message))
+	}
 }
 
-// Global convenience functions that use stdout directly
-// Use these when you don't have a printer instance
+// Global convenience functions that auto-detect format.
+// Prefer using a Printer instance from context instead.
 
 func PrintSuccess(message string) {
-	fmt.Println(SuccessStyle.Render("✓ " + message))
+	NewPrinter(DetectFormat()).PrintSuccess(message)
 }
 
 func PrintError(message string) {
-	fmt.Println(ErrorStyle.Render("✗ " + message))
+	NewPrinter(DetectFormat()).PrintError(message)
 }
 
 func PrintWarning(message string) {
-	fmt.Println(WarningStyle.Render("⚠ " + message))
+	NewPrinter(DetectFormat()).PrintWarning(message)
 }
 
 func PrintInfo(message string) {
-	fmt.Println(InfoStyle.Render("ℹ " + message))
+	NewPrinter(DetectFormat()).PrintInfo(message)
 }

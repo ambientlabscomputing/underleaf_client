@@ -48,7 +48,7 @@ Examples:
 		existingID, hasID := policy_manager.GetConfig(cmd.Context()).Get("local.server_id")
 		if !hasID || existingID == nil {
 			printer.PrintInfo("💡 TIP: If you haven't registered yet, use 'ufctl start' for complete setup")
-			fmt.Println()
+			printer.Print("")
 		}
 
 		// Get flags
@@ -253,7 +253,7 @@ var agentStatusCmd = &cobra.Command{
 			table.AddRow("Health", "Unreachable")
 		}
 
-		printer.Print(table.Render())
+		printer.PrintTable(table)
 		return nil
 	},
 }

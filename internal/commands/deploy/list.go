@@ -92,7 +92,7 @@ Examples:
 			Bold(true).
 			Foreground(lipgloss.Color("86")).
 			Render(fmt.Sprintf("Found %d deployment(s)", len(deployments))))
-		deps.Printer.Print(table.Render())
+		deps.Printer.PrintTable(table)
 
 		return nil
 	},

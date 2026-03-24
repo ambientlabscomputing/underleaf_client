@@ -54,13 +54,13 @@ func NewApplyCmd() *cobra.Command {
 				NoChangeCount int    `json:"no_change_count"`
 			}
 
-		err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/plan", manifestBytes, &plan)
-		if err != nil {
-			deps.Printer.PrintError("Failed to compute plan: " + err.Error())
-			return fmt.Errorf("failed to compute plan: %w", err)
-		}
+			err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/plan", manifestBytes, &plan)
+			if err != nil {
+				deps.Printer.PrintError("Failed to compute plan: " + err.Error())
+				return fmt.Errorf("failed to compute plan: %w", err)
+			}
 
-		// Display summary
+			// Display summary
 			deps.Printer.Print(fmt.Sprintf("Infrastructure Plan for: %s\n", plan.ManifestName))
 			deps.Printer.Print(fmt.Sprintf("Summary: %d create, %d update, %d delete, %d no-change\n",
 				plan.CreateCount, plan.UpdateCount, plan.DeleteCount, plan.NoChangeCount))
@@ -72,7 +72,7 @@ func NewApplyCmd() *cobra.Command {
 
 			// Confirm unless auto-approve
 			if !autoApprove {
-				fmt.Print("Apply these changes? (yes/no): ")
+				deps.Printer.Print("Apply these changes? (yes/no): ")
 				reader := bufio.NewReader(os.Stdin)
 				response, err := reader.ReadString('\n')
 				if err != nil {
@@ -102,11 +102,11 @@ func NewApplyCmd() *cobra.Command {
 				FailureCount int `json:"failure_count"`
 			}
 
-		err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/apply", manifestBytes, &result)
-		if err != nil {
-			deps.Printer.PrintError("Failed to apply changes: " + err.Error())
-			return fmt.Errorf("failed to apply changes: %w", err)
-		}
+			err = deps.CPlaneClient.API().POSTRaw(context.Background(), "/infra/apply", manifestBytes, &result)
+			if err != nil {
+				deps.Printer.PrintError("Failed to apply changes: " + err.Error())
+				return fmt.Errorf("failed to apply changes: %w", err)
+			}
 			for _, op := range result.Operations {
 				var symbol string
 				if op.Success {

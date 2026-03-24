@@ -74,7 +74,7 @@ func checkLocalStatus(printer ui.Printer) error {
 		}
 	}
 
-	printer.Print(table.Render())
+	printer.PrintTable(table)
 	return nil
 }
 
@@ -129,7 +129,7 @@ func checkRemoteStatus(deps *utils.DependencyManager, serverID string) error {
 		table.AddRow("Last Check-in", server.LastCheckIn.Time.Format("2006-01-02 15:04:05 MST"))
 	}
 
-	deps.Printer.Print(table.Render())
+	deps.Printer.PrintTable(table)
 	return nil
 }
 

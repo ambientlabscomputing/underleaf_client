@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -75,6 +76,8 @@ func NewInitCmd() *cobra.Command {
 		Short: "Initialize a new infrastructure manifest",
 		Long:  `Creates an example infra.yaml file in the current directory.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			printer := ui.GetPrinter(cmd.Context())
+
 			// Determine output path
 			if outputPath == "" {
 				outputPath = "infra.yaml"
@@ -98,12 +101,12 @@ func NewInitCmd() *cobra.Command {
 				return fmt.Errorf("failed to write manifest: %w", err)
 			}
 
-			fmt.Printf("✓ Created example manifest at %s\n", outputPath)
-			fmt.Println("\nNext steps:")
-			fmt.Println("  1. Edit the manifest to match your infrastructure")
-			fmt.Println("  2. Validate: ufctl infra validate infra.yaml")
-			fmt.Println("  3. Preview: ufctl infra plan infra.yaml")
-			fmt.Println("  4. Apply: ufctl infra apply infra.yaml")
+			printer.PrintSuccess(fmt.Sprintf("Created example manifest at %s", outputPath))
+			printer.Print("\nNext steps:")
+			printer.Print("  1. Edit the manifest to match your infrastructure")
+			printer.Print("  2. Validate: ufctl infra validate infra.yaml")
+			printer.Print("  3. Preview: ufctl infra plan infra.yaml")
+			printer.Print("  4. Apply: ufctl infra apply infra.yaml")
 			return nil
 		},
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -18,6 +19,7 @@ import (
 func runSSHAuth(cmd *cobra.Command, serverID string) error {
 	ctx := cmd.Context()
 	logger := logging.GetLogger(ctx)
+	printer := ui.GetPrinter(ctx)
 
 	if serverID == "" {
 		return fmt.Errorf("--server-id is required when using --use-ssh")
@@ -32,11 +34,11 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 	config := deps.ConfigClient
 	authClient := deps.CPlaneClient.Auth
 
-	fmt.Println(titleStyle.Render("🔐 Underleaf SSH Authentication"))
-	fmt.Println()
+	printer.Print(titleStyle.Render("🔐 Underleaf SSH Authentication"))
+	printer.Print("")
 
 	// Step 1: Connect to SSH agent
-	fmt.Println("Step 1: Locating SSH agent...")
+	printer.Print("Step 1: Locating SSH agent...")
 	sshAgentConn, err := getSSHAgent()
 	if err != nil {
 		return formatSSHError(err)
@@ -50,7 +52,7 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 	agentClient := agent.NewClient(sshAgentConn)
 
 	// Step 2: List available keys
-	fmt.Println("Step 2: Retrieving SSH keys from agent...")
+	printer.Print("Step 2: Retrieving SSH keys from agent...")
 	keys, err := agentClient.List()
 	if err != nil {
 		return fmt.Errorf("failed to list SSH keys: %w", err)
@@ -60,16 +62,16 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 		return formatNoKeysError()
 	}
 
-	fmt.Println(successStyle.Render(fmt.Sprintf("✓ Found %d SSH key(s) in agent\n", len(keys))))
+	printer.PrintSuccess(fmt.Sprintf("Found %d SSH key(s) in agent", len(keys)))
 
 	// Step 3: Request challenge from server
-	fmt.Println("Step 3: Requesting challenge from server...")
+	printer.Print("Step 3: Requesting challenge from server...")
 	challengeResp, err := authClient.RequestSSHChallenge(ctx, serverID)
 	if err != nil {
 		return fmt.Errorf("failed to request SSH challenge: %w", err)
 	}
 
-	fmt.Println(successStyle.Render("✓ Received challenge from server\n"))
+	printer.PrintSuccess("Received challenge from server")
 
 	// Decode the challenge nonce
 	challengeBytes, err := base64.StdEncoding.DecodeString(challengeResp.Challenge)
@@ -78,7 +80,7 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 	}
 
 	// Step 4: Try signing with available keys
-	fmt.Println("Step 4: Signing challenge with SSH key...")
+	printer.Print("Step 4: Signing challenge with SSH key...")
 	var signature string
 	var usedKeyFingerprint string
 
@@ -101,7 +103,7 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 		signature = base64.StdEncoding.EncodeToString(sig.Blob)
 		usedKeyFingerprint = computeSSHFingerprint(pubKey)
 
-		fmt.Println(successStyle.Render(fmt.Sprintf("✓ Successfully signed with key: %s\n", key.Comment)))
+		printer.PrintSuccess(fmt.Sprintf("Successfully signed with key: %s", key.Comment))
 		break
 	}
 
@@ -110,13 +112,13 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 	}
 
 	// Step 5: Verify signature with server
-	fmt.Println("Step 5: Verifying signature with server...")
+	printer.Print("Step 5: Verifying signature with server...")
 	verifyResp, err := authClient.VerifySSHSignature(ctx, serverID, challengeResp.Challenge, signature, usedKeyFingerprint)
 	if err != nil {
 		return fmt.Errorf("SSH authentication failed: %w", err)
 	}
 
-	fmt.Println(successStyle.Render("✓ SSH signature verified!\n"))
+	printer.PrintSuccess("SSH signature verified!")
 
 	// Step 6: Save token
 	if verifyResp.Token == "" {
@@ -148,10 +150,8 @@ func runSSHAuth(cmd *cobra.Command, serverID string) error {
 		logger.Warn("SSH verify response did not include org_id — Spine connectivity may be degraded")
 	}
 
-	fmt.Println()
-	fmt.Println(successStyle.Render("✓ SSH Authentication successful!"))
-	fmt.Println(successStyle.Render(fmt.Sprintf("✓ Short-lived API token obtained (expires in %d seconds)", verifyResp.ExpiresIn)))
-	fmt.Println()
+	printer.PrintSuccess("SSH Authentication successful!")
+	printer.PrintSuccess(fmt.Sprintf("Short-lived API token obtained (expires in %d seconds)", verifyResp.ExpiresIn))
 
 	return nil
 }

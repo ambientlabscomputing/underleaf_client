@@ -12,6 +12,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	internalutils "github.com/ambientlabscomputing/underleaf_client/internal/utils"
 )
 
@@ -79,6 +80,7 @@ var AuthLoginCmd = &cobra.Command{
 func runDeviceCodeAuth(cmd *cobra.Command) error {
 	ctx := cmd.Context()
 	logger := logging.GetLogger(ctx)
+	printer := ui.GetPrinter(ctx)
 
 	// Get dependencies
 	deps := utils.NewDependencyManager(ctx)
@@ -90,9 +92,9 @@ func runDeviceCodeAuth(cmd *cobra.Command) error {
 	authClient := deps.CPlaneClient.Auth
 
 	// Start the device authorization flow
-	fmt.Println(titleStyle.Render("🔐 Underleaf Authentication"))
-	fmt.Println()
-	fmt.Println("Initiating device authorization flow...")
+	printer.Print(titleStyle.Render("🔐 Underleaf Authentication"))
+	printer.Print("")
+	printer.Print("Initiating device authorization flow...")
 	logger.Info("Starting device authorization flow")
 
 	authResp, err := authClient.StartDeviceFlow(ctx)
@@ -108,34 +110,34 @@ func runDeviceCodeAuth(cmd *cobra.Command) error {
 	}
 
 	// Display the URL and code
-	fmt.Println()
-	fmt.Println("Please authorize this device by visiting:")
-	fmt.Println()
-	fmt.Println("  " + urlStyle.Render(displayURL))
-	fmt.Println()
+	printer.Print("")
+	printer.Print("Please authorize this device by visiting:")
+	printer.Print("")
+	printer.Print("  " + urlStyle.Render(displayURL))
+	printer.Print("")
 
 	// Only show the code if we're using the basic verification URI
 	if authResp.VerificationURIComplete == "" {
-		fmt.Println("And enter the code:")
-		fmt.Println()
-		fmt.Println("  " + codeStyle.Render(authResp.UserCode))
-		fmt.Println()
+		printer.Print("And enter the code:")
+		printer.Print("")
+		printer.Print("  " + codeStyle.Render(authResp.UserCode))
+		printer.Print("")
 	}
 
 	// Open browser unless --no-browser flag is set
 	if !noBrowser {
 		if err := internalutils.OpenURL(displayURL); err != nil {
-			fmt.Println(instructionStyle.Render(fmt.Sprintf("⚠️  Could not open browser: %v", err)))
-			fmt.Println(instructionStyle.Render("Please open the URL manually."))
+			printer.PrintWarning(fmt.Sprintf("Could not open browser: %v", err))
+			printer.Print(instructionStyle.Render("Please open the URL manually."))
 		} else {
-			fmt.Println(instructionStyle.Render("✓ Browser opened automatically"))
+			printer.PrintSuccess("Browser opened automatically")
 		}
 	}
 
-	fmt.Println()
-	fmt.Println(instructionStyle.Render(fmt.Sprintf("Code expires in %d seconds", authResp.ExpiresIn)))
-	fmt.Println(instructionStyle.Render("Waiting for authorization..."))
-	fmt.Println()
+	printer.Print("")
+	printer.Print(instructionStyle.Render(fmt.Sprintf("Code expires in %d seconds", authResp.ExpiresIn)))
+	printer.Print(instructionStyle.Render("Waiting for authorization..."))
+	printer.Print("")
 
 	// Create a spinner model for polling
 	spinner := NewAuthSpinner()
@@ -203,9 +205,9 @@ func runDeviceCodeAuth(cmd *cobra.Command) error {
 	}
 	logger.Info("Token saved successfully")
 
-	fmt.Println()
-	fmt.Println(successStyle.Render("✓ Authentication successful!"))
-	fmt.Println()
+	printer.Print("")
+	printer.PrintSuccess("Authentication successful!")
+	printer.Print("")
 
 	// Auto-provision organization for simplified onboarding
 	userClient := deps.CPlaneClient.Users
@@ -214,7 +216,7 @@ func runDeviceCodeAuth(cmd *cobra.Command) error {
 	org, err := userClient.AutoProvisionOrganization(ctx)
 	if err != nil {
 		logger.Warn("Failed to auto-provision organization", "error", err)
-		fmt.Println(instructionStyle.Render("Warning: Could not auto-provision organization. You can create one manually later."))
+		printer.PrintWarning("Could not auto-provision organization. You can create one manually later.")
 		return nil
 	}
 
@@ -230,9 +232,8 @@ func runDeviceCodeAuth(cmd *cobra.Command) error {
 		logger.Error("Failed to save organization slug", "error", err)
 	}
 
-	fmt.Println(successStyle.Render("✓ Organization set: " + org.Name))
-	fmt.Println(instructionStyle.Render(fmt.Sprintf("  Organization ID: %s", org.ID)))
-	fmt.Println()
+	printer.PrintSuccess("Organization set: " + org.Name)
+	printer.Print(fmt.Sprintf("  Organization ID: %s", org.ID))
 
 	return nil
 }
@@ -392,7 +393,8 @@ var AuthLogoutCmd = &cobra.Command{
 			return fmt.Errorf("failed to clear authentication token: %w", err)
 		}
 
-		fmt.Println(successStyle.Render("✓ Logged out successfully"))
+		printer := ui.GetPrinter(ctx)
+		printer.PrintSuccess("Logged out successfully")
 		return nil
 	},
 }
@@ -409,16 +411,15 @@ var AuthStatusCmd = &cobra.Command{
 
 		token, ok := config.Get("auth.token")
 
+		printer := ui.GetPrinter(ctx)
 		if !ok || token == nil || token == "" {
-			fmt.Println(errorStyle.Render("✗ Not authenticated"))
-			fmt.Println()
-			fmt.Println(instructionStyle.Render("Run 'ufctl auth login' to authenticate"))
+			printer.PrintError("Not authenticated")
+			printer.Print("Run 'ufctl auth login' to authenticate")
 			return nil
 		}
 
-		fmt.Println(successStyle.Render("✓ Authenticated"))
-		fmt.Println()
-		fmt.Println(instructionStyle.Render("Token is configured and ready to use"))
+		printer.PrintSuccess("Authenticated")
+		printer.Print("Token is configured and ready to use")
 		return nil
 	},
 }

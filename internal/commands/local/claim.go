@@ -35,7 +35,7 @@ func claimExistingServer(ctx context.Context, deps *utils.DependencyManager, ser
 	}
 
 	// Show what is about to be claimed
-	fmt.Println()
+	deps.Printer.Print("")
 	deps.Printer.PrintInfo("Server to claim:")
 	deps.Printer.PrintInfo("  ID:   " + server.ID)
 	deps.Printer.PrintInfo("  Name: " + server.Name)
@@ -44,7 +44,7 @@ func claimExistingServer(ctx context.Context, deps *utils.DependencyManager, ser
 	} else {
 		deps.Printer.PrintInfo("  Last check-in: Never")
 	}
-	fmt.Println()
+	deps.Printer.Print("")
 
 	confirmed, err := ui.Confirm(fmt.Sprintf("Claim server '%s' and download its identity to this machine?", server.Name))
 	if err != nil {

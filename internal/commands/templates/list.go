@@ -102,7 +102,7 @@ func listTemplates(deps *utils.DependencyManager, limit int, nameFilter string) 
 		table.AddRow(displayID, tmpl.Name, command, varCount, displayTime)
 	}
 
-	deps.Printer.Print(table.Render())
+	deps.Printer.PrintTable(table)
 	deps.Printer.Print("")
 	deps.Printer.PrintInfo("Use 'ufctl templates get <id>' to view template details")
 	deps.Printer.PrintInfo("Use 'ufctl templates trigger <id>' to execute a template")

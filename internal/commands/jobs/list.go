@@ -89,7 +89,7 @@ func listJobs(ctx context.Context, deps *utils.DependencyManager, limit int, sta
 		table.AddRow(displayID, jobType, formatStatus(jobStatus), displayTime, command)
 	}
 
-	deps.Printer.Print(table.Render())
+	deps.Printer.PrintTable(table)
 	deps.Printer.Print("")
 	deps.Printer.PrintInfo("Use 'ufctl jobs status <job-id>' to view details")
 

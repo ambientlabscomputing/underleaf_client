@@ -129,8 +129,12 @@ func (m SelectionModel) GetSelectedItems() []string {
 	return items
 }
 
-// RunSelection runs a selection UI and returns the selected items
+// RunSelection runs a selection UI and returns the selected items.
+// Returns ErrNotInteractive if stdout is not a TTY.
 func RunSelection(title string, choices []string) ([]string, error) {
+	if !IsInteractive() {
+		return nil, ErrNotInteractive
+	}
 	m := NewSelectionModel(title, choices)
 	p := tea.NewProgram(m)
 

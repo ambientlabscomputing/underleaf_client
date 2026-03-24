@@ -12,17 +12,7 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
-)
-
-var (
-	startSuccessStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("#00FF00"))
-
-	startInstructionStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#999999"))
 )
 
 // StartCmd represents the unified start command
@@ -115,7 +105,7 @@ Examples:
 
 					if findErr == nil {
 						// A stale server with this name exists — offer to claim it
-						fmt.Println()
+						printer.Print("")
 						deps.Printer.PrintWarning(fmt.Sprintf("A server named '%s' already exists.", serverName))
 						deps.Printer.PrintInfo("  ID:   " + existing.ID)
 						if existing.LastCheckIn != nil && existing.LastCheckIn.Valid {
@@ -123,7 +113,7 @@ Examples:
 						} else {
 							deps.Printer.PrintInfo("  Last check-in: Never")
 						}
-						fmt.Println()
+						printer.Print("")
 
 						choices := []string{"Claim this existing server", "Register with a different name"}
 						selected, selErr := ui.RunSelection("What would you like to do?", choices)
@@ -154,10 +144,10 @@ Examples:
 					// FindExistingServer returned an error
 					if strings.Contains(findErr.Error(), "within last 5 minutes") {
 						// Server is actively running — cannot claim, must use a different name
-						fmt.Println()
+						printer.Print("")
 						deps.Printer.PrintWarning(fmt.Sprintf("Server '%s' is currently active (checked in recently).", serverName))
 						deps.Printer.PrintInfo("Decommission the running server first, or choose a different name.")
-						fmt.Println()
+						printer.Print("")
 						var repromptErr error
 						serverName, repromptErr = ui.PromptInput("Enter a different name for this server:", "")
 						if repromptErr != nil {
@@ -281,32 +271,32 @@ Examples:
 			}
 		}
 
-		fmt.Println()
-		fmt.Println("Underleaf agent is running.")
-		fmt.Println()
-		fmt.Println(startSuccessStyle.Render("✔ Server registered: " + serverNameDisplay))
-		fmt.Println(startSuccessStyle.Render("✔ Secure connection established"))
-		fmt.Println(startSuccessStyle.Render("✔ Agent started"))
-		fmt.Println()
-		fmt.Println("You're ready to go.")
-		fmt.Println()
-		fmt.Println("Try running a command on this server:")
-		fmt.Println()
-		fmt.Println(startInstructionStyle.Render(fmt.Sprintf("  ufctl servers exec %s -- 'uname -a'", serverID)))
-		fmt.Println()
-		fmt.Println("This will execute a job and show it in the dashboard.")
-		fmt.Println()
+		printer.Print("")
+		printer.PrintSuccess("Underleaf agent is running.")
+		printer.Print("")
+		printer.PrintSuccess("Server registered: " + serverNameDisplay)
+		printer.PrintSuccess("Secure connection established")
+		printer.PrintSuccess("Agent started")
+		printer.Print("")
+		printer.Print("You're ready to go.")
+		printer.Print("")
+		printer.Print("Try running a command on this server:")
+		printer.Print("")
+		printer.Print(fmt.Sprintf("  ufctl servers exec %s -- 'uname -a'", serverID))
+		printer.Print("")
+		printer.Print("This will execute a job and show it in the dashboard.")
+		printer.Print("")
 
 		if uiBaseURL != "" && orgSlug != "" {
-			fmt.Println("View results in the UI:")
-			fmt.Println(startInstructionStyle.Render(fmt.Sprintf("  %s/org/%s/jobs", uiBaseURL, orgSlug)))
-			fmt.Println()
+			printer.Print("View results in the UI:")
+			printer.Print(fmt.Sprintf("  %s/org/%s/jobs", uiBaseURL, orgSlug))
+			printer.Print("")
 		}
 
-		fmt.Println("Other useful commands:")
-		fmt.Println(startInstructionStyle.Render("  ufctl agent status"))
-		fmt.Println(startInstructionStyle.Render("  ufctl jobs list"))
-		fmt.Println()
+		printer.Print("Other useful commands:")
+		printer.Print("  ufctl agent status")
+		printer.Print("  ufctl jobs list")
+		printer.Print("")
 
 		return nil
 	},

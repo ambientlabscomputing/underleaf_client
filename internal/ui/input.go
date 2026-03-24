@@ -1,10 +1,15 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ErrNotInteractive is returned when an interactive prompt is required but stdout is not a TTY
+var ErrNotInteractive = fmt.Errorf("interactive terminal required; provide values via flags instead")
 
 // InputModel is a Bubble Tea model for text input
 type InputModel struct {
@@ -82,8 +87,12 @@ func (m InputModel) GetValue() string {
 	return m.value
 }
 
-// PromptInput shows an input prompt and returns the user's input
+// PromptInput shows an input prompt and returns the user's input.
+// Returns ErrNotInteractive if stdout is not a TTY.
 func PromptInput(prompt, placeholder string) (string, error) {
+	if !IsInteractive() {
+		return "", ErrNotInteractive
+	}
 	m := NewInputModel(prompt, placeholder)
 	p := tea.NewProgram(m)
 
@@ -102,7 +111,11 @@ func PromptInput(prompt, placeholder string) (string, error) {
 }
 
 // PromptSecret shows a masked input prompt (for passwords/secrets) and returns the value.
+// Returns ErrNotInteractive if stdout is not a TTY.
 func PromptSecret(prompt string) (string, error) {
+	if !IsInteractive() {
+		return "", ErrNotInteractive
+	}
 	ti := textinput.New()
 	ti.Placeholder = "••••••••"
 	ti.EchoMode = textinput.EchoPassword
@@ -229,8 +242,12 @@ func (m ConfirmModel) GetAnswer() bool {
 	return m.answered && m.selected
 }
 
-// Confirm shows a yes/no prompt and returns the user's answer
+// Confirm shows a yes/no prompt and returns the user's answer.
+// Returns ErrNotInteractive if stdout is not a TTY.
 func Confirm(prompt string) (bool, error) {
+	if !IsInteractive() {
+		return false, ErrNotInteractive
+	}
 	m := NewConfirmModel(prompt)
 	p := tea.NewProgram(m)
 

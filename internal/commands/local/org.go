@@ -8,6 +8,7 @@ import (
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
 
 var (
@@ -22,9 +23,6 @@ var (
 	currentOrgStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#00FF00"))
-
-	orgRoleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00BFFF"))
 )
 
 // `ufctl org` command implementation
@@ -42,6 +40,7 @@ var OrgListCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := logging.GetLogger(ctx)
+		printer := ui.GetPrinter(ctx)
 
 		// Get dependencies
 		deps := utils.NewDependencyManager(ctx)
@@ -59,35 +58,31 @@ var OrgListCmd = &cobra.Command{
 		}
 
 		if len(me.Organizations) == 0 {
-			fmt.Println("No organizations found. Create an organization to get started.")
+			printer.PrintInfo("No organizations found. Create an organization to get started.")
 			return nil
 		}
 
 		// Get current org from config
 		currentOrgID, _ := deps.ConfigClient.Get("local.organization_id")
 
-		fmt.Println()
-		fmt.Println(titleStyle.Render("📋 Your Organizations"))
-		fmt.Println()
+		// Build a table for org list
+		table := ui.NewTableBuilder().
+			WithTitle("Your Organizations").
+			WithHeaders("", "Name", "Role", "ID", "Status")
 
 		for _, org := range me.Organizations {
-			prefix := "  "
+			marker := ""
 			if currentOrgID != nil && currentOrgID.(string) == org.ID {
-				prefix = currentOrgStyle.Render("▶ ")
+				marker = "▶"
 			}
-
-			orgLine := fmt.Sprintf("%s%s",
-				orgNameStyle.Render(org.Name),
-				orgRoleStyle.Render(fmt.Sprintf(" (%s)", org.Role)),
-			)
-			fmt.Println(prefix + orgLine)
-			fmt.Println("  " + orgIDStyle.Render("  ID: "+org.ID))
-			if org.Status != "" {
-				fmt.Println("  " + orgIDStyle.Render("  Status: "+org.Status))
+			status := org.Status
+			if status == "" {
+				status = "-"
 			}
-			fmt.Println()
+			table.AddRow(marker, org.Name, org.Role, org.ID, status)
 		}
 
+		printer.PrintTable(table)
 		return nil
 	},
 }
@@ -99,6 +94,7 @@ var OrgCurrentCmd = &cobra.Command{
 	Long:  "Display the currently selected organization context.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
+		printer := ui.GetPrinter(ctx)
 
 		// Get dependencies
 		deps := utils.NewDependencyManager(ctx)
@@ -110,19 +106,20 @@ var OrgCurrentCmd = &cobra.Command{
 		orgName, hasOrgName := deps.ConfigClient.Get("local.organization_name")
 
 		if !hasOrgID || orgID == nil || orgID.(string) == "" {
-			fmt.Println("No organization context set. Use 'ufctl org switch <org-id>' to select an organization.")
+			printer.PrintInfo("No organization context set. Use 'ufctl org switch <org-id>' to select an organization.")
 			return nil
 		}
 
-		fmt.Println()
-		fmt.Println(titleStyle.Render("🏢 Current Organization"))
-		fmt.Println()
-		if hasOrgName && orgName != nil && orgName.(string) != "" {
-			fmt.Println(currentOrgStyle.Render("  " + orgName.(string)))
-		}
-		fmt.Println(orgIDStyle.Render("  ID: " + orgID.(string)))
-		fmt.Println()
+		table := ui.NewTableBuilder().
+			WithTitle("Current Organization").
+			WithHeaders("Property", "Value")
 
+		if hasOrgName && orgName != nil && orgName.(string) != "" {
+			table.AddRow("Name", orgName.(string))
+		}
+		table.AddRow("ID", orgID.(string))
+
+		printer.PrintTable(table)
 		return nil
 	},
 }
@@ -136,6 +133,7 @@ var OrgSwitchCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		logger := logging.GetLogger(ctx)
+		printer := ui.GetPrinter(ctx)
 		targetOrgID := args[0]
 
 		// Get dependencies
@@ -184,10 +182,8 @@ var OrgSwitchCmd = &cobra.Command{
 			return fmt.Errorf("failed to save organization name: %w", err)
 		}
 
-		fmt.Println()
-		fmt.Println(successStyle.Render("✓ Switched to organization: " + targetOrg.Name))
-		fmt.Println(orgIDStyle.Render("  ID: " + targetOrg.ID))
-		fmt.Println()
+		printer.PrintSuccess("Switched to organization: " + targetOrg.Name)
+		printer.Print(fmt.Sprintf("  ID: %s", targetOrg.ID))
 
 		return nil
 	},

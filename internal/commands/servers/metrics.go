@@ -97,7 +97,7 @@ Examples:
 			)
 		}
 
-		deps.Printer.Print(table.Render())
+		deps.Printer.PrintTable(table)
 		return nil
 	},
 }

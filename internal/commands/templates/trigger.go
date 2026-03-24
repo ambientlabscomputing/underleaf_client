@@ -229,7 +229,7 @@ func showJobResults(deps *utils.DependencyManager, jobID string, results []JobRe
 		table.AddRow(serverDisplay, statusDisplay, fmt.Sprintf("%d", r.ExitCode), duration, output)
 	}
 
-	deps.Printer.Print(table.Render())
+	deps.Printer.PrintTable(table)
 	deps.Printer.Print("")
 	deps.Printer.PrintInfo("Use 'ufctl jobs status " + jobID + "' for full output")
 }

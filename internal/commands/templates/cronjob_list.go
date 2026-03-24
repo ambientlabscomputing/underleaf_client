@@ -117,7 +117,7 @@ func listCronJobs(deps *utils.DependencyManager, limit int, enabledOnly bool) er
 		table.AddRow(cj.ID, cj.Name, templateName, schedule, enabledStr, nextRun, lastRun)
 	}
 
-	deps.Printer.Print(table.Render())
+	deps.Printer.PrintTable(table)
 	deps.Printer.Print("")
 	deps.Printer.PrintInfo("Use 'ufctl templates cronjobs get <id>' to view details")
 

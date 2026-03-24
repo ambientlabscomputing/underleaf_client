@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/channel"
@@ -28,6 +29,8 @@ import (
 var (
 	// Global flag for specifying which agent port to connect to
 	configAgentPort int
+	// Global flag for output format: human, shell, json (empty = auto-detect)
+	formatFlag string
 )
 
 // Context key for agent port (using string to avoid import cycles)
@@ -41,16 +44,35 @@ configurations, and cluster operations. Use ufctl to interact with both
 local servers and the control plane.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// This runs before every command and subcommand
-		// Add anything you need to the context here
 		ctx := cmd.Context()
 
 		ctx, _ = logging.GetCtxWithLogger(ctx)
 		ctx = logging.AddRuntimeValuesToCtx(ctx)
-		// add printer
-		if ui.GetPrinter(ctx) == nil {
-			ctx, _ = ui.NewPrinterToContext(ctx, ui.FormatTable)
-			cmd.SetContext(ctx)
+
+		// Resolve output format: explicit flag > auto-detect (TTY/NO_COLOR)
+		var format ui.OutputFormat
+		switch formatFlag {
+		case "human":
+			format = ui.FormatHuman
+		case "shell":
+			format = ui.FormatShell
+		case "json":
+			format = ui.FormatJSON
+		case "":
+			format = ui.DetectFormat()
+		default:
+			fmt.Fprintf(os.Stderr, "invalid format %q: must be human, shell, or json\n", formatFlag)
+			os.Exit(1)
 		}
+
+		// Update printer with resolved format
+		printer := ui.GetPrinter(ctx)
+		if printer != nil {
+			printer.SetFormat(format)
+		} else {
+			ctx, _ = ui.NewPrinterToContext(ctx, format)
+		}
+		cmd.SetContext(ctx)
 
 		// Store config agent port in context if specified
 		if configAgentPort != 0 {
@@ -69,6 +91,7 @@ local servers and the control plane.`,
 func init() {
 	// Add global persistent flags
 	rootCmd.PersistentFlags().IntVar(&configAgentPort, "config-agent-port", 0, "Override the agent port to connect to (default: 2240)")
+	rootCmd.PersistentFlags().StringVarP(&formatFlag, "format", "f", "", "Output format: human, shell, json (default: auto-detect)")
 
 	// Add subcommands to the root command
 	rootCmd.AddCommand(local.StartCmd)

@@ -37,7 +37,7 @@ for at least 5 minutes, instead of creating a new server.`,
 		// Show deprecation warning
 		deps.Printer.PrintWarning("⚠️  This command is deprecated. Use 'ufctl start' for a simplified all-in-one setup.")
 		deps.Printer.PrintInfo("   'ufctl start' combines: register + mTLS setup + agent start")
-		fmt.Println()
+		deps.Printer.Print("")
 
 		// Get the --existing flag
 		useExisting, _ := cmd.Flags().GetBool("existing")

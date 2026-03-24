@@ -91,7 +91,7 @@ Examples:
 			table.AddRow(serverID, server.Name, statusDisplay, location, platform, cpuUsage, memUsage)
 		}
 
-		deps.Printer.Print(table.Render())
+		deps.Printer.PrintTable(table)
 		return nil
 	},
 }

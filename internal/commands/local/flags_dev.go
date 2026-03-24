@@ -3,8 +3,6 @@
 package local
 
 import (
-	"fmt"
-
 	"github.com/ambientlabscomputing/underleaf_client/internal/devmode"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
@@ -33,18 +31,18 @@ func PrintDevModeInfo(cfg *devmode.DevConfig, printer *ui.Printer) {
 		return
 	}
 
-	fmt.Println()
-	printer.PrintWarning("⚠ DEV MODE — Loading UMCs from local paths")
-	fmt.Println()
+	printer.Print("")
+	printer.PrintWarning("DEV MODE — Loading UMCs from local paths")
+	printer.Print("")
 
 	summaryLines := cfg.SummaryString()
 	for _, line := range summaryLines {
 		if line == '\n' {
-			fmt.Println()
+			printer.Print("")
 		}
 	}
 
-	fmt.Println()
+	printer.Print("")
 	printer.PrintInfo("Set up clean: unset build.yaml overrides or use --build-config to point to a different file")
-	fmt.Println()
+	printer.Print("")
 }

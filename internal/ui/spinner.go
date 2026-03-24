@@ -85,8 +85,13 @@ func SendDone(err error) tea.Msg {
 	return doneMsg{err: err}
 }
 
-// ShowSpinner displays a spinner while running a function
+// ShowSpinner displays a spinner while running a function.
+// In non-interactive mode, it runs the function directly without animation.
 func ShowSpinner(message string, fn func() error) error {
+	if !IsInteractive() {
+		return fn()
+	}
+
 	m := NewSpinnerModel(message)
 	p := tea.NewProgram(m)
 

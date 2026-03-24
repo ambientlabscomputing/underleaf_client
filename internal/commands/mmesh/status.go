@@ -104,7 +104,7 @@ var statusCmd = &cobra.Command{
 			}
 		}
 
-		printer.Print(table.Render())
+		printer.PrintTable(table)
 		return nil
 	},
 }

@@ -5,15 +5,15 @@ import (
 	"os"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/cli"
-	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/logging"
+	"github.com/ambientlabscomputing/underleaf_client/internal/policy_manager"
 	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 	"github.com/ambientlabscomputing/underleaf_client/pkg/version"
 )
 
 func main() {
 	ctx, logger := logging.Init(context.Background(), logging.LoggerModeCLI, nil) // Change this to LoggerModeDev to show in the console
-	ctx, printer := ui.NewPrinterToContext(ctx, ui.FormatTable)
+	ctx, printer := ui.NewPrinterToContext(ctx, ui.FormatHuman)
 	ctx, config := policy_manager.NewConfigClientInCtx(ctx, policy_manager.ConfigClientTypeCLI)
 	config.Set("version", version.Version)
 	if versionInCfg, found := config.Get("version"); found {

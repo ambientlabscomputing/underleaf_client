@@ -48,7 +48,7 @@ The value is fetched directly from the agent — it never transits the cloud.
 		}
 
 		if getOutputFormat == "json" {
-			fmt.Println(string(resp))
+			printer.Print(string(resp))
 			return nil
 		}
 

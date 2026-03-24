@@ -52,7 +52,7 @@ along with the sync status and the version each target has acknowledged.
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON: %w", err)
 			}
-			fmt.Println(string(out))
+			printer.Print(string(out))
 			return nil
 		}
 

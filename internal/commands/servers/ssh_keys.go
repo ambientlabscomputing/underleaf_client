@@ -140,7 +140,7 @@ func runSSHKeysList(cmd *cobra.Command, args []string) error {
 		}
 		deps.Printer.PrintInfo(fmt.Sprintf("    Added:       %s", key.AddedAt))
 		if i < len(keys)-1 {
-			fmt.Println()
+			deps.Printer.Print("")
 		}
 	}
 

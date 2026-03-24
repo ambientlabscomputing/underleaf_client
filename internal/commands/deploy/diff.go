@@ -93,7 +93,8 @@ Examples:
 			)
 		}
 
-		deps.Printer.Print("\n" + table.Render())
+		deps.Printer.Print("")
+		deps.Printer.PrintTable(table)
 
 		opCounts := make(map[types.OperationType]int)
 		for _, op := range diff.Operations {

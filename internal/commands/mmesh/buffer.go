@@ -70,7 +70,7 @@ including size, capacity, and usage percentage.`,
 			table.AddRow("Usage", usage)
 		}
 
-		printer.Print(table.Render())
+		printer.PrintTable(table)
 
 		// Add info about buffer behavior
 		printer.PrintInfo("\nThe ring buffer stores recent events for catch-up when MMA reconnects.")

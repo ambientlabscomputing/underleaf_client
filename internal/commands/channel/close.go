@@ -26,7 +26,7 @@ var CloseCmd = &cobra.Command{
 		deps := utils.NewDependencyManager(ctx)
 
 		if !closeForce {
-			fmt.Printf("Close channel %s? [y/N] ", channelID)
+			deps.Printer.Print(fmt.Sprintf("Close channel %s? [y/N] ", channelID))
 			scanner := bufio.NewScanner(os.Stdin)
 			if scanner.Scan() {
 				answer := strings.TrimSpace(strings.ToLower(scanner.Text()))

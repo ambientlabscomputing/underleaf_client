@@ -102,7 +102,7 @@ func getTemplate(deps *utils.DependencyManager, templateID string) error {
 			}
 			varTable.AddRow(v.Key, v.Type, required, defaultVal, desc)
 		}
-		deps.Printer.Print(varTable.Render())
+		deps.Printer.PrintTable(varTable)
 	}
 
 	// Target Servers

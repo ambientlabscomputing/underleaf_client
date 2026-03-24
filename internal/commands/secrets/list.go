@@ -34,7 +34,7 @@ var listCmd = &cobra.Command{
 
 		if len(resp.Results) == 0 {
 			if listOutputFormat == "json" {
-				fmt.Println("[]")
+				printer.Print("[]")
 				return nil
 			}
 			printer.Print("No secrets found.")
@@ -46,7 +46,7 @@ var listCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to marshal JSON: %w", err)
 			}
-			fmt.Println(string(out))
+			printer.Print(string(out))
 			return nil
 		}
 
