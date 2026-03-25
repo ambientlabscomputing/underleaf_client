@@ -25,8 +25,11 @@ import (
 	dockerrunner "github.com/ambientlabscomputing/underleaf_client/internal/runner"
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 
-	// DEPRECATED: deployment and recipe packages moved to deployment_engine UMC
-	// "github.com/ambientlabscomputing/underleaf_client/internal/deployment"
+	// deployment and recipe packages — execution moved to deployment_engine UMC,
+	// but DeploymentResult type is still used for result reporting.
+	"encoding/json"
+
+	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 	execpkg "github.com/ambientlabscomputing/underleaf_client/internal/exec"
 	"github.com/ambientlabscomputing/underleaf_client/internal/kernel"
 	"github.com/ambientlabscomputing/underleaf_client/internal/mdns"
@@ -415,6 +418,46 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 	// Register Mycelium Spine handlers (replaces event bus subscriptions)
 	if spineClient != nil {
+		// Handle deployment results from deployment_engine UMC.
+		// The UMC emits "deployments.result" via kernel → Spine; we catch it here
+		// and forward to server_api so the FSM transitions (running, in_progress) → (running, success/failure).
+		spineClient.Register("deployments.result", func(ctx context.Context, msg spine.Message) {
+			var payload struct {
+				JobID        string `json:"job_id"`
+				DeploymentID string `json:"deployment_id"`
+				Version      int    `json:"version"`
+				Success      bool   `json:"success"`
+				Error        string `json:"error,omitempty"`
+				Output       string `json:"output,omitempty"`
+			}
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				slog.Error("failed to parse deployment result event", "error", err)
+				return
+			}
+			slog.Info("forwarding deployment result to server_api",
+				"job_id", payload.JobID,
+				"deployment_id", payload.DeploymentID,
+				"success", payload.Success,
+			)
+			result := deployment.DeploymentResult{
+				JobID:        payload.JobID,
+				ServerID:     serverID.(string),
+				DeploymentID: payload.DeploymentID,
+				Version:      payload.Version,
+				Success:      payload.Success,
+				Error:        payload.Error,
+				Output:       payload.Output,
+				Timestamp:    time.Now().UTC().Format(time.RFC3339),
+			}
+			if err := cplaneClient.Deployments.ReportDeploymentResult(ctx, result); err != nil {
+				slog.Error("failed to report deployment result to server_api",
+					"job_id", payload.JobID,
+					"deployment_id", payload.DeploymentID,
+					"error", err,
+				)
+			}
+		})
+
 		// Handle server-data-update (push config updates from control plane)
 		spineClient.Register("server-data-update", func(ctx context.Context, msg spine.Message) {
 			policyManager.HandlePushUpdate(ctx, msg.Payload)
