@@ -765,29 +765,27 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	if sealMgr != nil && clusterID != "" && clusterID != "default-cluster" {
 		sealMgrKM := sealMgr.KeyManager()
 		go func() {
-			// Retry export+registration: vault may be sealed at startup and only
-			// initialized later via `ufctl secrets vault init`.
+			// Retry export+registration indefinitely until a PUT succeeds.
+			// The vault may be sealed at startup and only initialized later
+			// via `ufctl secrets vault init`; we must not give up before that.
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
-			for attempts := 0; attempts < 30; attempts++ {
+			for {
 				pubKeyPEM, pkErr := sealMgrKM.ExportPublicKey()
 				if pkErr != nil {
-					slog.Warn("failed to export public key for registration", "error", pkErr)
-					select {
-					case <-ticker.C:
-						continue
-					case <-ctx.Done():
-						return
-					}
-				}
-				if regErr := cplaneClient.Servers.UpdateClusterMemberPublicKey(ctx, clusterID, serverID.(string), string(pubKeyPEM)); regErr != nil {
+					slog.Debug("vault sealed, deferring public key registration", "error", pkErr)
+				} else if regErr := cplaneClient.Servers.UpdateClusterMemberPublicKey(ctx, clusterID, serverID.(string), string(pubKeyPEM)); regErr != nil {
 					slog.Warn("failed to register identity public key with control plane", "error", regErr)
 				} else {
 					slog.Info("registered identity public key with control plane", "cluster_id", clusterID)
+					return // success — stop retrying
 				}
-				return
+				select {
+				case <-ticker.C:
+				case <-ctx.Done():
+					return
+				}
 			}
-			slog.Warn("gave up registering identity public key after retries")
 		}()
 	}
 

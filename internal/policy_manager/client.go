@@ -130,73 +130,48 @@ type CLIConfigClient struct {
 	configPath string // Canonical path to config file
 }
 
-// NewCLIConfigClient creates a new CLIConfigClient instance
-// use viper for simple config management
+// NewCLIConfigClient creates a new CLIConfigClient instance.
+// The config file is always read from the canonical ~/.underleaf/config.yaml
+// path (via GetConfigPath) so that stray config.yaml files in the working
+// directory (e.g. service configs in hyphae/, server_api/) are never
+// accidentally loaded.
 func NewCLIConfigClient() *CLIConfigClient {
+	configPath := GetConfigPath(false) // always ~/.underleaf/config.yaml
+
 	v := viper.New()
-	v.SetConfigName("config")
+	v.SetConfigFile(configPath)
 	v.SetConfigType("yaml")
-	v.AddConfigPath("./")
-	v.AddConfigPath("$HOME/.underleaf")
 	v.AutomaticEnv()
 
-	var configPath string
-
-	// for CLI, start a new empty config if no config file found
 	err := v.ReadInConfig()
 	if err != nil {
-		// Set build-time defaults if not already configured
+		// File doesn't exist yet — seed with build-time defaults and create it.
 		v.Set("api.base_url", defaults.APIBaseURL)
 		v.Set("mycelium_spine.endpoint", defaults.SpineEndpoint)
-
-		// Determine canonical config path from existing config or create in ~/.underleaf
-		if existingPath := v.ConfigFileUsed(); existingPath != "" {
-			configPath = existingPath
-		} else {
-			// Check if config exists in ~/.underleaf
-			homeConfigPath := GetConfigPath(false) // false = not agent
-			if _, err := os.Stat(homeConfigPath); err == nil {
-				configPath = homeConfigPath
-			} else {
-				// Create in ~/.underleaf as canonical location
-				configPath = homeConfigPath
-				if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-					slog.Warn("failed to create config directory, using current dir", "error", err)
-					configPath = "./config.yaml"
-				}
-			}
-		}
-
-		// Store the canonical path in the config itself
 		v.Set("local.config_path", configPath)
 
-		// Create the config file at canonical location
+		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+			slog.Warn("failed to create config directory", "error", err)
+		}
 		if err := v.SafeWriteConfigAs(configPath); err != nil {
-			slog.Debug("failed to write config file", "error", err)
-			configPath = "./config.yaml" // Fallback
+			slog.Debug("failed to write initial config file", "error", err)
 		}
 	} else {
-		// Config exists, get its path
-		configPath = v.ConfigFileUsed()
-
-		// Check if canonical path is stored in config
-		if storedPath, ok := v.Get("local.config_path").(string); ok && storedPath != "" {
-			// Verify the stored path matches current path
-			if storedPath != configPath {
-				slog.Warn("config path mismatch, using stored canonical path",
-					"stored", storedPath,
-					"current", configPath)
-				configPath = storedPath
-			}
-		} else {
-			// Store canonical path for future use
+		// File loaded — ensure local.config_path is recorded.
+		if storedPath, ok := v.Get("local.config_path").(string); !ok || storedPath == "" {
 			v.Set("local.config_path", configPath)
-			v.WriteConfig()
+			_ = v.WriteConfig()
+		}
+		// In-memory defaults for critical keys that may be absent in a
+		// partially-written config file (e.g. after a migration strips extras).
+		// SetDefault does NOT write these to disk; they are read-only fallbacks.
+		if !v.IsSet("api.base_url") || v.GetString("api.base_url") == "" {
+			v.SetDefault("api.base_url", defaults.APIBaseURL)
+		}
+		if !v.IsSet("mycelium_spine.endpoint") || v.GetString("mycelium_spine.endpoint") == "" {
+			v.SetDefault("mycelium_spine.endpoint", defaults.SpineEndpoint)
 		}
 	}
-
-	// Explicitly set the config file so WriteConfig() knows where to write
-	v.SetConfigFile(configPath)
 
 	return &CLIConfigClient{
 		viper:      v,
@@ -215,12 +190,18 @@ func (c *CLIConfigClient) Reload() error {
 	return c.viper.ReadInConfig()
 }
 
-// Get retrieves a configuration value by key
+// Get retrieves a configuration value by key.
+// Returns (value, true) if the key exists in the config file, was explicitly
+// Set(), or has a registered default (via SetDefault). Returns (nil, false)
+// only when the key is completely unknown.
 func (c *CLIConfigClient) Get(key string) (interface{}, bool) {
-	if !c.viper.IsSet(key) {
+	// viper.Get returns nil for completely unknown keys and the actual value
+	// (including defaults registered with SetDefault) for known ones.
+	val := c.viper.Get(key)
+	if val == nil {
 		return nil, false
 	}
-	return c.viper.Get(key), true
+	return val, true
 }
 
 // Set sets a configuration value by key
