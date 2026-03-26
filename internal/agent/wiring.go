@@ -1042,7 +1042,8 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			cmd.Stderr = os.Stderr
 
 			if err := cmd.Start(); err != nil {
-				slog.Warn("failed to start deployment engine", "error", err, "path", exePath)
+				slog.Error("failed to start deployment engine", "error", err, "path", exePath)
+				reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "deployment engine failed to start: "+err.Error())
 			} else {
 				deploymentEngine = &ManagedProcess{
 					Name:    "deployment-engine",
@@ -1067,14 +1068,17 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 							resp.Body.Close()
 						}
 					}
-					slog.Warn("deployment engine health check failed after retries", "url", healthURL)
+					slog.Error("deployment engine health check failed after retries", "url", healthURL)
+					reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "deployment engine started but health check failed")
 				}()
 			}
 		} else {
-			slog.Warn("deployment engine executable not found, skipping deployment engine startup")
+			slog.Error("deployment engine executable not found, skipping deployment engine startup")
+			reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "deployment engine binary not found at any expected path")
 		}
 	} else {
-		slog.Warn("syscall server not started, skipping deployment engine startup")
+		slog.Error("syscall server not started, skipping deployment engine startup")
+		reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "syscall server not available, cannot start deployment engine")
 	}
 
 	// Note: Cron engine is now managed by deployment engine supervisor
@@ -1158,7 +1162,8 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Initialize Docker client
 		dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 		if err != nil {
-			slog.Warn("failed to initialize Docker client for capability manager", "error", err)
+			slog.Error("failed to initialize Docker client for capability manager", "error", err)
+			reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "Docker client initialization failed: "+err.Error())
 		} else {
 			// Build capability configuration from synced snapshot, falling back to local config
 			homeDir, _ := os.UserHomeDir()
@@ -1177,7 +1182,8 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			// Create capability manager
 			mgr, err := capability.NewManager(dockerClient, capConfig)
 			if err != nil {
-				slog.Warn("failed to create capability manager", "error", err)
+				slog.Error("failed to create capability manager", "error", err)
+				reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "capability manager creation failed (UCRS unreachable?): "+err.Error())
 			} else {
 				// DEV MODE: Skip UCRS sync if requested
 				var skipUCRSSyncStart bool
@@ -1189,7 +1195,8 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				// Start capability manager (unless skipping UCRS sync)
 				if !skipUCRSSyncStart {
 					if err := mgr.Start(ctx); err != nil {
-						slog.Warn("failed to start capability manager", "error", err)
+						slog.Error("failed to start capability manager", "error", err)
+						reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "capability manager start failed: "+err.Error())
 					} else {
 						slog.Info("capability manager started successfully")
 						capabilityManager = mgr
@@ -1238,7 +1245,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 									"hint", "ensure server_api config has hyphae.tunnel_endpoint set")
 							}
 
-							go ensureMMAInstalled(ctx, mgr, mmaProviderID)
+							go ensureMMAInstalled(ctx, mgr, mmaProviderID, cplaneClient.Servers, serverID.(string))
 						}
 
 						// Auto-install Deployment Engine if enabled and not already installed
@@ -1248,7 +1255,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallDE {
 							deProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.deployment_engine_provider_id", "underleaf.deployment-engine")
-							go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine")
+							go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine", cplaneClient.Servers, serverID.(string))
 						}
 
 						// Auto-install Cron Engine if enabled and not already installed
@@ -1258,7 +1265,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallCE {
 							ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
-							go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine")
+							go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine", cplaneClient.Servers, serverID.(string))
 						}
 
 						// Auto-install MCP Server if enabled.
@@ -1270,7 +1277,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallMCP {
 							mcpProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mcp_server_provider_id", "underleaf.mcp-server")
-							go ensureProviderInstalled(ctx, mgr, mcpProviderID, "MCP Server")
+							go ensureProviderInstalled(ctx, mgr, mcpProviderID, "MCP Server", cplaneClient.Servers, serverID.(string))
 						}
 					}
 				}
@@ -2137,10 +2144,30 @@ func initializeMDNSCoordinator(ctx context.Context, config policy_manager.Config
 	return coordinator
 }
 
+// reportServerStatus sends a status update (online, offline, degraded) to the control plane.
+// This is called when critical UMC pipeline components fail to start.
+func reportServerStatus(ctx context.Context, serverClient controlplane.CPlaneServerClient, serverID, status, reason string) {
+	slog.Error("reporting server status to control plane",
+		"server_id", serverID,
+		"status", status,
+		"reason", reason,
+	)
+	updateReq := servertypes.UpdateServerRequest{
+		Status: status,
+	}
+	if _, err := serverClient.UpdateServer(ctx, serverID, updateReq); err != nil {
+		slog.Error("failed to report server status to control plane",
+			"server_id", serverID,
+			"status", status,
+			"error", err,
+		)
+	}
+}
+
 // ensureMMAInstalled checks if Mycelium Mesh Agent is installed and starts it.
 // If not installed, it logs a message. In production, MMA will be auto-installed
 // via UCRS when it's registered as a provider.
-func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID string) {
+func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID string, serverClient controlplane.CPlaneServerClient, serverID string) {
 	if providerID == "" {
 		providerID = "underleaf.mma"
 	}
@@ -2153,6 +2180,7 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID
 	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
 	if err != nil {
 		slog.Error("failed to ensure MMA is running", "provider_id", providerID, "error", err)
+		reportServerStatus(ctx, serverClient, serverID, "degraded", "MMA install/start failed: "+err.Error())
 		return
 	}
 
@@ -2161,7 +2189,7 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID
 
 // ensureProviderInstalled ensures a provider is installed and running.
 // This is a generic version that works for any provider (deployment_engine, cron_engine, etc.)
-func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string) {
+func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string, serverClient controlplane.CPlaneServerClient, serverID string) {
 	if providerID == "" {
 		slog.Warn("empty provider ID, skipping", "friendly_name", friendlyName)
 		return
@@ -2175,6 +2203,7 @@ func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, provi
 	endpoint, err := mgr.InstallProviderByID(ctx, providerID)
 	if err != nil {
 		slog.Error("failed to ensure provider is running", "provider_id", providerID, "name", friendlyName, "error", err)
+		reportServerStatus(ctx, serverClient, serverID, "degraded", friendlyName+" install/start failed: "+err.Error())
 		return
 	}
 

@@ -210,6 +210,7 @@ type UpdateServerRequest struct {
 	Hostname      string `json:"hostname,omitempty"`
 	RaftAddress   string `json:"raft_address,omitempty"`   // Auto-reported by agent when Raft enabled
 	CAFingerprint string `json:"ca_fingerprint,omitempty"` // Auto-reported by agent
+	Status        string `json:"status,omitempty"`         // Agent-reported status (online, offline, degraded)
 }
 
 // MetricsUpdateRequest represents the request to update server metrics
