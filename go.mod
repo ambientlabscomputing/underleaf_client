@@ -4,10 +4,10 @@ go 1.25.5
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ambientlabscomputing/mycelium_spine v1.1.0
-	github.com/ambientlabscomputing/mycelium_spine/sdk v1.1.0
-	github.com/ambientlabscomputing/ucrs v1.4.0
-	github.com/ambientlabscomputing/umc_sdk v0.1.3
+	github.com/ambientlabscomputing/mycelium_spine v1.2.0-rc.2
+	github.com/ambientlabscomputing/mycelium_spine/sdk v1.2.0-rc.2
+	github.com/ambientlabscomputing/ucrs v1.5.0-rc.1
+	github.com/ambientlabscomputing/umc_sdk v0.1.5-rc.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -126,5 +126,3 @@ require (
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 // indirect
 )
-
-replace github.com/ambientlabscomputing/ucrs v1.4.0 => ../ucrs
