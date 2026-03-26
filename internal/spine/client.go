@@ -129,6 +129,7 @@ func (c *Client) Start(ctx context.Context) error {
 		"target_type", "SERVER")
 
 	go c.dispatchLoop(ctx)
+	go c.livenessWatchdog(ctx)
 	return nil
 }
 
@@ -328,4 +329,65 @@ func (c *Client) Stop() error {
 		return fmt.Errorf("spine: close subscriber: %w", subErr)
 	}
 	return pubErr
+}
+
+// livenessStaleThreshold is how long without a delivery before we consider
+// the dispatch loop stale and force a resubscribe.
+const livenessStaleThreshold = 90 * time.Second
+
+// livenessCheckInterval is how often we check for staleness.
+const livenessCheckInterval = 30 * time.Second
+
+// livenessWatchdog runs alongside dispatchLoop and detects when the Spine
+// subscription has gone stale (no messages for livenessStaleThreshold).
+// When staleness is detected, it forces a resubscribe to recover from
+// silent connection loss after Spine reconnects.
+func (c *Client) livenessWatchdog(ctx context.Context) {
+	ticker := time.NewTicker(livenessCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			nano := atomic.LoadInt64(&c.lastDeliveryNano)
+			if nano == 0 {
+				// Never received a delivery yet — too early to judge.
+				// But if it's been a very long time since Start(), warn.
+				continue
+			}
+
+			sinceLastDelivery := time.Since(time.Unix(0, nano))
+			if sinceLastDelivery > livenessStaleThreshold {
+				slog.Warn("spine: no deliveries received — forcing resubscribe",
+					"last_delivery_ago", sinceLastDelivery.Round(time.Second),
+					"threshold", livenessStaleThreshold,
+				)
+				if err := c.Resubscribe(); err != nil {
+					slog.Error("spine: resubscribe failed during liveness recovery",
+						"error", err,
+					)
+				}
+			}
+		}
+	}
+}
+
+// Resubscribe re-sends the subscription for this server to Spine.
+// This is used to recover from stale dispatch loops after a reconnect
+// where the subscription may have been silently lost.
+func (c *Client) Resubscribe() error {
+	target := &umsv1.Target{
+		TargetType: umsv1.TargetType_TARGET_TYPE_SERVER,
+		TargetId:   c.serverID,
+		OrgId:      c.orgID,
+	}
+	if err := c.subscriber.Subscribe([]*umsv1.Target{target}); err != nil {
+		return fmt.Errorf("spine: resubscribe: %w", err)
+	}
+	slog.Info("spine: resubscribed successfully",
+		"server_id", c.serverID,
+	)
+	return nil
 }

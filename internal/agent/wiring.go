@@ -309,7 +309,18 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				TLSConfig:     spineTLS,
 				AutoReconnect: true,
 				OnReconnect: func() {
-					slog.Info("Mycelium Spine reconnected")
+					slog.Info("Mycelium Spine reconnected — forcing resubscribe")
+					// The SDK resubscribes automatically, but the agent-level
+					// spine client may need a fresh subscribe to recover from
+					// a stale dispatchLoop.  This is a belt-and-suspenders
+					// approach: the liveness watchdog also resubscribes if
+					// deliveries stall, but doing it eagerly on reconnect is
+					// faster.
+					if spineClient != nil {
+						if err := spineClient.Resubscribe(); err != nil {
+							slog.Error("failed to resubscribe after Spine reconnect", "error", err)
+						}
+					}
 				},
 			}
 			sdkClient, err := spinesdk.NewClient(spineEndpoint.(string), sdkCfg)
