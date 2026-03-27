@@ -1065,7 +1065,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 				// Wait for deployment engine to be ready and verify it can communicate
 				go func() {
-					healthURL := "http://localhost:8080/health"
+					healthURL := "http://localhost:10081/health"
 					maxRetries := 10
 					for i := 0; i < maxRetries; i++ {
 						time.Sleep(500 * time.Millisecond)
@@ -1073,6 +1073,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						if err == nil && resp.StatusCode == http.StatusOK {
 							resp.Body.Close()
 							slog.Info("deployment engine health check passed", "url", healthURL)
+							reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems healthy")
 							return
 						}
 						if resp != nil {
