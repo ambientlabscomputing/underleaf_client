@@ -69,6 +69,7 @@ type SecretReplicationManager struct {
 	keyManager        keymanager.KeyManager
 	secrets           *controlplane.CPlaneSecretsClient
 	pendingDeliveries sync.Map // channelID → *pendingDeliveryRecord
+	inFlightTargets   sync.Map // "secretID:destClusterID" → struct{} — dedup guard
 }
 
 // NewSecretReplicationManager creates a new SecretReplicationManager.
@@ -158,9 +159,24 @@ func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 					"secret_id", secretID, "dest_cluster", target.ClusterID)
 				continue
 			}
+			// Deduplicate: skip if there is already an in-flight replication
+			// attempt for this (secret, destination) pair.  Without this guard
+			// every tick of the replication loop creates a NEW Hyphae channel
+			// for the same delivery, causing unbounded channel accumulation.
+			flightKey := secretID + ":" + target.ClusterID
+			if _, alreadyInFlight := m.inFlightTargets.Load(flightKey); alreadyInFlight {
+				slog.Debug("replication: skipping target with in-flight delivery",
+					"secret_id", secretID, "dest_cluster", target.ClusterID)
+				continue
+			}
+			m.inFlightTargets.Store(flightKey, struct{}{})
 			targetCtx, targetCancel := context.WithTimeout(ctx, 10*time.Second)
 			err := m.replicateToTarget(targetCtx, secretID, meta.Path, remote, target.ClusterID, target.ServerID)
 			targetCancel()
+			if err != nil {
+				// Clear the in-flight guard so the next tick can retry.
+				m.inFlightTargets.Delete(flightKey)
+			}
 			if err != nil {
 				slog.Warn("replication: failed to replicate to target",
 					"secret_id", secretID,
@@ -265,6 +281,12 @@ func (m *SecretReplicationManager) HasPendingDelivery(channelID string) bool {
 	return ok
 }
 
+// clearInFlight removes the in-flight dedup guard for a (secretID, destCluster)
+// pair so the next replication loop tick can create a fresh channel if needed.
+func (m *SecretReplicationManager) clearInFlight(secretID, destClusterID string) {
+	m.inFlightTargets.Delete(secretID + ":" + destClusterID)
+}
+
 // DeliverPendingPayload connects to localAddr (the loopback relay socket
 // opened by MMA's HyphaeProvider on the initiator side), transmits the
 // queued ReplicationPayload as JSON, reads the ack, then updates server_api.
@@ -303,6 +325,7 @@ func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, ch
 					logger.Error("replication: context cancelled during retry",
 						"attempt", attempt, "error", ctx.Err())
 					m.pendingDeliveries.Store(channelID, rec)
+					m.clearInFlight(rec.payload.SecretID, rec.destClusterID)
 					return
 				}
 				continue
@@ -317,9 +340,13 @@ func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, ch
 		// replication loop tick can retry without waiting for a full grant cycle.
 		logger.Error("replication: all delivery attempts failed, re-queuing for retry", "error", lastErr)
 		m.pendingDeliveries.Store(channelID, rec)
+		m.clearInFlight(rec.payload.SecretID, rec.destClusterID)
 		return
 	}
 	logger.Info("replication: payload delivered, ack received")
+
+	// Clear in-flight guard so future rotation triggers can create a new channel.
+	m.clearInFlight(rec.payload.SecretID, rec.destClusterID)
 
 	// Update the replication target status to "delivered" in server_api,
 	// recording the version so the loop can detect rotation.
