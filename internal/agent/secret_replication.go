@@ -69,7 +69,7 @@ type SecretReplicationManager struct {
 	keyManager        keymanager.KeyManager
 	secrets           *controlplane.CPlaneSecretsClient
 	pendingDeliveries sync.Map // channelID → *pendingDeliveryRecord
-	inFlightTargets   sync.Map // "secretID:destClusterID" → struct{} — dedup guard
+	inFlightTargets   sync.Map // "secretID:destClusterID" → time.Time — dedup guard with TTL
 }
 
 // NewSecretReplicationManager creates a new SecretReplicationManager.
@@ -163,13 +163,21 @@ func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 			// attempt for this (secret, destination) pair.  Without this guard
 			// every tick of the replication loop creates a NEW Hyphae channel
 			// for the same delivery, causing unbounded channel accumulation.
+			// The guard expires after 5 minutes to prevent permanent starvation
+			// when channel.bind.completed never fires (e.g., Hyphae is down).
 			flightKey := secretID + ":" + target.ClusterID
-			if _, alreadyInFlight := m.inFlightTargets.Load(flightKey); alreadyInFlight {
-				slog.Debug("replication: skipping target with in-flight delivery",
+			if startedAt, alreadyInFlight := m.inFlightTargets.Load(flightKey); alreadyInFlight {
+				if ts, ok := startedAt.(time.Time); ok && time.Since(ts) < 5*time.Minute {
+					slog.Debug("replication: skipping target with in-flight delivery",
+						"secret_id", secretID, "dest_cluster", target.ClusterID)
+					continue
+				}
+				// Guard expired — allow retry by falling through.
+				slog.Info("replication: in-flight guard expired, retrying",
 					"secret_id", secretID, "dest_cluster", target.ClusterID)
-				continue
+				m.inFlightTargets.Delete(flightKey)
 			}
-			m.inFlightTargets.Store(flightKey, struct{}{})
+			m.inFlightTargets.Store(flightKey, time.Now())
 			targetCtx, targetCancel := context.WithTimeout(ctx, 10*time.Second)
 			err := m.replicateToTarget(targetCtx, secretID, meta.Path, remote, target.ClusterID, target.ServerID)
 			targetCancel()

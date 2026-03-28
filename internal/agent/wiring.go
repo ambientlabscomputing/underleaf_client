@@ -247,14 +247,14 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		if err != nil {
 			// Certificate loading failed, fall back to JWT auth
 			slog.Warn("failed to load mTLS certificate, using JWT auth", "error", err)
-			httpClient = http.DefaultClient
+			httpClient = &http.Client{Timeout: 30 * time.Second}
 		} else {
 			slog.Info("mTLS transport enabled for agent")
-			httpClient = &http.Client{Transport: transport}
+			httpClient = &http.Client{Transport: transport, Timeout: 30 * time.Second}
 		}
 	} else {
 		// No certificate available, use default HTTP client (JWT auth)
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	cplaneClient := controlplane.NewCPlaneClient(&configClient, httpClient)
@@ -432,41 +432,46 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Handle deployment results from deployment_engine UMC.
 		// The UMC emits "deployments.result" via kernel → Spine; we catch it here
 		// and forward to server_api so the FSM transitions (running, in_progress) → (running, success/failure).
+		//
+		// Runs in a goroutine so the dispatch loop stays unblocked (the HTTP POST
+		// to server_api can be slow if the control plane is behind a high-latency link).
 		spineClient.Register("deployments.result", func(ctx context.Context, msg spine.Message) {
-			var payload struct {
-				JobID        string `json:"job_id"`
-				DeploymentID string `json:"deployment_id"`
-				Version      int    `json:"version"`
-				Success      bool   `json:"success"`
-				Error        string `json:"error,omitempty"`
-				Output       string `json:"output,omitempty"`
-			}
-			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-				slog.Error("failed to parse deployment result event", "error", err)
-				return
-			}
-			slog.Info("forwarding deployment result to server_api",
-				"job_id", payload.JobID,
-				"deployment_id", payload.DeploymentID,
-				"success", payload.Success,
-			)
-			result := deployment.DeploymentResult{
-				JobID:        payload.JobID,
-				ServerID:     serverID.(string),
-				DeploymentID: payload.DeploymentID,
-				Version:      payload.Version,
-				Success:      payload.Success,
-				Error:        payload.Error,
-				Output:       payload.Output,
-				Timestamp:    time.Now().UTC().Format(time.RFC3339),
-			}
-			if err := cplaneClient.Deployments.ReportDeploymentResult(ctx, result); err != nil {
-				slog.Error("failed to report deployment result to server_api",
+			go func() {
+				var payload struct {
+					JobID        string `json:"job_id"`
+					DeploymentID string `json:"deployment_id"`
+					Version      int    `json:"version"`
+					Success      bool   `json:"success"`
+					Error        string `json:"error,omitempty"`
+					Output       string `json:"output,omitempty"`
+				}
+				if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+					slog.Error("failed to parse deployment result event", "error", err)
+					return
+				}
+				slog.Info("forwarding deployment result to server_api",
 					"job_id", payload.JobID,
 					"deployment_id", payload.DeploymentID,
-					"error", err,
+					"success", payload.Success,
 				)
-			}
+				result := deployment.DeploymentResult{
+					JobID:        payload.JobID,
+					ServerID:     serverID.(string),
+					DeploymentID: payload.DeploymentID,
+					Version:      payload.Version,
+					Success:      payload.Success,
+					Error:        payload.Error,
+					Output:       payload.Output,
+					Timestamp:    time.Now().UTC().Format(time.RFC3339),
+				}
+				if err := cplaneClient.Deployments.ReportDeploymentResult(ctx, result); err != nil {
+					slog.Error("failed to report deployment result to server_api",
+						"job_id", payload.JobID,
+						"deployment_id", payload.DeploymentID,
+						"error", err,
+					)
+				}
+			}()
 		})
 
 		// Handle server-data-update (push config updates from control plane)
@@ -475,22 +480,26 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		})
 
 		// Handle command run requests from server API
+		// Spawns a goroutine because command execution can block for up to 300s
+		// (the default timeout) and must NOT block the dispatch loop.
 		spineClient.Register("commands.run.server.request", func(ctx context.Context, msg spine.Message) {
-			commandHandler.HandleCommandEvent(ctx, msg.Payload)
+			go commandHandler.HandleCommandEvent(ctx, msg.Payload)
 		})
 
 		// Handle log collection requests from server API
+		// Runs in a goroutine — log collection reads files and POSTs results.
 		spineClient.Register("logs.collect.server.request", func(ctx context.Context, msg spine.Message) {
-			logCollector.HandleEvent(ctx, msg.Payload)
+			go logCollector.HandleEvent(ctx, msg.Payload)
 		})
 
 		// Handle service/container log collection requests from server API
+		// Runs in a goroutine — Docker log collection can be slow.
 		spineClient.Register("logs.collect.service.request", func(ctx context.Context, msg spine.Message) {
 			if serviceLogCollector == nil {
 				slog.Warn("service log collection request received but collector is not available (Docker unavailable?)")
 				return
 			}
-			serviceLogCollector.HandleEvent(ctx, msg.Payload)
+			go serviceLogCollector.HandleEvent(ctx, msg.Payload)
 		})
 
 		// Handle cluster membership change events — force an immediate config reconcile
@@ -518,10 +527,13 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		})
 
 		// Handle exposure bind completion events emitted by MMA via kernel
+		// Runs in a goroutine — Raft write + HTTP POST to server_api.
 		spineClient.Register("exposure.bind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Exposures); err != nil {
-				slog.Warn("failed to handle exposure bind completed", "error", err)
-			}
+			go func() {
+				if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Exposures); err != nil {
+					slog.Warn("failed to handle exposure bind completed", "error", err)
+				}
+			}()
 		})
 
 		// Handle exposure unbind completion events emitted by MMA via kernel
@@ -539,10 +551,13 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		})
 
 		// Handle tunnel bind completion events emitted by MMA via kernel
+		// Runs in a goroutine — HTTP POST to server_api.
 		spineClient.Register("tunnel.bind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Tunnels); err != nil {
-				slog.Warn("failed to handle tunnel bind completed", "error", err)
-			}
+			go func() {
+				if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Tunnels); err != nil {
+					slog.Warn("failed to handle tunnel bind completed", "error", err)
+				}
+			}()
 		})
 
 		// Handle channel bind requests from server_api (UNDF-111 peer-to-peer relay)
@@ -553,10 +568,13 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		})
 
 		// Handle channel bind completed events from MMA (UNDF-111)
+		// Runs in a goroutine — HTTP POST to server_api + potential replication delivery.
 		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager.Load()); err != nil {
-				slog.Warn("failed to handle channel bind completed", "error", err)
-			}
+			go func() {
+				if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager.Load()); err != nil {
+					slog.Warn("failed to handle channel bind completed", "error", err)
+				}
+			}()
 		})
 
 		// Start the spine client (connects and begins dispatch loop)
