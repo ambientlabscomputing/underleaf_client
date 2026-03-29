@@ -7,7 +7,7 @@ require (
 	github.com/ambientlabscomputing/mycelium_spine v1.2.0
 	github.com/ambientlabscomputing/mycelium_spine/sdk v1.2.0
 	github.com/ambientlabscomputing/ucrs v1.5.0
-	github.com/ambientlabscomputing/umc_sdk v0.1.5
+	github.com/ambientlabscomputing/umc_sdk v0.1.6
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
