@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1103,8 +1104,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				}()
 			}
 		} else {
-			slog.Error("deployment engine executable not found, skipping deployment engine startup")
-			reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "degraded", "deployment engine binary not found at any expected path")
+			slog.Info("deployment engine executable not found, skipping direct startup (capability manager may install it)")
 		}
 	} else {
 		slog.Error("syscall server not started, skipping deployment engine startup")
@@ -1247,6 +1247,17 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						// deploymentHandler.SetRecipeReconciler(recipeReconciler)
 						// slog.Info("recipe reconciler wired into deployment handler")
 
+						// Track provider installations for post-startup health aggregation
+						var providerWg sync.WaitGroup
+						var providerFailures atomic.Int32
+
+						type failedProvider struct {
+							providerID   string
+							friendlyName string
+						}
+						var failedMu sync.Mutex
+						var failedList []failedProvider
+
 						// Auto-install MMA if enabled and not already installed
 						autoInstall := getConfigValueBool(snapshotClient, "capability_registry.auto_install_mma", false)
 						if !autoInstall {
@@ -1275,7 +1286,16 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 									"hint", "ensure server_api config has hyphae.tunnel_endpoint set")
 							}
 
-							go ensureMMAInstalled(ctx, mgr, mmaProviderID, cplaneClient.Servers, serverID.(string))
+							providerWg.Add(1)
+							go func() {
+								defer providerWg.Done()
+								if err := ensureMMAInstalled(ctx, mgr, mmaProviderID, cplaneClient.Servers, serverID.(string)); err != nil {
+									providerFailures.Add(1)
+									failedMu.Lock()
+									failedList = append(failedList, failedProvider{mmaProviderID, "MMA"})
+									failedMu.Unlock()
+								}
+							}()
 						}
 
 						// Auto-install Deployment Engine if enabled and not already installed
@@ -1285,7 +1305,16 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallDE {
 							deProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.deployment_engine_provider_id", "underleaf.deployment-engine")
-							go ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine", cplaneClient.Servers, serverID.(string))
+							providerWg.Add(1)
+							go func() {
+								defer providerWg.Done()
+								if err := ensureProviderInstalled(ctx, mgr, deProviderID, "Deployment Engine", cplaneClient.Servers, serverID.(string)); err != nil {
+									providerFailures.Add(1)
+									failedMu.Lock()
+									failedList = append(failedList, failedProvider{deProviderID, "Deployment Engine"})
+									failedMu.Unlock()
+								}
+							}()
 						}
 
 						// Auto-install Cron Engine if enabled and not already installed
@@ -1295,7 +1324,16 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallCE {
 							ceProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.cron_engine_provider_id", "underleaf.cron-engine")
-							go ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine", cplaneClient.Servers, serverID.(string))
+							providerWg.Add(1)
+							go func() {
+								defer providerWg.Done()
+								if err := ensureProviderInstalled(ctx, mgr, ceProviderID, "Cron Engine", cplaneClient.Servers, serverID.(string)); err != nil {
+									providerFailures.Add(1)
+									failedMu.Lock()
+									failedList = append(failedList, failedProvider{ceProviderID, "Cron Engine"})
+									failedMu.Unlock()
+								}
+							}()
 						}
 
 						// Auto-install MCP Server if enabled.
@@ -1307,8 +1345,82 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 						}
 						if autoInstallMCP {
 							mcpProviderID := getConfigValueWithFallback(snapshotClient, simpleConfig, "capability_registry.mcp_server_provider_id", "underleaf.mcp-server")
-							go ensureProviderInstalled(ctx, mgr, mcpProviderID, "MCP Server", cplaneClient.Servers, serverID.(string))
+							providerWg.Add(1)
+							go func() {
+								defer providerWg.Done()
+								if err := ensureProviderInstalled(ctx, mgr, mcpProviderID, "MCP Server", cplaneClient.Servers, serverID.(string)); err != nil {
+									providerFailures.Add(1)
+									failedMu.Lock()
+									failedList = append(failedList, failedProvider{mcpProviderID, "MCP Server"})
+									failedMu.Unlock()
+								}
+							}()
 						}
+
+						// Post-startup health aggregation: wait for all provider installs,
+						// then report online if all succeeded, or retry failed ones periodically.
+						safeGo("providerHealthAggregator", func() {
+							providerWg.Wait()
+
+							if providerFailures.Load() == 0 {
+								slog.Info("all providers installed successfully, reporting online")
+								reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully")
+								return
+							}
+
+							slog.Warn("some providers failed initial install, starting retry loop",
+								"failures", providerFailures.Load())
+
+							// Retry failed providers every 60 seconds until all succeed
+							retryTicker := time.NewTicker(60 * time.Second)
+							defer retryTicker.Stop()
+
+							for {
+								select {
+								case <-retryTicker.C:
+									failedMu.Lock()
+									toRetry := make([]failedProvider, len(failedList))
+									copy(toRetry, failedList)
+									failedMu.Unlock()
+
+									if len(toRetry) == 0 {
+										slog.Info("all providers recovered, reporting online")
+										reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
+										return
+									}
+
+									slog.Info("retrying failed provider installations", "count", len(toRetry))
+									var stillFailed []failedProvider
+									for _, fp := range toRetry {
+										var err error
+										if fp.providerID == "underleaf.mma" || fp.friendlyName == "MMA" {
+											err = ensureMMAInstalled(ctx, mgr, fp.providerID, cplaneClient.Servers, serverID.(string))
+										} else {
+											err = ensureProviderInstalled(ctx, mgr, fp.providerID, fp.friendlyName, cplaneClient.Servers, serverID.(string))
+										}
+										if err != nil {
+											stillFailed = append(stillFailed, fp)
+										} else {
+											slog.Info("provider recovered on retry", "provider_id", fp.providerID, "name", fp.friendlyName)
+										}
+									}
+
+									failedMu.Lock()
+									failedList = stillFailed
+									failedMu.Unlock()
+
+									if len(stillFailed) == 0 {
+										slog.Info("all providers recovered after retry, reporting online")
+										reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
+										return
+									}
+
+									slog.Warn("some providers still failing after retry", "remaining", len(stillFailed))
+								case <-ctx.Done():
+									return
+								}
+							}
+						})
 					}
 				}
 			}
@@ -2197,7 +2309,7 @@ func reportServerStatus(ctx context.Context, serverClient controlplane.CPlaneSer
 // ensureMMAInstalled checks if Mycelium Mesh Agent is installed and starts it.
 // If not installed, it logs a message. In production, MMA will be auto-installed
 // via UCRS when it's registered as a provider.
-func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID string, serverClient controlplane.CPlaneServerClient, serverID string) {
+func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID string, serverClient controlplane.CPlaneServerClient, serverID string) error {
 	if providerID == "" {
 		providerID = "underleaf.mma"
 	}
@@ -2211,18 +2323,19 @@ func ensureMMAInstalled(ctx context.Context, mgr *capability.Manager, providerID
 	if err != nil {
 		slog.Error("failed to ensure MMA is running", "provider_id", providerID, "error", err)
 		reportServerStatus(ctx, serverClient, serverID, "degraded", "MMA install/start failed: "+err.Error())
-		return
+		return err
 	}
 
 	slog.Info("MMA is running", "provider_id", providerID, "state", endpoint.State)
+	return nil
 }
 
 // ensureProviderInstalled ensures a provider is installed and running.
 // This is a generic version that works for any provider (deployment_engine, cron_engine, etc.)
-func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string, serverClient controlplane.CPlaneServerClient, serverID string) {
+func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, providerID, friendlyName string, serverClient controlplane.CPlaneServerClient, serverID string) error {
 	if providerID == "" {
 		slog.Warn("empty provider ID, skipping", "friendly_name", friendlyName)
-		return
+		return nil
 	}
 	slog.Info("ensuring provider is installed and running", "provider_id", providerID, "name", friendlyName)
 
@@ -2234,8 +2347,9 @@ func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, provi
 	if err != nil {
 		slog.Error("failed to ensure provider is running", "provider_id", providerID, "name", friendlyName, "error", err)
 		reportServerStatus(ctx, serverClient, serverID, "degraded", friendlyName+" install/start failed: "+err.Error())
-		return
+		return err
 	}
 
 	slog.Info("provider is running", "provider_id", providerID, "name", friendlyName, "state", endpoint.State)
+	return nil
 }
