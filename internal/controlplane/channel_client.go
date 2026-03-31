@@ -20,6 +20,7 @@ type ChannelRecord struct {
 	SourceServerID     string `json:"source_server_id"`
 	DestServerID       string `json:"dest_server_id"`
 	Purpose            string `json:"purpose"`
+	State              string `json:"state"`
 	Status             string `json:"status"`
 	ErrorMessage       string `json:"error_message"`
 	InitiatorLocalAddr string `json:"initiator_local_addr,omitempty"`
@@ -71,7 +72,7 @@ func (c *CPlaneChannelClient) GetChannel(ctx context.Context, id string) (*Chann
 }
 
 // QueryChannels lists channels with optional filters via query parameters.
-func (c *CPlaneChannelClient) QueryChannels(ctx context.Context, sourceServerID, destServerID, status string, limit, offset int) (*QueryChannelsResponse, error) {
+func (c *CPlaneChannelClient) QueryChannels(ctx context.Context, sourceServerID, destServerID, state, status string, limit, offset int) (*QueryChannelsResponse, error) {
 	path := "/channels"
 	sep := "?"
 	if sourceServerID != "" {
@@ -80,6 +81,10 @@ func (c *CPlaneChannelClient) QueryChannels(ctx context.Context, sourceServerID,
 	}
 	if destServerID != "" {
 		path += sep + "dest_server_id=" + destServerID
+		sep = "&"
+	}
+	if state != "" {
+		path += sep + "state=" + state
 		sep = "&"
 	}
 	if status != "" {

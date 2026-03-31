@@ -128,7 +128,6 @@ func TestSnapshotPolicyClient_Get_NestedKeys(t *testing.T) {
 				"os":   "linux",
 				"arch": "arm64",
 			},
-			"docker_integration_enabled": true,
 		},
 		ServerID: "test-server",
 	}
@@ -173,15 +172,6 @@ func TestSnapshotPolicyClient_Get_NestedKeys(t *testing.T) {
 	}
 	if result != "linux" {
 		t.Errorf("got %v, want linux", result)
-	}
-
-	// Test top-level exact match (existing behavior)
-	result, ok = client.Get("docker_integration_enabled")
-	if !ok {
-		t.Error("expected ok = true for docker_integration_enabled")
-	}
-	if result != true {
-		t.Errorf("got %v, want true", result)
 	}
 
 	// Test nonexistent nested key

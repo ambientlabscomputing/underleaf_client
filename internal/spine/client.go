@@ -360,7 +360,7 @@ func (c *Client) livenessWatchdog(ctx context.Context) {
 
 			sinceLastDelivery := time.Since(time.Unix(0, nano))
 			if sinceLastDelivery > livenessStaleThreshold {
-				slog.Warn("spine: no deliveries received — forcing resubscribe",
+				slog.Debug("spine: no deliveries received — forcing resubscribe",
 					"last_delivery_ago", sinceLastDelivery.Round(time.Second),
 					"threshold", livenessStaleThreshold,
 				)

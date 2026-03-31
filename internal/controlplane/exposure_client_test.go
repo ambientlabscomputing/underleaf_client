@@ -61,12 +61,12 @@ func TestPostExposureResult_Success_Bound(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := newTestExposureClient(t, srv)
-	err := client.PostExposureResult(context.Background(), "exp-001", "bound", "https://pub.example.com", "")
+	err := client.PostExposureResult(context.Background(), "exp-001", "success", "https://pub.example.com", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedBody["status"] != "bound" {
-		t.Errorf("expected status=bound, got %v", capturedBody["status"])
+	if capturedBody["status"] != "success" {
+		t.Errorf("expected status=success, got %v", capturedBody["status"])
 	}
 	if capturedBody["public_url"] != "https://pub.example.com" {
 		t.Errorf("expected public_url, got %v", capturedBody["public_url"])
@@ -81,12 +81,12 @@ func TestPostExposureResult_Success_Error(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := newTestExposureClient(t, srv)
-	err := client.PostExposureResult(context.Background(), "exp-002", "error", "", "tunnel failed")
+	err := client.PostExposureResult(context.Background(), "exp-002", "failure", "", "tunnel failed")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedBody["status"] != "error" {
-		t.Errorf("expected status=error, got %v", capturedBody["status"])
+	if capturedBody["status"] != "failure" {
+		t.Errorf("expected status=failure, got %v", capturedBody["status"])
 	}
 	if capturedBody["error"] != "tunnel failed" {
 		t.Errorf("expected error field, got %v", capturedBody["error"])
@@ -99,7 +99,7 @@ func TestPostExposureResult_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := newTestExposureClient(t, srv)
-	err := client.PostExposureResult(context.Background(), "exp-003", "bound", "https://pub.example.com", "")
+	err := client.PostExposureResult(context.Background(), "exp-003", "success", "https://pub.example.com", "")
 	if err == nil {
 		t.Fatal("expected error for HTTP 500, got nil")
 	}
@@ -113,7 +113,7 @@ func TestPostExposureResult_URLContainsExposureID(t *testing.T) {
 	}))
 	defer srv.Close()
 	client := newTestExposureClient(t, srv)
-	_ = client.PostExposureResult(context.Background(), "exp-xyz", "bound", "https://pub.example.com", "")
+	_ = client.PostExposureResult(context.Background(), "exp-xyz", "success", "https://pub.example.com", "")
 	expected := fmt.Sprintf("/exposures/%s/results", "exp-xyz")
 	if capturedPath != expected {
 		t.Errorf("expected path %q, got %q", expected, capturedPath)
@@ -124,7 +124,7 @@ func TestPostExposureResult_MissingBaseURL(t *testing.T) {
 	cfg := newExposureMockConfig("", "tok")
 	api := controlplane.NewAPIClient(cfg, nil)
 	client := controlplane.NewCPlaneExposureClient(api)
-	err := client.PostExposureResult(context.Background(), "exp-004", "bound", "https://pub.example.com", "")
+	err := client.PostExposureResult(context.Background(), "exp-004", "success", "https://pub.example.com", "")
 	if err == nil {
 		t.Fatal("expected error when base_url is empty, got nil")
 	}

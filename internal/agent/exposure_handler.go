@@ -149,7 +149,7 @@ func HandleExposureUnbindRequested(ctx context.Context, msg spine.Message, raftN
 type ExposureBindCompletedPayload struct {
 	ExposureID string `json:"exposure_id"`
 	LeaseID    string `json:"lease_id"`
-	Status     string `json:"status"` // "bound" or "error"
+	Status     string `json:"status"` // "success" or "failure"
 	PublicURL  string `json:"public_url,omitempty"`
 	Error      string `json:"error,omitempty"`
 }

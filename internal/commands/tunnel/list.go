@@ -73,7 +73,7 @@ var ListCmd = &cobra.Command{
 
 func init() {
 	ListCmd.Flags().StringVar(&listServerID, "server", "", "Filter by server ID")
-	ListCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (pending/bound/error/closed)")
+	ListCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (in_progress/success/failure)")
 	ListCmd.Flags().IntVar(&listLimit, "limit", 20, "Max number of results")
 	ListCmd.Flags().IntVar(&listOffset, "offset", 0, "Results offset")
 	ListCmd.Flags().StringVarP(&listOutput, "output", "o", "table", "Output format: table|json")

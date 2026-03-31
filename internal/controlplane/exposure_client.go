@@ -23,6 +23,7 @@ type ExposureRecord struct {
 	TargetPort   int    `json:"target_port"`
 	Hostname     string `json:"hostname"`
 	LeaseID      string `json:"lease_id"`
+	State        string `json:"state"`
 	Status       string `json:"status"`
 	PublicURL    string `json:"public_url"`
 	ErrorMessage string `json:"error_message"`

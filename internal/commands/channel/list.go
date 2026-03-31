@@ -13,6 +13,7 @@ import (
 var (
 	listSource string
 	listDest   string
+	listState  string
 	listStatus string
 	listLimit  int
 	listOffset int
@@ -35,7 +36,7 @@ var ListCmd = &cobra.Command{
 				Render("\n🔗 Listing channels...\n"))
 		}
 
-		resp, err := deps.CPlaneClient.Channels.QueryChannels(ctx, listSource, listDest, listStatus, listLimit, listOffset)
+		resp, err := deps.CPlaneClient.Channels.QueryChannels(ctx, listSource, listDest, listState, listStatus, listLimit, listOffset)
 		if err != nil {
 			deps.Printer.PrintError(fmt.Sprintf("Failed to list channels: %v", err))
 			return err
@@ -75,7 +76,8 @@ var ListCmd = &cobra.Command{
 func init() {
 	ListCmd.Flags().StringVar(&listSource, "source", "", "Filter by source server ID")
 	ListCmd.Flags().StringVar(&listDest, "dest", "", "Filter by destination server ID")
-	ListCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (pending/ready/active/closed/error)")
+	ListCmd.Flags().StringVar(&listState, "state", "", "Filter by state (open/closed)")
+	ListCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (in_progress/success/failure)")
 	ListCmd.Flags().IntVar(&listLimit, "limit", 20, "Max number of results")
 	ListCmd.Flags().IntVar(&listOffset, "offset", 0, "Results offset")
 	ListCmd.Flags().StringVarP(&listOutput, "output", "o", "table", "Output format: table|json")

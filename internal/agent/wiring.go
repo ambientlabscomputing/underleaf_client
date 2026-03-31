@@ -1359,17 +1359,39 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 
 						// Post-startup health aggregation: wait for all provider installs,
 						// then report online if all succeeded, or retry failed ones periodically.
+						// Also checks Spine connectivity and control plane API reachability.
 						safeGo("providerHealthAggregator", func() {
 							providerWg.Wait()
 
-							if providerFailures.Load() == 0 {
-								slog.Info("all providers installed successfully, reporting online")
-								reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully")
-								return
+							// checkSubsystems verifies Spine and API are healthy in addition to providers.
+							// Returns a reason string if something is unhealthy, or "" if all clear.
+							checkSubsystems := func() string {
+								// Check Spine connection
+								if spineClient != nil {
+									status := spineClient.SpineStatus()
+									if !status.IsHealthy {
+										return fmt.Sprintf("Mycelium Spine unhealthy (consecutive errors: %d)", status.ConsecutiveErrors)
+									}
+								}
+								// Check control plane API reachability
+								if _, err := cplaneClient.API().GetCACertificate(ctx); err != nil {
+									return "control plane API unreachable: " + err.Error()
+								}
+								return ""
 							}
 
-							slog.Warn("some providers failed initial install, starting retry loop",
-								"failures", providerFailures.Load())
+							if providerFailures.Load() == 0 {
+								if reason := checkSubsystems(); reason != "" {
+									slog.Warn("all providers installed but subsystem check failed, entering retry loop", "reason", reason)
+								} else {
+									slog.Info("all providers installed and subsystems healthy, reporting online")
+									reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully")
+									return
+								}
+							} else {
+								slog.Warn("some providers failed initial install, starting retry loop",
+									"failures", providerFailures.Load())
+							}
 
 							// Retry failed providers every 60 seconds until all succeed
 							retryTicker := time.NewTicker(60 * time.Second)
@@ -1384,9 +1406,13 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 									failedMu.Unlock()
 
 									if len(toRetry) == 0 {
-										slog.Info("all providers recovered, reporting online")
-										reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
-										return
+										if reason := checkSubsystems(); reason != "" {
+											slog.Warn("all providers recovered but subsystem check failed", "reason", reason)
+										} else {
+											slog.Info("all providers recovered and subsystems healthy, reporting online")
+											reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
+											return
+										}
 									}
 
 									slog.Info("retrying failed provider installations", "count", len(toRetry))
@@ -1410,12 +1436,16 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 									failedMu.Unlock()
 
 									if len(stillFailed) == 0 {
-										slog.Info("all providers recovered after retry, reporting online")
-										reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
-										return
+										if reason := checkSubsystems(); reason != "" {
+											slog.Warn("all providers recovered but subsystem check failed, will keep retrying", "reason", reason)
+										} else {
+											slog.Info("all providers recovered and subsystems healthy after retry, reporting online")
+											reportServerStatus(ctx, cplaneClient.Servers, serverID.(string), "online", "all subsystems initialized successfully after retry")
+											return
+										}
+									} else {
+										slog.Warn("some providers still failing after retry", "remaining", len(stillFailed))
 									}
-
-									slog.Warn("some providers still failing after retry", "remaining", len(stillFailed))
 								case <-ctx.Done():
 									return
 								}

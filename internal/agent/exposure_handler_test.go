@@ -67,7 +67,7 @@ func makeUnbindMsg(exposureID, errMsg string) spine.Message {
 }
 
 func TestHandleExposureBindCompleted_NilRaftNilClient(t *testing.T) {
-	msg := makeBindMsg("exp-001", "bound", "https://web-abc12345.underleafapp.com", "")
+	msg := makeBindMsg("exp-001", "success", "https://web-abc12345.underleafapp.com", "")
 	if err := agent.HandleExposureBindCompleted(context.Background(), msg, nil, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,15 +83,15 @@ func TestHandleExposureBindCompleted_PostsResultToServerAPI(t *testing.T) {
 	}))
 	defer srv.Close()
 	ec := newExposureClientFor(t, srv)
-	msg := makeBindMsg("exp-001", "bound", "https://web-abc12345.underleafapp.com", "")
+	msg := makeBindMsg("exp-001", "success", "https://web-abc12345.underleafapp.com", "")
 	if err := agent.HandleExposureBindCompleted(context.Background(), msg, nil, ec); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if capturedPath != "/exposures/exp-001/results" {
 		t.Errorf("expected path /exposures/exp-001/results, got %q", capturedPath)
 	}
-	if capturedBody["status"] != "bound" {
-		t.Errorf("expected status=bound, got %v", capturedBody["status"])
+	if capturedBody["status"] != "success" {
+		t.Errorf("expected status=success, got %v", capturedBody["status"])
 	}
 	if capturedBody["public_url"] != "https://web-abc12345.underleafapp.com" {
 		t.Errorf("expected public_url in body, got %v", capturedBody["public_url"])
@@ -106,12 +106,12 @@ func TestHandleExposureBindCompleted_ErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 	ec := newExposureClientFor(t, srv)
-	msg := makeBindMsg("exp-002", "error", "", "tunnel dial failed")
+	msg := makeBindMsg("exp-002", "failure", "", "tunnel dial failed")
 	if err := agent.HandleExposureBindCompleted(context.Background(), msg, nil, ec); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if capturedBody["status"] != "error" {
-		t.Errorf("expected status=error, got %v", capturedBody["status"])
+	if capturedBody["status"] != "failure" {
+		t.Errorf("expected status=failure, got %v", capturedBody["status"])
 	}
 	if capturedBody["error"] != "tunnel dial failed" {
 		t.Errorf("expected error in body, got %v", capturedBody["error"])
@@ -124,7 +124,7 @@ func TestHandleExposureBindCompleted_ServerAPIError(t *testing.T) {
 	}))
 	defer srv.Close()
 	ec := newExposureClientFor(t, srv)
-	msg := makeBindMsg("exp-003", "bound", "https://web-abc12345.underleafapp.com", "")
+	msg := makeBindMsg("exp-003", "success", "https://web-abc12345.underleafapp.com", "")
 	if err := agent.HandleExposureBindCompleted(context.Background(), msg, nil, ec); err == nil {
 		t.Fatal("expected error when server_api returns 500, got nil")
 	}

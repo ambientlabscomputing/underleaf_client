@@ -72,7 +72,7 @@ func TestCPlaneTunnelClient_CreateTunnel_ServerError(t *testing.T) {
 // ===================== GetTunnel =====================
 
 func TestCPlaneTunnelClient_GetTunnel_Success(t *testing.T) {
-	want := controlplane.TunnelRecord{ID: "tun-002", Target: "9090", Status: "bound"}
+	want := controlplane.TunnelRecord{ID: "tun-002", Target: "9090", Status: "success"}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/tunnels/tun-002" {
@@ -91,8 +91,8 @@ func TestCPlaneTunnelClient_GetTunnel_Success(t *testing.T) {
 	if got.ID != "tun-002" {
 		t.Errorf("ID = %q, want tun-002", got.ID)
 	}
-	if got.Status != "bound" {
-		t.Errorf("Status = %q, want bound", got.Status)
+	if got.Status != "success" {
+		t.Errorf("Status = %q, want success", got.Status)
 	}
 }
 
@@ -114,7 +114,7 @@ func TestCPlaneTunnelClient_GetTunnel_NotFound(t *testing.T) {
 func TestCPlaneTunnelClient_QueryTunnels_NoFilters(t *testing.T) {
 	want := controlplane.QueryTunnelsResponse{
 		Tunnels: []*controlplane.TunnelRecord{
-			{ID: "tun-001", Status: "bound"},
+			{ID: "tun-001", Status: "success"},
 			{ID: "tun-002", Status: "pending"},
 		},
 		Total: 2,
@@ -151,11 +151,11 @@ func TestCPlaneTunnelClient_QueryTunnels_WithFilters(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestTunnelClient(t, srv)
-	_, err := client.QueryTunnels(context.Background(), "srv-1", "bound", 10, 20)
+	_, err := client.QueryTunnels(context.Background(), "srv-1", "success", 10, 20)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, param := range []string{"server_id=srv-1", "status=bound", "limit=10", "offset=20"} {
+	for _, param := range []string{"server_id=srv-1", "status=success", "limit=10", "offset=20"} {
 		if !strings.Contains(capturedURL, param) {
 			t.Errorf("URL %q missing expected param %q", capturedURL, param)
 		}
@@ -213,12 +213,12 @@ func TestCPlaneTunnelClient_PostTunnelResult_Bound(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestTunnelClient(t, srv)
-	err := client.PostTunnelResult(context.Background(), "tun-001", "bound", "https://tun.example.com", "")
+	err := client.PostTunnelResult(context.Background(), "tun-001", "success", "https://tun.example.com", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if captured["status"] != "bound" {
-		t.Errorf("status = %v, want bound", captured["status"])
+	if captured["status"] != "success" {
+		t.Errorf("status = %v, want success", captured["status"])
 	}
 	if captured["public_url"] != "https://tun.example.com" {
 		t.Errorf("public_url = %v", captured["public_url"])
@@ -234,12 +234,12 @@ func TestCPlaneTunnelClient_PostTunnelResult_Error(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestTunnelClient(t, srv)
-	err := client.PostTunnelResult(context.Background(), "tun-002", "error", "", "dial timeout")
+	err := client.PostTunnelResult(context.Background(), "tun-002", "failure", "", "dial timeout")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if captured["status"] != "error" {
-		t.Errorf("status = %v, want error", captured["status"])
+	if captured["status"] != "failure" {
+		t.Errorf("status = %v, want failure", captured["status"])
 	}
 	if captured["error"] != "dial timeout" {
 		t.Errorf("error = %v, want dial timeout", captured["error"])

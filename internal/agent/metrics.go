@@ -249,29 +249,6 @@ func (m *MetricsCollector) send(ctx context.Context, metrics *servertypes.Metric
 }
 
 func (m *MetricsCollector) collectAndSendDocker(ctx context.Context) {
-	// Check if Docker integration is enabled in config
-	snapshot, err := m.policyManager.GetSnapshot()
-	if err != nil {
-		slog.Warn("failed to get config snapshot for Docker check", "error", err)
-		return
-	}
-
-	// Extract docker_integration_enabled from payload
-	dockerEnabled := false
-	if snapshot.Payload != nil {
-		if val, ok := snapshot.Payload["docker_integration_enabled"]; ok {
-			if enabled, ok := val.(bool); ok {
-				dockerEnabled = enabled
-			}
-		}
-	}
-
-	// If Docker integration is not enabled, skip collection
-	if !dockerEnabled {
-		slog.Debug("Docker integration disabled in config, skipping Docker data collection")
-		return
-	}
-
 	// If Docker collector is not available, log warning and skip
 	if m.dockerCollector == nil {
 		slog.Debug("Docker collector not available, skipping Docker data collection")

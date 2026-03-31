@@ -72,7 +72,7 @@ func HandleChannelBindRequested(ctx context.Context, msg spine.Message, eventSer
 type ChannelBindCompletedPayload struct {
 	ChannelID string `json:"channel_id"`
 	Role      string `json:"role"`
-	Status    string `json:"status"` // "active" or "error"
+	Status    string `json:"status"` // "success" or "failure"
 	Error     string `json:"error,omitempty"`
 	// LocalAddr is the loopback listen address of the initiator relay socket.
 	// Only present for the "initiator" role; empty for "listener".
@@ -113,7 +113,7 @@ func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID
 	// once the relay socket (LocalAddr) is ready.
 	if replicationManager != nil &&
 		payload.Role == "initiator" &&
-		payload.Status == "active" &&
+		payload.Status == "success" &&
 		payload.LocalAddr != "" &&
 		replicationManager.HasPendingDelivery(payload.ChannelID) {
 		go replicationManager.DeliverPendingPayload(ctx, payload.ChannelID, payload.LocalAddr)

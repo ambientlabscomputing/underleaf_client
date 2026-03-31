@@ -61,7 +61,7 @@ type TunnelSpineBindRequest struct {
 type TunnelBindCompletedSpinePayload struct {
 	TunnelID  string `json:"tunnel_id"`
 	LeaseID   string `json:"lease_id"`
-	Status    string `json:"status"` // "bound" or "error"
+	Status    string `json:"status"` // "success" or "failure"
 	PublicURL string `json:"public_url,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
@@ -127,7 +127,7 @@ func (s *Server) handleTunnelBind(c *gin.Context) {
 		c.JSON(http.StatusOK, TunnelBindHTTPResponse{
 			TunnelID:  req.TunnelID,
 			PublicURL: result.PublicURL,
-			Status:    "bound",
+			Status:    "success",
 		})
 
 	case <-time.After(30 * time.Second):
@@ -249,7 +249,7 @@ func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServ
 	// Try local mode first: signal the pending HTTP handler
 	if agentServer != nil {
 		var bindErr error
-		if payload.Status == "error" && payload.Error != "" {
+		if payload.Status == "failure" && payload.Error != "" {
 			bindErr = errors.New(payload.Error)
 		}
 		if agentServer.SignalTunnelBindResult(payload.TunnelID, payload.PublicURL, bindErr) {
