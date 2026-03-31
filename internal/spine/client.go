@@ -233,6 +233,13 @@ func (c *Client) dispatchLoop(ctx context.Context) {
 				go c.dispatchLoop(ctx)
 				return
 			}
+			// Only count frames that carry actual envelopes. Empty frames
+			// (e.g. from a Spine whose QoS filter dropped everything) must
+			// NOT reset the liveness watchdog — otherwise the agent appears
+			// healthy while it is effectively deaf.
+			if len(frame.Envelopes) == 0 {
+				continue
+			}
 			// Successful delivery: reset error counter and record delivery time.
 			atomic.StoreInt32(&c.consecutiveErrs, 0)
 			atomic.StoreInt64(&c.lastDeliveryNano, time.Now().UnixNano())
