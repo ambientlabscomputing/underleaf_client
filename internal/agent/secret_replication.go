@@ -181,10 +181,10 @@ func (m *SecretReplicationManager) ReplicatePending(ctx context.Context) error {
 			targetCtx, targetCancel := context.WithTimeout(ctx, 10*time.Second)
 			err := m.replicateToTarget(targetCtx, secretID, meta.Path, remote, target.ClusterID, target.ServerID)
 			targetCancel()
-			if err != nil {
-				// Clear the in-flight guard so the next tick can retry.
-				m.inFlightTargets.Delete(flightKey)
-			}
+			// On error keep the in-flight guard set — the 5-minute TTL
+			// will allow a retry. Clearing immediately would let the next
+			// tick (15 s) issue another grant, causing unbounded Hyphae
+			// channel accumulation and per-node connection exhaustion.
 			if err != nil {
 				slog.Warn("replication: failed to replicate to target",
 					"secret_id", secretID,
@@ -332,8 +332,9 @@ func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, ch
 				case <-ctx.Done():
 					logger.Error("replication: context cancelled during retry",
 						"attempt", attempt, "error", ctx.Err())
-					m.pendingDeliveries.Store(channelID, rec)
-					m.clearInFlight(rec.payload.SecretID, rec.destClusterID)
+					// Do not re-queue or clear the in-flight guard — context
+					// cancelled means the agent is shutting down. The guard
+					// will expire naturally on the next start.
 					return
 				}
 				continue
@@ -344,11 +345,12 @@ func (m *SecretReplicationManager) DeliverPendingPayload(ctx context.Context, ch
 		}
 	}
 	if lastErr != nil {
-		// Re-queue the payload so the next channel.bind.completed event or
-		// replication loop tick can retry without waiting for a full grant cycle.
-		logger.Error("replication: all delivery attempts failed, re-queuing for retry", "error", lastErr)
-		m.pendingDeliveries.Store(channelID, rec)
-		m.clearInFlight(rec.payload.SecretID, rec.destClusterID)
+		logger.Error("replication: all delivery attempts failed, channel is dead", "error", lastErr)
+		// Do not re-queue — the channel is dead. Do not clear the
+		// in-flight guard — the 5-minute TTL will allow ReplicatePending
+		// to issue a fresh grant with a new channel. Clearing now would
+		// let the next tick (15 s) create yet another channel, causing
+		// the Hyphae per-node connection limit to be exhausted.
 		return
 	}
 	logger.Info("replication: payload delivered, ack received")
