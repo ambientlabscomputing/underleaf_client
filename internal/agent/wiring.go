@@ -908,9 +908,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		} else {
 			slog.Info("secret replication listener started", "addr", addr)
 			if eventStreamServer != nil {
-				if err := eventStreamServer.PublishChannelRouteRegister("secret-replication", addr); err != nil {
-					slog.Warn("failed to publish channel route for secret-replication", "error", err)
-				}
+				publishRouteWithRetry(ctx, eventStreamServer, "secret-replication", addr)
 			}
 		}
 
@@ -1016,9 +1014,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					} else {
 						slog.Info("secret replication listener started (async retry)", "addr", addr)
 						if eventStreamServer != nil {
-							if err := eventStreamServer.PublishChannelRouteRegister("secret-replication", addr); err != nil {
-								slog.Warn("failed to publish channel route for secret-replication (async retry)", "error", err)
-							}
+							publishRouteWithRetry(ctx, eventStreamServer, "secret-replication", addr)
 						}
 					}
 
@@ -2385,4 +2381,54 @@ func ensureProviderInstalled(ctx context.Context, mgr *capability.Manager, provi
 
 	slog.Info("provider is running", "provider_id", providerID, "name", friendlyName, "state", endpoint.State)
 	return nil
+}
+
+// publishRouteWithRetry publishes a channel route registration to the event
+// stream, retrying in the background until at least one subscriber (the MMA)
+// is connected.  This avoids a startup race where the agent publishes the
+// route before the MMA has subscribed, causing the MMA to never learn the
+// local listener address.
+func publishRouteWithRetry(ctx context.Context, es *EventStreamServer, purpose, addr string) {
+	// Fast path: if a subscriber is already connected, publish once and return.
+	if es.SubscriberCount() > 0 {
+		if err := es.PublishChannelRouteRegister(purpose, addr); err != nil {
+			slog.Warn("route publish failed (will retry in background)", "purpose", purpose, "error", err)
+		} else {
+			slog.Info("channel route registered", "purpose", purpose, "addr", addr, "subscriber_count", es.SubscriberCount())
+			return
+		}
+	}
+
+	safeGo("publishRouteWithRetry:"+purpose, func() {
+		const maxWait = 60 * time.Second
+		const tick = 1 * time.Second
+		deadline := time.After(maxWait)
+
+		for {
+			select {
+			case <-ctx.Done():
+				slog.Warn("route publish cancelled", "purpose", purpose)
+				return
+			case <-deadline:
+				// Last-ditch attempt even with zero subscribers so the
+				// publish is at least queued in the ring buffer.
+				if err := es.PublishChannelRouteRegister(purpose, addr); err != nil {
+					slog.Error("route publish timed out with no subscribers", "purpose", purpose, "addr", addr, "error", err)
+				} else {
+					slog.Warn("route published after timeout (may have no subscribers)", "purpose", purpose, "addr", addr, "subscriber_count", es.SubscriberCount())
+				}
+				return
+			case <-time.After(tick):
+				if es.SubscriberCount() == 0 {
+					continue
+				}
+				if err := es.PublishChannelRouteRegister(purpose, addr); err != nil {
+					slog.Warn("route publish attempt failed, retrying", "purpose", purpose, "error", err)
+					continue
+				}
+				slog.Info("channel route registered (after retry)", "purpose", purpose, "addr", addr, "subscriber_count", es.SubscriberCount())
+				return
+			}
+		}
+	})
 }
