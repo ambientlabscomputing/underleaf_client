@@ -223,3 +223,14 @@ func (e *EventStreamServer) PublishChannelBindRequested(
 	}
 	return e.PublishEvent("channel.bind.requested", payload, "channel", channelID)
 }
+
+// PublishChannelRouteRegister emits a channel.route.register UA event to MMA.
+// This tells MMA how to route inbound Hyphae channel streams whose purpose
+// matches the given prefix to a local TCP listener address.
+func (e *EventStreamServer) PublishChannelRouteRegister(purpose, addr string) error {
+	payload := map[string]interface{}{
+		"purpose": purpose,
+		"addr":    addr,
+	}
+	return e.PublishEvent("channel.route.register", payload, "channel", purpose)
+}

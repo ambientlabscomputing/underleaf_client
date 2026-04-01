@@ -872,7 +872,6 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	}
 
 	// Start secret sync reporter if secretStore is available
-	var replicationListenAddr string
 	if secretStore != nil {
 		secretSyncReporter = NewSecretSyncReporter(
 			serverID.(string),
@@ -895,7 +894,8 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		))
 
 		// Start the destination-side TCP listener so MMA can forward inbound
-		// replication streams to us via UA_SECRET_REPLICATION_ADDR.
+		// replication streams. The listen address is registered with MMA
+		// dynamically via the channel.route.register event stream.
 		if addr, listenErr := StartReplicationListener(
 			ctx,
 			secretStore,
@@ -906,8 +906,12 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		); listenErr != nil {
 			slog.Warn("failed to start secret replication listener", "error", listenErr)
 		} else {
-			replicationListenAddr = addr
 			slog.Info("secret replication listener started", "addr", addr)
+			if eventStreamServer != nil {
+				if err := eventStreamServer.PublishChannelRouteRegister("secret-replication", addr); err != nil {
+					slog.Warn("failed to publish channel route for secret-replication", "error", err)
+				}
+			}
 		}
 
 		// Run the periodic replication scheduler (leader-gated).
@@ -1010,8 +1014,12 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					); listenErr != nil {
 						slog.Warn("failed to start secret replication listener (async retry)", "error", listenErr)
 					} else {
-						replicationListenAddr = addr
 						slog.Info("secret replication listener started (async retry)", "addr", addr)
+						if eventStreamServer != nil {
+							if err := eventStreamServer.PublishChannelRouteRegister("secret-replication", addr); err != nil {
+								slog.Warn("failed to publish channel route for secret-replication (async retry)", "error", err)
+							}
+						}
 					}
 
 					if replicationLoopStarted.CompareAndSwap(false, true) {
@@ -1139,11 +1147,6 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		if devHyphaeTunnelAddr != "" {
 			baseEnv["HYPHAE_ENABLED"] = "true"
 			baseEnv["HYPHAE_TUNNEL_ADDR"] = devHyphaeTunnelAddr
-		}
-		// Inject the secret replication listener address so MMA can route inbound
-		// secret-replication channels to the agent's TCP handler.
-		if replicationListenAddr != "" {
-			baseEnv["UA_SECRET_REPLICATION_ADDR"] = replicationListenAddr
 		}
 		mergedEnv := devMMAEnv(devConfig, baseEnv)
 

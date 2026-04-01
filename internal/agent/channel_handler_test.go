@@ -73,3 +73,38 @@ func TestHandleChannelBindRequested_ForwardsInitiatorRole(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// PublishChannelRouteRegister tests
+// ---------------------------------------------------------------------------
+
+// TestPublishChannelRouteRegister_NoError verifies that the publish helper
+// constructs and emits the event without error (even when there are no
+// subscribers — the EventStreamServer buffers events).
+func TestPublishChannelRouteRegister_NoError(t *testing.T) {
+	es := newTestEventStreamServer()
+	err := es.PublishChannelRouteRegister("secret-replication", "127.0.0.1:46749")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestPublishChannelRouteRegister_EmptyPurpose verifies that the helper does
+// not panic or error at the publish layer for edge-case inputs. Validation
+// of empty purpose/addr happens on the MMA handler side.
+func TestPublishChannelRouteRegister_EmptyPurpose(t *testing.T) {
+	es := newTestEventStreamServer()
+	err := es.PublishChannelRouteRegister("", "127.0.0.1:1234")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestPublishChannelRouteRegister_EmptyAddr verifies edge case.
+func TestPublishChannelRouteRegister_EmptyAddr(t *testing.T) {
+	es := newTestEventStreamServer()
+	err := es.PublishChannelRouteRegister("secret-replication", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
