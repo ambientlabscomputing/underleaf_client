@@ -9,8 +9,8 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
-github.com/ambientlabscomputing/mycelium_spine v1.2.1 h1:n/Or+nJ+HLbVk8m2LbmRNtVMxS3OB9TKzH4y2fpWJmM=
-github.com/ambientlabscomputing/mycelium_spine v1.2.1/go.mod h1:AqAFY4OV9IvTh9Rvsy9y2nGEgNJsS7ICj5Cmc7FjLtI=
+github.com/ambientlabscomputing/mycelium_spine v1.3.0 h1:zZnOD65T+i4IrfB6Z7t9D3LxxUDW0c78NtCxOXYVsgc=
+github.com/ambientlabscomputing/mycelium_spine v1.3.0/go.mod h1:AqAFY4OV9IvTh9Rvsy9y2nGEgNJsS7ICj5Cmc7FjLtI=
 github.com/ambientlabscomputing/mycelium_spine/sdk v1.2.1 h1:aYoVAgdnqJitnr/8J94iyTZ/PcPFHY71zVx+BujXAmw=
 github.com/ambientlabscomputing/mycelium_spine/sdk v1.2.1/go.mod h1:xFspftghZFF3gObFBnkvwWS421XWa3tNCCtFhiNWs7w=
 github.com/ambientlabscomputing/ucrs v1.5.1 h1:e/cXOw+zt8lRhqD6/Q0qx1i1BIhgbE9HoQ9SKfY8ROg=

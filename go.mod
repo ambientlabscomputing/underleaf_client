@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
-	github.com/ambientlabscomputing/mycelium_spine v1.2.1
+	github.com/ambientlabscomputing/mycelium_spine v1.3.0
 	github.com/ambientlabscomputing/mycelium_spine/sdk v1.2.1
 	github.com/ambientlabscomputing/ucrs v1.5.1
 	github.com/ambientlabscomputing/umc_sdk v0.1.7
