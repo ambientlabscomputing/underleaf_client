@@ -31,6 +31,7 @@ jobs:
         SPINE_ENDPOINT: spine.underleafapp.com:443
         UCRS_BASE_URL: https://api.underleafapp.com/api/v1/registry
         GOPRIVATE: github.com/ambientlabscomputing/*
+        GONOSUMCHECK: github.com/ambientlabscomputing/*
       run: |
         mkdir -p bin
         
