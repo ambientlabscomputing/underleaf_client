@@ -28,7 +28,7 @@ jobs:
       env:
         VERSION: ${{ github.ref_name }}
         API_BASE_URL: https://api.underleafapp.com/api/v1/servers
-        SPINE_ENDPOINT: spine.underleafapp.com:443
+        SPINE_ENDPOINT: spine.underleafapp.com:9443
         UCRS_BASE_URL: https://api.underleafapp.com/api/v1/registry
         GOPRIVATE: github.com/ambientlabscomputing/*
         GONOSUMCHECK: github.com/ambientlabscomputing/*
