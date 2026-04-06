@@ -404,8 +404,10 @@ func (c *APIClient) DELETE(ctx context.Context, path string, response interface{
 		return fmt.Errorf("API request failed with status %s: %s", resp.Status, errorResp)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(response); err != nil {
-		return err
+	if response != nil {
+		if err := json.NewDecoder(resp.Body).Decode(response); err != nil {
+			return err
+		}
 	}
 
 	return nil
