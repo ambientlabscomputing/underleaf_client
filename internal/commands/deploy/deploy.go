@@ -76,6 +76,8 @@ func init() {
 	DeployCmd.AddCommand(PlanCmd)
 	DeployCmd.AddCommand(DiffCmd)
 	DeployCmd.AddCommand(CapabilitiesCmd)
+	DeployCmd.AddCommand(PsCmd)
+	DeployCmd.AddCommand(RmCmd)
 }
 
 // runGitHubDeploy handles gh: sources — resolves via UCRS and creates a tracked deployment.

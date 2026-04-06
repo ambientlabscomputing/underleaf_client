@@ -220,3 +220,54 @@ func (c *DeploymentClient) UploadBuildContext(ctx context.Context, tarPath strin
 	slog.Info("build context uploaded", "archive_ref", uploadResp.ArchiveRef)
 	return uploadResp.ArchiveRef, nil
 }
+
+// AppDeployment mirrors the server_api AppDeployment type for CLI use.
+type AppDeployment struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	State     string `json:"state"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	Source    *struct {
+		Type  string `json:"type"`
+		Owner string `json:"owner"`
+		Repo  string `json:"repo"`
+		Ref   string `json:"ref"`
+	} `json:"source,omitempty"`
+}
+
+// QueryDeploymentsResponse mirrors server_api's QueryAppDeploymentsResponse.
+type QueryDeploymentsResponse struct {
+	Results    []AppDeployment `json:"results"`
+	TotalCount int             `json:"total_count"`
+	Count      int             `json:"count"`
+}
+
+// ListDeployments fetches all live deployments for the configured org.
+func (c *DeploymentClient) ListDeployments(ctx context.Context, limit, offset int) (*QueryDeploymentsResponse, error) {
+	path := fmt.Sprintf("/deployments?limit=%d&offset=%d", limit, offset)
+	var resp QueryDeploymentsResponse
+	if err := c.api.GET(ctx, path, &resp); err != nil {
+		return nil, fmt.Errorf("failed to list deployments: %w", err)
+	}
+	return &resp, nil
+}
+
+// GetDeployment fetches a single deployment by ID.
+func (c *DeploymentClient) GetDeployment(ctx context.Context, id string) (*AppDeployment, error) {
+	var dep AppDeployment
+	if err := c.api.GET(ctx, "/deployments/"+id, &dep); err != nil {
+		return nil, fmt.Errorf("failed to get deployment %q: %w", id, err)
+	}
+	return &dep, nil
+}
+
+// DeleteDeployment deletes a deployment and cascades to its exposures.
+func (c *DeploymentClient) DeleteDeployment(ctx context.Context, id string) error {
+	if err := c.api.DELETE(ctx, "/deployments/"+id, nil); err != nil {
+		return fmt.Errorf("failed to delete deployment %q: %w", id, err)
+	}
+	return nil
+}

@@ -87,6 +87,9 @@ type CPlaneDeploymentClient interface {
 	ReportDeploymentProgress(ctx context.Context, progress deployment.DeploymentProgress) error
 	DeployFromSource(ctx context.Context, req DeployFromSourceRequest) (*DeployFromSourceResponse, error)
 	UploadBuildContext(ctx context.Context, tarPath string) (string, error)
+	ListDeployments(ctx context.Context, limit, offset int) (*QueryDeploymentsResponse, error)
+	GetDeployment(ctx context.Context, id string) (*AppDeployment, error)
+	DeleteDeployment(ctx context.Context, id string) error
 }
 
 func NewCPlaneDeploymentClient(a *APIClient) CPlaneDeploymentClient {
