@@ -81,9 +81,10 @@ func (c *DeploymentClient) ReportDeploymentProgress(ctx context.Context, progres
 
 // SourceTargeting selects which servers receive a source-deployed app.
 type SourceTargeting struct {
-	Mode      string            `json:"mode"`
-	ServerIDs []string          `json:"server_ids,omitempty"`
-	Tags      map[string]string `json:"tags,omitempty"`
+	Mode           string            `json:"mode"`
+	ServerIDs      []string          `json:"server_ids,omitempty"`
+	Tags           map[string]string `json:"tags,omitempty"`
+	PreferServerID string            `json:"prefer_server_id,omitempty"`
 }
 
 // InlineManifest is the parsed .underleaf/deploy.yaml for local: source deploys.

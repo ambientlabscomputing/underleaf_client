@@ -54,6 +54,19 @@ Examples:
 			}
 		}
 
+		// Prefer the local server for replica selection so that the machine
+		// running `ufctl deploy` is the primary target.
+		localServerID := ""
+		if sid, ok := deps.ConfigClient.Get("server.id"); ok && sid != nil {
+			localServerID, _ = sid.(string)
+		}
+		if localServerID != "" {
+			if targeting == nil {
+				targeting = &controlplane.SourceTargeting{Mode: "all"}
+			}
+			targeting.PreferServerID = localServerID
+		}
+
 		switch {
 		case strings.HasPrefix(source, "gh:"):
 			return runGitHubDeploy(cmd, deps, source, targeting)
