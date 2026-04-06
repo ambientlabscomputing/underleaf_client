@@ -55,6 +55,6 @@ func deleteCronJob(deps *utils.DependencyManager, cronjobID string, force bool) 
 }
 
 func init() {
-	CronjobDeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	CronjobDeleteCmd.Flags().Bool("force", false, "Skip confirmation prompt")
 	CronjobsCmd.AddCommand(CronjobDeleteCmd)
 }

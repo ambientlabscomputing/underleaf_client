@@ -95,5 +95,5 @@ Examples:
 }
 
 func init() {
-	RmCmd.Flags().BoolVarP(&rmForce, "force", "f", false, "Skip confirmation prompt")
+	RmCmd.Flags().BoolVar(&rmForce, "force", false, "Skip confirmation prompt")
 }

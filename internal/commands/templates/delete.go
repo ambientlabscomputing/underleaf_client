@@ -55,6 +55,6 @@ func deleteTemplate(deps *utils.DependencyManager, templateID string, force bool
 }
 
 func init() {
-	DeleteCmd.Flags().BoolP("force", "f", false, "Skip confirmation prompt")
+	DeleteCmd.Flags().Bool("force", false, "Skip confirmation prompt")
 	TemplatesCmd.AddCommand(DeleteCmd)
 }
