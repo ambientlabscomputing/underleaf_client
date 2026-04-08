@@ -282,7 +282,7 @@ Examples:
 		printer.Print("")
 		printer.Print("Try running a command on this server:")
 		printer.Print("")
-		printer.Print(fmt.Sprintf("  ufctl servers exec %s -- 'uname -a'", serverID))
+		printer.Print(fmt.Sprintf("  ufctl servers exec %s -- uname -a", serverID))
 		printer.Print("")
 		printer.Print("This will execute a job and show it in the dashboard.")
 		printer.Print("")
