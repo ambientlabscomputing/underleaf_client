@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/deployment"
 )
@@ -28,7 +29,8 @@ type DeploymentResultResponse struct {
 	Detail string `json:"detail"`
 }
 
-// ReportDeploymentResult reports a deployment execution result to the control plane
+// ReportDeploymentResult reports a deployment execution result to the control plane.
+// Retries up to 3 times with exponential backoff (1s, 2s, 4s) on transient failures.
 func (c *DeploymentClient) ReportDeploymentResult(ctx context.Context, result deployment.DeploymentResult) error {
 	slog.Info("reporting deployment result",
 		"job_id", result.JobID,
@@ -38,17 +40,33 @@ func (c *DeploymentClient) ReportDeploymentResult(ctx context.Context, result de
 		"success", result.Success,
 	)
 
-	var response DeploymentResultResponse
-	if err := c.api.POST(ctx, "/deployments/results", result, &response); err != nil {
-		return fmt.Errorf("failed to report deployment result: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<(attempt-1)) * time.Second
+			slog.Warn("retrying deployment result report",
+				"attempt", attempt+1,
+				"backoff", backoff,
+				"deployment_id", result.DeploymentID,
+			)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during result retry: %w", ctx.Err())
+			}
+		}
+		var response DeploymentResultResponse
+		if err := c.api.POST(ctx, "/deployments/results", result, &response); err != nil {
+			lastErr = err
+			continue
+		}
+		slog.Debug("deployment result reported successfully",
+			"job_id", result.JobID,
+			"response", response.Detail,
+		)
+		return nil
 	}
-
-	slog.Debug("deployment result reported successfully",
-		"job_id", result.JobID,
-		"response", response.Detail,
-	)
-
-	return nil
+	return fmt.Errorf("failed to report deployment result after 3 attempts: %w", lastErr)
 }
 
 // DeploymentProgressResponse is the response from reporting deployment progress
@@ -56,7 +74,8 @@ type DeploymentProgressResponse struct {
 	Detail string `json:"detail"`
 }
 
-// ReportDeploymentProgress reports deployment progress to the control plane
+// ReportDeploymentProgress reports deployment progress to the control plane.
+// Retries up to 3 times with exponential backoff (1s, 2s, 4s) on transient failures.
 func (c *DeploymentClient) ReportDeploymentProgress(ctx context.Context, progress deployment.DeploymentProgress) error {
 	slog.Debug("reporting deployment progress",
 		"job_id", progress.JobID,
@@ -66,17 +85,34 @@ func (c *DeploymentClient) ReportDeploymentProgress(ctx context.Context, progres
 		"stage", progress.Stage,
 	)
 
-	var response DeploymentProgressResponse
-	if err := c.api.POST(ctx, "/deployments/progress", progress, &response); err != nil {
-		return fmt.Errorf("failed to report deployment progress: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<(attempt-1)) * time.Second
+			slog.Warn("retrying deployment progress report",
+				"attempt", attempt+1,
+				"backoff", backoff,
+				"deployment_id", progress.DeploymentID,
+				"stage", progress.Stage,
+			)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled during progress retry: %w", ctx.Err())
+			}
+		}
+		var response DeploymentProgressResponse
+		if err := c.api.POST(ctx, "/deployments/progress", progress, &response); err != nil {
+			lastErr = err
+			continue
+		}
+		slog.Debug("deployment progress reported successfully",
+			"job_id", progress.JobID,
+			"stage", progress.Stage,
+		)
+		return nil
 	}
-
-	slog.Debug("deployment progress reported successfully",
-		"job_id", progress.JobID,
-		"stage", progress.Stage,
-	)
-
-	return nil
+	return fmt.Errorf("failed to report deployment progress after 3 attempts: %w", lastErr)
 }
 
 // SourceTargeting selects which servers receive a source-deployed app.
