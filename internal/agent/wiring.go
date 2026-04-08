@@ -475,6 +475,52 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			}()
 		})
 
+		// Handle deployment progress events from deployment_engine UMC.
+		// The UMC emits "deployments.progress" via kernel → Spine for each stage
+		// (pulling, building, starting). We forward to server_api so the per-server
+		// instance FSM transitions through the granular states.
+		spineClient.Register("deployments.progress", func(ctx context.Context, msg spine.Message) {
+			go func() {
+				var payload struct {
+					JobID        string `json:"job_id"`
+					DeploymentID string `json:"deployment_id"`
+					Version      int    `json:"version"`
+					Stage        string `json:"stage"`
+					Message      string `json:"message,omitempty"`
+					Timestamp    string `json:"timestamp,omitempty"`
+				}
+				if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+					slog.Error("failed to parse deployment progress event", "error", err)
+					return
+				}
+				slog.Info("forwarding deployment progress to server_api",
+					"job_id", payload.JobID,
+					"deployment_id", payload.DeploymentID,
+					"stage", payload.Stage,
+				)
+				progress := deployment.DeploymentProgress{
+					JobID:        payload.JobID,
+					ServerID:     serverID.(string),
+					DeploymentID: payload.DeploymentID,
+					Version:      payload.Version,
+					Stage:        payload.Stage,
+					Message:      payload.Message,
+					Timestamp:    payload.Timestamp,
+				}
+				if progress.Timestamp == "" {
+					progress.Timestamp = time.Now().UTC().Format(time.RFC3339)
+				}
+				if err := cplaneClient.Deployments.ReportDeploymentProgress(ctx, progress); err != nil {
+					slog.Error("failed to report deployment progress to server_api",
+						"job_id", payload.JobID,
+						"deployment_id", payload.DeploymentID,
+						"stage", payload.Stage,
+						"error", err,
+					)
+				}
+			}()
+		})
+
 		// Handle server-data-update (push config updates from control plane)
 		spineClient.Register("server-data-update", func(ctx context.Context, msg spine.Message) {
 			policyManager.HandlePushUpdate(ctx, msg.Payload)
