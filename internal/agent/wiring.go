@@ -357,6 +357,12 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	basePath := policy_manager.GetBasePath(true) // true = agent
 	store := policy_manager.NewStore(basePath, true)
 
+	// Initialize the delivery outbox — persists deployment results to disk before
+	// attempting the HTTP POST to server_api. Survives agent restarts and transient
+	// network outages. Handlers are registered after cplaneClient is available.
+	outboxPath := filepath.Join(basePath, "deployment_outbox.jsonl")
+	deliveryOutbox := NewDeliveryOutbox(outboxPath)
+
 	// Migrate the snapshot file before the policy manager loads it from disk.
 	// This handles snapshot schema changes across binary versions, including
 	// automatic rollback when a binary downgrades (Down() migrations run when
@@ -431,6 +437,24 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	// being spawned when both the synchronous and async-retry init paths succeed.
 	var replicationLoopStarted atomic.Bool
 
+	// Register outbox handlers — these are called by the drain goroutine to deliver
+	// persisted results to server_api. Registered here so cplaneClient is in scope.
+	deliveryOutbox.Register("deployment.result", func(ctx context.Context, raw json.RawMessage) error {
+		var result deployment.DeploymentResult
+		if err := json.Unmarshal(raw, &result); err != nil {
+			return fmt.Errorf("outbox: malformed deployment result: %w", err)
+		}
+		return cplaneClient.Deployments.ReportDeploymentResult(ctx, result)
+	})
+	deliveryOutbox.Register("deployment.progress", func(ctx context.Context, raw json.RawMessage) error {
+		var progress deployment.DeploymentProgress
+		if err := json.Unmarshal(raw, &progress); err != nil {
+			return fmt.Errorf("outbox: malformed deployment progress: %w", err)
+		}
+		return cplaneClient.Deployments.ReportDeploymentProgress(ctx, progress)
+	})
+	deliveryOutbox.Start(ctx)
+
 	// DEPRECATED: Deployment handler has been moved to deployment_engine UMC
 	// Deployments are now handled by the deployment_engine UMC via syscalls
 	// See: umcs/deployment_engine/ and internal/deployment/DEPRECATED.md
@@ -440,11 +464,9 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	// Register Mycelium Spine handlers (replaces event bus subscriptions)
 	if spineClient != nil {
 		// Handle deployment results from deployment_engine UMC.
-		// The UMC emits "deployments.result" via kernel → Spine; we catch it here
-		// and forward to server_api so the FSM transitions (running, in_progress) → (running, success/failure).
-		//
-		// Runs in a goroutine so the dispatch loop stays unblocked (the HTTP POST
-		// to server_api can be slow if the control plane is behind a high-latency link).
+		// The UMC emits "deployments.result" via kernel → Spine; we catch it here,
+		// persist to the outbox, then deliver to server_api. The outbox guarantees
+		// delivery survives agent restarts and transient network outages.
 		spineClient.Register("deployments.result", func(ctx context.Context, msg spine.Message) {
 			go func() {
 				var payload struct {
@@ -459,11 +481,6 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					slog.Error("failed to parse deployment result event", "error", err)
 					return
 				}
-				slog.Info("forwarding deployment result to server_api",
-					"job_id", payload.JobID,
-					"deployment_id", payload.DeploymentID,
-					"success", payload.Success,
-				)
 				result := deployment.DeploymentResult{
 					JobID:        payload.JobID,
 					ServerID:     serverID.(string),
@@ -474,20 +491,36 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					Output:       payload.Output,
 					Timestamp:    time.Now().UTC().Format(time.RFC3339),
 				}
-				if err := cplaneClient.Deployments.ReportDeploymentResult(ctx, result); err != nil {
-					slog.Error("failed to report deployment result to server_api",
+				// Write to outbox first — guarantees delivery even if server_api is
+				// temporarily unavailable or the agent restarts mid-delivery.
+				if err := deliveryOutbox.Enqueue("deployment.result", result); err != nil {
+					// Outbox write failed (disk full?). Fall back to direct call so we
+					// don't silently drop the result.
+					slog.Error("outbox enqueue failed, attempting direct delivery",
 						"job_id", payload.JobID,
-						"deployment_id", payload.DeploymentID,
 						"error", err,
 					)
+					if err := cplaneClient.Deployments.ReportDeploymentResult(ctx, result); err != nil {
+						slog.Error("direct delivery also failed — deployment result lost",
+							"job_id", payload.JobID,
+							"deployment_id", payload.DeploymentID,
+							"error", err,
+						)
+					}
+					return
 				}
+				slog.Info("deployment result queued in outbox, pending delivery",
+					"job_id", payload.JobID,
+					"deployment_id", payload.DeploymentID,
+					"success", payload.Success,
+				)
 			}()
 		})
 
 		// Handle deployment progress events from deployment_engine UMC.
 		// The UMC emits "deployments.progress" via kernel → Spine for each stage
-		// (pulling, building, starting). We forward to server_api so the per-server
-		// instance FSM transitions through the granular states.
+		// (pulling, building, starting). Routed through the outbox so progress
+		// updates are not lost during brief server_api unavailability.
 		spineClient.Register("deployments.progress", func(ctx context.Context, msg spine.Message) {
 			go func() {
 				var payload struct {
@@ -502,11 +535,6 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 					slog.Error("failed to parse deployment progress event", "error", err)
 					return
 				}
-				slog.Info("forwarding deployment progress to server_api",
-					"job_id", payload.JobID,
-					"deployment_id", payload.DeploymentID,
-					"stage", payload.Stage,
-				)
 				progress := deployment.DeploymentProgress{
 					JobID:        payload.JobID,
 					ServerID:     serverID.(string),
@@ -519,13 +547,19 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 				if progress.Timestamp == "" {
 					progress.Timestamp = time.Now().UTC().Format(time.RFC3339)
 				}
-				if err := cplaneClient.Deployments.ReportDeploymentProgress(ctx, progress); err != nil {
-					slog.Error("failed to report deployment progress to server_api",
+				if err := deliveryOutbox.Enqueue("deployment.progress", progress); err != nil {
+					slog.Error("outbox enqueue failed, attempting direct delivery",
 						"job_id", payload.JobID,
-						"deployment_id", payload.DeploymentID,
 						"stage", payload.Stage,
 						"error", err,
 					)
+					if err := cplaneClient.Deployments.ReportDeploymentProgress(ctx, progress); err != nil {
+						slog.Error("direct progress delivery also failed",
+							"job_id", payload.JobID,
+							"stage", payload.Stage,
+							"error", err,
+						)
+					}
 				}
 			}()
 		})
@@ -1189,6 +1223,9 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		baseEnv := map[string]string{
 			"KERNEL_SOCKET": syscallSocketPath,
 			"LOG_LEVEL":     "debug",
+			// Route MMA structured logs into the agent's own log file so all
+			// subsystem logs appear in one place (visible via `ufctl servers logs`).
+			"LOG_FILE": filepath.Join(basePath, "agent.log"),
 		}
 		// Inject Hyphae tunnel addr if available from platform config
 		devHyphaeTunnelAddr := getConfigValueStr(snapshotClient, "hyphae_tunnel_addr", "")
