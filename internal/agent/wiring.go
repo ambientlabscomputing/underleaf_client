@@ -210,6 +210,15 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 	}
 	slog.Info("HTTP listener started (health check available)", "port", port)
 
+	// ── Pre-flight: Docker access ────────────────────────────────────────────
+	// The agent requires Docker for deployments, container metrics, and provider
+	// management. Fail fast with an actionable message instead of silently
+	// degrading every metrics cycle.
+	if err := PreflightDockerAccess(); err != nil {
+		return nil, fmt.Errorf("docker pre-flight check failed:\n%w", err)
+	}
+	slog.Info("Docker access verified")
+
 	// Get server ID from local metadata (with backward compatibility)
 	serverID, ok := getConfigValue(configClient, "server_id")
 	if !ok {

@@ -2,7 +2,14 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"net"
+	"os/exec"
+	"os/user"
+	"runtime"
+	"strings"
+	"time"
 
 	servertypes "github.com/ambientlabscomputing/underleaf_client/internal/types/server"
 	"github.com/moby/moby/api/types/container"
@@ -28,6 +35,102 @@ func NewDockerCollector() (*DockerCollector, error) {
 	return &DockerCollector{
 		client: cli,
 	}, nil
+}
+
+// PreflightDockerAccess verifies the agent can reach the Docker daemon before
+// any subsystem starts. Returns a detailed, user-actionable error if Docker
+// is not accessible.
+//
+// Called early in WireAgent so the CLI can surface the message immediately
+// instead of silently degrading every 60s.
+func PreflightDockerAccess() error {
+	socketPath := "/var/run/docker.sock"
+
+	// 1. Can we open the socket at all?
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		// Build a helpful message depending on why it failed.
+		hint := dockerAccessHint()
+		return fmt.Errorf("cannot connect to Docker daemon at unix://%s: %w\n\n%s", socketPath, err, hint)
+	}
+	conn.Close()
+	return nil
+}
+
+// dockerAccessHint returns actionable instructions for the most common Docker
+// access failure: the current process is not root and not in the docker group.
+func dockerAccessHint() string {
+	var b strings.Builder
+	b.WriteString("The Underleaf agent requires access to the Docker daemon.\n")
+	b.WriteString("Common fixes:\n")
+
+	if runtime.GOOS == "linux" {
+		u, err := user.Current()
+		if err == nil && u.Uid != "0" {
+			// Check effective group membership for this process.
+			groups := effectiveGroups()
+			inDockerGroup := false
+			for _, g := range groups {
+				if g == "docker" {
+					inDockerGroup = true
+					break
+				}
+			}
+
+			if !inDockerGroup {
+				// Check if the user is in docker group in /etc/group
+				// (added but not yet effective for this process).
+				systemGroups := systemGroupsForUser(u.Username)
+				addedButNotEffective := false
+				for _, g := range systemGroups {
+					if g == "docker" {
+						addedButNotEffective = true
+						break
+					}
+				}
+
+				if addedButNotEffective {
+					b.WriteString(fmt.Sprintf(
+						"  ► User '%s' IS in the docker group, but this session hasn't picked it up yet.\n"+
+							"    The agent was likely started before the group membership took effect.\n"+
+							"    Fix: log out and back in (or start a new SSH session), then restart the agent.\n",
+						u.Username,
+					))
+				} else {
+					b.WriteString(fmt.Sprintf(
+						"  ► User '%s' is NOT in the docker group.\n"+
+							"    Fix: sudo usermod -aG docker %s && newgrp docker\n"+
+							"    Then restart the agent.\n",
+						u.Username, u.Username,
+					))
+				}
+			}
+		}
+	}
+
+	b.WriteString("  ► Ensure Docker is installed and running: sudo systemctl status docker\n")
+	b.WriteString("  ► If using a custom socket path, set DOCKER_HOST before starting the agent.\n")
+
+	return b.String()
+}
+
+// effectiveGroups returns the group names for the current process via `id -Gn`.
+func effectiveGroups() []string {
+	out, err := exec.Command("id", "-Gn").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
+// systemGroupsForUser returns the groups a user belongs to in /etc/group (the
+// system-level membership, which may differ from the running process's groups).
+func systemGroupsForUser(username string) []string {
+	out, err := exec.Command("id", "-Gn", username).Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
 }
 
 // Collect gathers all Docker data from the local daemon

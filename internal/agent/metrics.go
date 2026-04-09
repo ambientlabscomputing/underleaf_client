@@ -66,10 +66,11 @@ func NewMetricsCollector(serverID string, cplane controlplane.CPlaneServerClient
 		providersInterval = DefaultProvidersInterval
 	}
 
-	// Try to create Docker collector - if it fails, we'll log a warning but continue
+	// Create Docker collector — Docker access was verified by the pre-flight
+	// check in WireAgent, so this should not fail under normal conditions.
 	dockerCollector, err := NewDockerCollector()
 	if err != nil {
-		slog.Warn("failed to initialize Docker collector, Docker data collection will be disabled", "error", err)
+		slog.Error("failed to initialize Docker collector despite pre-flight passing", "error", err)
 		dockerCollector = nil
 	}
 

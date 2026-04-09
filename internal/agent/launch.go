@@ -338,6 +338,12 @@ func (l *Launcher) startDaemon(ctx context.Context) error {
 		}
 		_ = killProcess(cmd.Process)
 	}
+
+	// Surface the last few lines of the agent log so the user sees the actual
+	// error (e.g. Docker permission failure) without having to open the file.
+	if tail, err := exec.Command("tail", "-20", l.logFile).Output(); err == nil && len(tail) > 0 {
+		return fmt.Errorf("agent failed to start within %v\n\nRecent agent log (%s):\n%s", maxWait, l.logFile, string(tail))
+	}
 	return fmt.Errorf("agent failed to respond to health checks within %v, check logs at: %s", maxWait, l.logFile)
 }
 
