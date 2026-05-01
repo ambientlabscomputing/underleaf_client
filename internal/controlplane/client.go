@@ -17,6 +17,7 @@ type CPlaneClient struct {
 	Exposures   *CPlaneExposureClient
 	Tunnels     *CPlaneTunnelClient
 	Channels    *CPlaneChannelClient
+	Links       *CPlaneLinkClient
 	Auth        *CPlaneAuthClient
 	Users       *CPlaneUserClient
 	Logs        *LogClient
@@ -39,6 +40,7 @@ func NewCPlaneClient(config *policy_manager.ConfigClient, h *http.Client) *CPlan
 		Exposures:   NewCPlaneExposureClient(apiClient),
 		Tunnels:     NewCPlaneTunnelClient(apiClient),
 		Channels:    NewCPlaneChannelClient(apiClient),
+		Links:       NewCPlaneLinkClient(apiClient),
 		Auth:        NewAuthClient(apiClient),
 		Users:       NewUserClient(apiClient),
 		Logs:        NewLogClient(apiClient),
