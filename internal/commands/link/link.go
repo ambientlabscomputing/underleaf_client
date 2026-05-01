@@ -26,7 +26,7 @@ Examples:
   ufctl link ls
   ufctl link ls --kind tunnel
   ufctl link ls --visibility public --status success
-  ufctl link ls --server srv-xyz123 --output json`,
+	ufctl --format json link ls --server srv-xyz123`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()
 	},

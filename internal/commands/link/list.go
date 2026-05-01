@@ -1,13 +1,12 @@
 package link
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/ambientlabscomputing/underleaf_client/internal/commands/utils"
+	"github.com/ambientlabscomputing/underleaf_client/internal/ui"
 )
 
 var (
@@ -17,7 +16,6 @@ var (
 	listServerID   string
 	listLimit      int
 	listOffset     int
-	listOutput     string
 )
 
 // ListCmd lists links across all kinds with optional filters.
@@ -33,11 +31,8 @@ status (in_progress|success|failure), or server ID.`,
 		ctx := cmd.Context()
 		deps := utils.NewDependencyManager(ctx)
 
-		if listOutput != "json" {
-			deps.Printer.Print(lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("86")).
-				Render("\n🔗 Listing links...\n"))
+		if deps.Printer.Format() == ui.FormatHuman {
+			deps.Printer.PrintInfo("Listing links...")
 		}
 
 		resp, err := deps.CPlaneClient.Links.QueryLinks(
@@ -48,40 +43,56 @@ status (in_progress|success|failure), or server ID.`,
 			return err
 		}
 
-		if listOutput == "json" {
-			jsonBytes, _ := json.MarshalIndent(resp, "", "  ")
-			deps.Printer.Print(string(jsonBytes))
-			return nil
+		if deps.Printer.Format() == ui.FormatJSON {
+			return deps.Printer.Print(resp)
 		}
 
 		if len(resp.Links) == 0 {
+			if deps.Printer.Format() == ui.FormatShell {
+				return nil
+			}
 			deps.Printer.PrintInfo("No links found")
 			return nil
 		}
 
-		deps.Printer.Print(fmt.Sprintf("%-20s %-9s %-10s %-22s %-12s %s",
-			"ID", "KIND", "VISIBILITY", "TARGET", "STATUS", "URL/PEER"))
-		deps.Printer.Print("──────────────────────────────────────────────────────────────────────────────────────────────────")
+		table := ui.NewTableBuilder().
+			WithTitle("Links").
+			WithHeaders("ID", "Kind", "Visibility", "Target", "State", "Status", "URL/Peer")
 		for _, l := range resp.Links {
 			urlOrPeer := l.URLOrPeer
 			if urlOrPeer == "" {
 				urlOrPeer = "-"
 			}
-			deps.Printer.Print(fmt.Sprintf("%-20s %-9s %-10s %-22s %-12s %s",
+			state := l.State
+			if state == "" {
+				state = "-"
+			}
+			status := l.Status
+			if status == "" {
+				status = "-"
+			}
+			table.AddRow(
 				truncate(l.ID, 18),
 				l.Kind,
 				l.Visibility,
 				truncate(l.Target, 20),
-				l.Status,
+				state,
+				status,
 				urlOrPeer,
+			)
+		}
+
+		if err := deps.Printer.PrintTable(table); err != nil {
+			return err
+		}
+		if deps.Printer.Format() == ui.FormatHuman {
+			deps.Printer.Print(fmt.Sprintf("\nTotal: %d  (exposure=%d  tunnel=%d  channel=%d)",
+				resp.Total,
+				resp.CountsByKind["exposure"],
+				resp.CountsByKind["tunnel"],
+				resp.CountsByKind["channel"],
 			))
 		}
-		deps.Printer.Print(fmt.Sprintf("\nTotal: %d  (exposure=%d  tunnel=%d  channel=%d)",
-			resp.Total,
-			resp.CountsByKind["exposure"],
-			resp.CountsByKind["tunnel"],
-			resp.CountsByKind["channel"],
-		))
 		return nil
 	},
 }
@@ -93,7 +104,6 @@ func init() {
 	ListCmd.Flags().StringVar(&listServerID, "server", "", "Filter by server ID")
 	ListCmd.Flags().IntVar(&listLimit, "limit", 20, "Max number of results")
 	ListCmd.Flags().IntVar(&listOffset, "offset", 0, "Results offset")
-	ListCmd.Flags().StringVarP(&listOutput, "output", "o", "table", "Output format: table|json")
 }
 
 // truncate shortens s to at most n runes, appending ".." if truncated.
