@@ -1,4 +1,5 @@
 package cli
+package cli
 
 import (
 	"testing"
