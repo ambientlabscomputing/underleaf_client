@@ -620,7 +620,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Runs in a goroutine — Raft write + HTTP POST to server_api.
 		spineClient.Register("exposure.bind.completed", func(ctx context.Context, msg spine.Message) {
 			go func() {
-				if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Exposures); err != nil {
+				if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Links); err != nil {
 					slog.Warn("failed to handle exposure bind completed", "error", err)
 				}
 			}()
@@ -644,7 +644,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Runs in a goroutine — HTTP POST to server_api.
 		spineClient.Register("tunnel.bind.completed", func(ctx context.Context, msg spine.Message) {
 			go func() {
-				if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Tunnels); err != nil {
+				if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Links); err != nil {
 					slog.Warn("failed to handle tunnel bind completed", "error", err)
 				}
 			}()
@@ -661,7 +661,7 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 		// Runs in a goroutine — HTTP POST to server_api + potential replication delivery.
 		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
 			go func() {
-				if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Channels, replicationManager.Load()); err != nil {
+				if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Links, replicationManager.Load()); err != nil {
 					slog.Warn("failed to handle channel bind completed", "error", err)
 				}
 			}()

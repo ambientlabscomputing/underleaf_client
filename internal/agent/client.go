@@ -218,7 +218,7 @@ func (c *Client) BindTunnel(req TunnelBindHTTPRequest) (*TunnelBindHTTPResponse,
 
 	// Use a longer timeout than the default 10 s — the agent waits up to 30 s for MMA.
 	longClient := &http.Client{Timeout: 45 * time.Second}
-	resp, err := longClient.Post(c.baseURL+"/api/v1/tunnels/bind", "application/json", bytes.NewReader(body))
+	resp, err := longClient.Post(c.baseURL+"/api/v1/links/bind", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call agent bind: %w", err)
 	}
@@ -240,7 +240,7 @@ func (c *Client) BindTunnel(req TunnelBindHTTPRequest) (*TunnelBindHTTPResponse,
 // UnbindTunnel asks the local agent to tear down a tunnel.
 func (c *Client) UnbindTunnel(tunnelID string) error {
 	body, _ := json.Marshal(TunnelUnbindHTTPRequest{TunnelID: tunnelID})
-	resp, err := c.client.Post(c.baseURL+"/api/v1/tunnels/unbind", "application/json", bytes.NewReader(body))
+	resp, err := c.client.Post(c.baseURL+"/api/v1/links/unbind", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to call agent unbind: %w", err)
 	}

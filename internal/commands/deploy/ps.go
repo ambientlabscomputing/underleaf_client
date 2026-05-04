@@ -72,12 +72,12 @@ Examples:
 
 		if showExposures {
 			for _, dep := range resp.Results {
-				exposures, expErr := deps.CPlaneClient.Exposures.GetDeploymentExposures(ctx, dep.ID)
-				if expErr != nil || exposures == nil || len(exposures.Exposures) == 0 {
+				links, expErr := deps.CPlaneClient.Links.QueryLinks(ctx, "exposure", "", "", dep.ID, "", 50, 0)
+				if expErr != nil || links == nil || len(links.Links) == 0 {
 					continue
 				}
 				deps.Printer.Print(fmt.Sprintf("\n  %s URLs:", dep.Slug))
-				printExposureList(deps, exposures.Exposures)
+				printLinkList(deps, links.Links)
 			}
 		}
 
@@ -91,13 +91,13 @@ func init() {
 	PsCmd.Flags().Bool("exposures", false, "Also show public URLs for each deployment")
 }
 
-func printExposureList(deps *utils.DependencyManager, exposures []*controlplane.ExposureRecord) {
-	for _, exp := range exposures {
-		state := strings.ToLower(exp.State + "/" + exp.Status)
-		if exp.PublicURL != "" {
-			deps.Printer.Print(fmt.Sprintf("    %-12s %s  [%s]", exp.ServiceName, exp.PublicURL, state))
+func printLinkList(deps *utils.DependencyManager, links []*controlplane.LinkRecord) {
+	for _, link := range links {
+		state := strings.ToLower(link.State + "/" + link.Status)
+		if link.PublicURL != "" {
+			deps.Printer.Print(fmt.Sprintf("    %-12s %s  [%s]", link.Spec.ServiceName, link.PublicURL, state))
 		} else {
-			deps.Printer.Print(fmt.Sprintf("    %-12s (no URL — %s)", exp.ServiceName, state))
+			deps.Printer.Print(fmt.Sprintf("    %-12s (no URL — %s)", link.Spec.ServiceName, state))
 		}
 	}
 }

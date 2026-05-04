@@ -74,7 +74,7 @@ func HandleExposureBindRequested(ctx context.Context, msg spine.Message, raftNod
 			logger.Error("failed to marshal exposure metadata", "error", err)
 			// Don't fail the handler, continue to emit the event
 		} else {
-			kvKey := fmt.Sprintf("/exposures/%s", req.ExposureID)
+			kvKey := fmt.Sprintf("/links/%s", req.ExposureID)
 			if err := kv.Put(kvKey, exposureJSON, ""); err != nil {
 				logger.Error("failed to store exposure in Raft KV", "error", err, "key", kvKey)
 				// Log but don't return error; event emission is more critical
@@ -162,7 +162,7 @@ type ExposureUnbindCompletedPayload struct {
 
 // HandleExposureBindCompleted processes an exposure.bind.completed Spine event (emitted by MMA via kernel)
 // Updates Raft KV with the final status and posts the result to server_api.
-func HandleExposureBindCompleted(ctx context.Context, msg spine.Message, raftNode *raft.Node, exposureClient *controlplane.CPlaneExposureClient) error {
+func HandleExposureBindCompleted(ctx context.Context, msg spine.Message, raftNode *raft.Node, linkClient *controlplane.CPlaneLinkClient) error {
 	logger := slog.Default().With("event_type", "exposure.bind.completed")
 
 	var payload ExposureBindCompletedPayload
@@ -177,7 +177,7 @@ func HandleExposureBindCompleted(ctx context.Context, msg spine.Message, raftNod
 	// Update Raft KV with final status
 	if raftNode != nil {
 		kv := raft.NewKV(raftNode)
-		kvKey := fmt.Sprintf("/exposures/%s", payload.ExposureID)
+		kvKey := fmt.Sprintf("/links/%s", payload.ExposureID)
 		// Read existing entry, update status field
 		var existingData map[string]interface{}
 		if entry, err := kv.Get(kvKey, raft.ReadModeStale); err == nil && entry != nil {
@@ -201,14 +201,14 @@ func HandleExposureBindCompleted(ctx context.Context, msg spine.Message, raftNod
 	}
 
 	// POST result to server_api
-	if exposureClient != nil {
-		if err := exposureClient.PostExposureResult(ctx, payload.ExposureID, payload.Status, payload.PublicURL, payload.Error); err != nil {
+	if linkClient != nil {
+		if err := linkClient.PostLinkResult(ctx, payload.ExposureID, controlplane.LinkResultRequest{Status: payload.Status, Error: payload.Error}); err != nil {
 			logger.Error("failed to post exposure result to server_api", "error", err)
 			return err
 		}
 		logger.Info("exposure bind result reported to server_api", "status", payload.Status)
 	} else {
-		logger.Warn("exposure client not available, skipping result report")
+		logger.Warn("link client not available, skipping result report")
 	}
 
 	return nil
@@ -235,7 +235,7 @@ func HandleExposureUnbindCompleted(ctx context.Context, msg spine.Message, raftN
 	// Remove exposure from Raft KV
 	if raftNode != nil {
 		kv := raft.NewKV(raftNode)
-		kvKey := fmt.Sprintf("/exposures/%s", payload.ExposureID)
+		kvKey := fmt.Sprintf("/links/%s", payload.ExposureID)
 		if err := kv.Delete(kvKey); err != nil {
 			logger.Warn("failed to delete exposure from Raft KV", "error", err, "key", kvKey)
 		} else {

@@ -83,7 +83,7 @@ type ChannelBindCompletedPayload struct {
 // Reports the bind result to server_api so the channel status transitions to "active" (or "error").
 // If replicationManager is non-nil and there is a pending delivery for the channel (initiator side),
 // DeliverPendingPayload is invoked in a goroutine once the relay socket is ready.
-func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID string, channelClient *controlplane.CPlaneChannelClient, replicationManager *SecretReplicationManager) error {
+func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID string, linkClient *controlplane.CPlaneLinkClient, replicationManager *SecretReplicationManager) error {
 	logger := slog.Default().With("spine_event", "channel.bind.completed")
 
 	var payload ChannelBindCompletedPayload
@@ -99,14 +99,14 @@ func HandleChannelBindCompleted(ctx context.Context, msg spine.Message, serverID
 	)
 	logger.Info("handling channel bind completed event from Spine")
 
-	if channelClient != nil {
-		if err := channelClient.PostChannelResult(ctx, payload.ChannelID, serverID, payload.Role, payload.Status, payload.Error, payload.LocalAddr); err != nil {
+	if linkClient != nil {
+		if err := linkClient.PostLinkResult(ctx, payload.ChannelID, controlplane.LinkResultRequest{ServerID: serverID, Role: payload.Role, Status: payload.Status, Error: payload.Error, LocalAddr: payload.LocalAddr}); err != nil {
 			logger.Error("failed to post channel result to server_api", "error", err)
 			return err
 		}
 		logger.Info("channel bind result reported to server_api", "status", payload.Status)
 	} else {
-		logger.Warn("channel client not available, skipping result report")
+		logger.Warn("link client not available, skipping result report")
 	}
 
 	// For secret-replication channels on the initiator side, trigger TCP delivery

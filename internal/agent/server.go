@@ -216,12 +216,12 @@ func (s *Server) setupRoutes() {
 			mmesh.POST("/publish", s.handleMMeshPublish)
 		}
 
-		// Tunnel bind/unbind endpoints — used by the CLI for local foreground tunnels
-		tunnels := api.Group("/tunnels")
+		// Link bind/unbind endpoints used for local foreground links.
+		links := api.Group("/links")
 		{
-			tunnels.POST("/bind", s.handleTunnelBind)
-			tunnels.POST("/unbind", s.handleTunnelUnbind)
-			tunnels.GET("/status/:id", s.handleTunnelStatus)
+			links.POST("/bind", s.handleTunnelBind)
+			links.POST("/unbind", s.handleTunnelUnbind)
+			links.GET("/status/:id", s.handleTunnelStatus)
 		}
 	}
 }

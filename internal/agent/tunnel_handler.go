@@ -22,7 +22,7 @@ type tunnelBindResult struct {
 	Err       error
 }
 
-// TunnelBindHTTPRequest is the payload sent by the CLI to POST /api/v1/tunnels/bind.
+// TunnelBindHTTPRequest is the payload sent by the CLI to POST /api/v1/links/bind.
 type TunnelBindHTTPRequest struct {
 	TunnelID         string `json:"tunnel_id"`
 	LeaseID          string `json:"lease_id"`
@@ -39,7 +39,7 @@ type TunnelBindHTTPResponse struct {
 	Status    string `json:"status"`
 }
 
-// TunnelUnbindHTTPRequest is the payload sent by the CLI to POST /api/v1/tunnels/unbind.
+// TunnelUnbindHTTPRequest is the payload sent by the CLI to POST /api/v1/links/unbind.
 type TunnelUnbindHTTPRequest struct {
 	TunnelID string `json:"tunnel_id"`
 }
@@ -234,7 +234,7 @@ func HandleTunnelBindRequested(ctx context.Context, msg spine.Message, eventServ
 // HandleTunnelBindCompleted processes a tunnel.bind.completed Spine event (emitted by MMA via kernel).
 // In local mode: signals the pending HTTP handler channel.
 // In remote mode: posts the result to server_api.
-func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServer *Server, tunnelClient *controlplane.CPlaneTunnelClient) error {
+func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServer *Server, linkClient *controlplane.CPlaneLinkClient) error {
 	logger := slog.Default().With("spine_event", "tunnel.bind.completed")
 
 	var payload TunnelBindCompletedSpinePayload
@@ -259,14 +259,14 @@ func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServ
 	}
 
 	// Remote mode: post result to server_api
-	if tunnelClient != nil {
-		if err := tunnelClient.PostTunnelResult(ctx, payload.TunnelID, payload.Status, payload.PublicURL, payload.Error); err != nil {
+	if linkClient != nil {
+		if err := linkClient.PostLinkResult(ctx, payload.TunnelID, controlplane.LinkResultRequest{Status: payload.Status, Error: payload.Error}); err != nil {
 			logger.Error("failed to post tunnel result to server_api", "error", err)
 			return err
 		}
 		logger.Info("tunnel bind result reported to server_api")
 	} else {
-		logger.Warn("tunnel client not available, skipping result report")
+		logger.Warn("link client not available, skipping result report")
 	}
 
 	return nil
