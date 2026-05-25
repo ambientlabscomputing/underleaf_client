@@ -1,16 +1,12 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/ambientlabscomputing/underleaf_client/internal/controlplane"
-	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 	"github.com/gin-gonic/gin"
 )
 
@@ -44,32 +40,10 @@ type TunnelUnbindHTTPRequest struct {
 	TunnelID string `json:"tunnel_id"`
 }
 
-// TunnelSpineBindRequest is the payload from Spine tunnel.bind.request (remote flow).
-type TunnelSpineBindRequest struct {
-	TunnelID         string `json:"tunnel_id"`
-	LeaseID          string `json:"lease_id"`
-	Hostname         string `json:"hostname"`
-	Target           string `json:"target"`
-	TargetType       string `json:"target_type"`
-	OrgID            string `json:"org_id"`
-	ServerID         string `json:"server_id"`
-	HyphaeTunnelAddr string `json:"hyphae_tunnel_addr"`
-	CreatedAt        int64  `json:"created_at"`
-}
-
-// TunnelBindCompletedSpinePayload is emitted by MMA via Spine after a bind attempt.
-type TunnelBindCompletedSpinePayload struct {
-	TunnelID  string `json:"tunnel_id"`
-	LeaseID   string `json:"lease_id"`
-	Status    string `json:"status"` // "success" or "failure"
-	PublicURL string `json:"public_url,omitempty"`
-	Error     string `json:"error,omitempty"`
-}
-
 // ==================== HTTP Handlers (Server methods) ====================
 
 // handleTunnelBind is called by the CLI for local foreground tunnels.
-// It emits tunnel.bind.requested to MMA and blocks until MMA reports completion.
+// It emits link.bind.requested (kind=tunnel) to MMA and blocks until MMA reports completion.
 func (s *Server) handleTunnelBind(c *gin.Context) {
 	logger := slog.Default().With("handler", "handleTunnelBind")
 
@@ -101,15 +75,18 @@ func (s *Server) handleTunnelBind(c *gin.Context) {
 		s.pendingTunnelBindsMu.Unlock()
 	}()
 
-	// Emit tunnel.bind.requested to MMA.
-	if err := s.eventStreamServer.PublishTunnelBindRequested(
-		req.TunnelID,
-		req.LeaseID,
-		req.Hostname,
-		req.Target,
-		req.TargetType,
-		req.HyphaeTunnelAddr,
-	); err != nil {
+	// Emit link.bind.requested (kind=tunnel) to MMA via unified publisher.
+	if err := s.eventStreamServer.PublishLinkBindRequested(LinkSpineBindRequest{
+		LinkID:           req.TunnelID,
+		Kind:             "tunnel",
+		Hostname:         req.Hostname,
+		HyphaeTunnelAddr: req.HyphaeTunnelAddr,
+		Spec: LinkSpineBindSpec{
+			LeaseID:    req.LeaseID,
+			Target:     req.Target,
+			TargetType: req.TargetType,
+		},
+	}); err != nil {
 		logger.Error("failed to publish tunnel bind request to MMA", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to contact MMA: %v", err)})
 		return
@@ -156,7 +133,7 @@ func (s *Server) handleTunnelUnbind(c *gin.Context) {
 		return
 	}
 
-	if err := s.eventStreamServer.PublishTunnelUnbindRequested(req.TunnelID); err != nil {
+	if err := s.eventStreamServer.PublishLinkUnbindRequested(req.TunnelID, "tunnel"); err != nil {
 		logger.Error("failed to publish tunnel unbind request", "error", err, "tunnel_id", req.TunnelID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -178,7 +155,7 @@ func (s *Server) handleTunnelStatus(c *gin.Context) {
 	})
 }
 
-// SignalTunnelBindResult is called by HandleTunnelBindCompleted (Spine handler)
+// SignalTunnelBindResult is called by HandleLinkBindCompleted (Spine handler)
 // to deliver the result to the waiting handleTunnelBind HTTP handler (local mode).
 // Returns false if no pending bind exists (remote mode — caller should post to server_api).
 func (s *Server) SignalTunnelBindResult(tunnelID, publicURL string, err error) bool {
@@ -192,82 +169,4 @@ func (s *Server) SignalTunnelBindResult(tunnelID, publicURL string, err error) b
 
 	ch <- tunnelBindResult{PublicURL: publicURL, Err: err}
 	return true
-}
-
-// ==================== Spine Event Handlers ====================
-
-// HandleTunnelBindRequested processes a tunnel.bind.request Spine event (remote agent flow).
-// The remote server's agent receives this when a user creates a tunnel with --server <id>.
-func HandleTunnelBindRequested(ctx context.Context, msg spine.Message, eventServer *EventStreamServer) error {
-	logger := slog.Default().With("spine_event", "tunnel.bind.request")
-
-	var req TunnelSpineBindRequest
-	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		logger.Error("failed to unmarshal tunnel bind request", "error", err)
-		return fmt.Errorf("failed to unmarshal payload: %w", err)
-	}
-
-	logger = logger.With("tunnel_id", req.TunnelID, "hostname", req.Hostname)
-	logger.Info("handling tunnel bind request from Spine (remote agent)")
-
-	if eventServer == nil {
-		logger.Error("event server not available")
-		return fmt.Errorf("event server not initialized")
-	}
-
-	if err := eventServer.PublishTunnelBindRequested(
-		req.TunnelID,
-		req.LeaseID,
-		req.Hostname,
-		req.Target,
-		req.TargetType,
-		req.HyphaeTunnelAddr,
-	); err != nil {
-		logger.Error("failed to publish tunnel bind request to MMA", "error", err)
-		return fmt.Errorf("failed to emit event to MMA: %w", err)
-	}
-
-	logger.Info("tunnel bind request forwarded to MMA")
-	return nil
-}
-
-// HandleTunnelBindCompleted processes a tunnel.bind.completed Spine event (emitted by MMA via kernel).
-// In local mode: signals the pending HTTP handler channel.
-// In remote mode: posts the result to server_api.
-func HandleTunnelBindCompleted(ctx context.Context, msg spine.Message, agentServer *Server, linkClient *controlplane.CPlaneLinkClient) error {
-	logger := slog.Default().With("spine_event", "tunnel.bind.completed")
-
-	var payload TunnelBindCompletedSpinePayload
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		logger.Error("failed to unmarshal tunnel bind completed payload", "error", err)
-		return fmt.Errorf("failed to unmarshal payload: %w", err)
-	}
-
-	logger = logger.With("tunnel_id", payload.TunnelID, "status", payload.Status)
-	logger.Info("handling tunnel bind completed from Spine")
-
-	// Try local mode first: signal the pending HTTP handler
-	if agentServer != nil {
-		var bindErr error
-		if payload.Status == "failure" && payload.Error != "" {
-			bindErr = errors.New(payload.Error)
-		}
-		if agentServer.SignalTunnelBindResult(payload.TunnelID, payload.PublicURL, bindErr) {
-			logger.Info("signaled pending local tunnel bind", "tunnel_id", payload.TunnelID)
-			return nil
-		}
-	}
-
-	// Remote mode: post result to server_api
-	if linkClient != nil {
-		if err := linkClient.PostLinkResult(ctx, payload.TunnelID, controlplane.LinkResultRequest{Status: payload.Status, Error: payload.Error}); err != nil {
-			logger.Error("failed to post tunnel result to server_api", "error", err)
-			return err
-		}
-		logger.Info("tunnel bind result reported to server_api")
-	} else {
-		logger.Warn("link client not available, skipping result report")
-	}
-
-	return nil
 }

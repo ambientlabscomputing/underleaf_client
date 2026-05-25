@@ -9,19 +9,21 @@ import (
 	"github.com/ambientlabscomputing/underleaf_client/internal/spine"
 )
 
-// makeChannelBindMsg constructs a spine.Message with a JSON-encoded ChannelBindSpineRequest payload.
-func makeChannelBindMsg(channelID, orgID, role, grant, srcID, dstID, tunnelAddr string) spine.Message {
-	payload := agent.ChannelBindSpineRequest{
-		ChannelID:        channelID,
+// makeLinkBindMsg constructs a spine.Message with a JSON-encoded LinkSpineBindRequest payload.
+func makeLinkBindMsg(linkID, kind, orgID, role, srcID, dstID, tunnelAddr string) spine.Message {
+	payload := agent.LinkSpineBindRequest{
+		LinkID:           linkID,
+		Kind:             kind,
 		OrgID:            orgID,
-		Role:             role,
-		Grant:            grant,
-		SourceServerID:   srcID,
-		DestServerID:     dstID,
-		Purpose:          "test",
 		HyphaeTunnelAddr: tunnelAddr,
-		ExpiresAt:        9999999999,
-		CreatedAt:        1000000000,
+		Spec: agent.LinkSpineBindSpec{
+			Role:           role,
+			SourceServerID: srcID,
+			DestServerID:   dstID,
+			Purpose:        "test",
+			ExpiresAt:      9999999999,
+			CreatedAt:      1000000000,
+		},
 	}
 	b, _ := json.Marshal(payload)
 	return spine.Message{Payload: b}
@@ -33,49 +35,72 @@ func newTestEventStreamServer() *agent.EventStreamServer {
 	return agent.NewEventStreamServer("", "cluster-test", "node-test", nil)
 }
 
-// TestHandleChannelBindRequested_NilEventServer verifies an error is returned when
+// TestHandleLinkBindRequested_NilEventServer verifies an error is returned when
 // no EventStreamServer is available to relay the event to MMA.
-func TestHandleChannelBindRequested_NilEventServer(t *testing.T) {
-	msg := makeChannelBindMsg("ch-001", "org-1", "listener", "", "srv-a", "srv-b", "hyphae:9090")
-	err := agent.HandleChannelBindRequested(context.Background(), msg, nil)
+func TestHandleLinkBindRequested_NilEventServer(t *testing.T) {
+	msg := makeLinkBindMsg("ch-001", "channel", "org-1", "listener", "srv-a", "srv-b", "hyphae:9090")
+	err := agent.HandleLinkBindRequested(context.Background(), msg, nil, nil)
 	if err == nil {
 		t.Fatal("expected error when eventServer is nil, got nil")
 	}
 }
 
-// TestHandleChannelBindRequested_MalformedPayload verifies an error is returned for
+// TestHandleLinkBindRequested_MalformedPayload verifies an error is returned for
 // invalid JSON in the Spine message payload.
-func TestHandleChannelBindRequested_MalformedPayload(t *testing.T) {
+func TestHandleLinkBindRequested_MalformedPayload(t *testing.T) {
 	msg := spine.Message{Payload: []byte("{invalid json")}
 	es := newTestEventStreamServer()
-	err := agent.HandleChannelBindRequested(context.Background(), msg, es)
+	err := agent.HandleLinkBindRequested(context.Background(), msg, nil, es)
 	if err == nil {
 		t.Fatal("expected error for malformed payload, got nil")
 	}
 }
 
-// TestHandleChannelBindRequested_ForwardsListenerRole verifies that a listener-role
-// bind request is forwarded to the EventStreamServer without error.
-func TestHandleChannelBindRequested_ForwardsListenerRole(t *testing.T) {
-	msg := makeChannelBindMsg("ch-002", "org-1", "listener", "", "srv-a", "srv-b", "hyphae.example.com:9090")
+// TestHandleLinkBindRequested_ChannelListenerRole verifies that a listener-role
+// channel bind request is forwarded to the EventStreamServer without error.
+func TestHandleLinkBindRequested_ChannelListenerRole(t *testing.T) {
+	msg := makeLinkBindMsg("ch-002", "channel", "org-1", "listener", "srv-a", "srv-b", "hyphae.example.com:9090")
 	es := newTestEventStreamServer()
-	if err := agent.HandleChannelBindRequested(context.Background(), msg, es); err != nil {
+	if err := agent.HandleLinkBindRequested(context.Background(), msg, nil, es); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestHandleChannelBindRequested_ForwardsInitiatorRole verifies that an initiator-role
-// bind request (which carries a grant JWT) is forwarded to the EventStreamServer.
-func TestHandleChannelBindRequested_ForwardsInitiatorRole(t *testing.T) {
-	msg := makeChannelBindMsg("ch-003", "org-1", "initiator", "eyJ.example.jwt", "srv-a", "srv-b", "hyphae.example.com:9090")
+// TestHandleLinkBindRequested_ChannelInitiatorRole verifies that an initiator-role
+// channel bind request (which carries a grant JWT) is forwarded to the EventStreamServer.
+func TestHandleLinkBindRequested_ChannelInitiatorRole(t *testing.T) {
+	msg := makeLinkBindMsg("ch-003", "channel", "org-1", "initiator", "srv-a", "srv-b", "hyphae.example.com:9090")
 	es := newTestEventStreamServer()
-	if err := agent.HandleChannelBindRequested(context.Background(), msg, es); err != nil {
+	if err := agent.HandleLinkBindRequested(context.Background(), msg, nil, es); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestHandleLinkBindRequested_ExposureKind verifies that an exposure-kind bind
+// request is forwarded to the EventStreamServer without error.
+func TestHandleLinkBindRequested_ExposureKind(t *testing.T) {
+	payload := agent.LinkSpineBindRequest{
+		LinkID:           "exp-001",
+		Kind:             "exposure",
+		OrgID:            "org-1",
+		Hostname:         "my-service.underleafapp.com",
+		HyphaeTunnelAddr: "hyphae.example.com:9090",
+		Spec: agent.LinkSpineBindSpec{
+			LeaseID:    "lease-001",
+			TargetPort: 8080,
+			LocalAddr:  "localhost:8080",
+		},
+	}
+	b, _ := json.Marshal(payload)
+	msg := spine.Message{Payload: b}
+	es := newTestEventStreamServer()
+	if err := agent.HandleLinkBindRequested(context.Background(), msg, nil, es); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// PublishChannelRouteRegister tests
+// PublishChannelRouteRegister tests (unchanged — still valid)
 // ---------------------------------------------------------------------------
 
 // TestPublishChannelRouteRegister_NoError verifies that the publish helper

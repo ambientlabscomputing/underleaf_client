@@ -135,93 +135,41 @@ func (e *EventStreamServer) BufferStats() (size, capacity int) {
 	return e.server.BufferStats()
 }
 
-// PublishExposureBindRequested emits an exposure.bind.requested UA event to MMA.
-// Called when the agent receives an exposure.bind.request from Spine.
-func (e *EventStreamServer) PublishExposureBindRequested(
-	exposureID string,
-	leaseID string,
-	hostname string,
-	targetPort int,
-	localAddr string,
-	tunnelAddr string,
-) error {
+// PublishLinkBindRequested emits a link.bind.requested UA event to MMA.
+// Called when the agent receives a link.bind.request from Spine or (for tunnel kind)
+// from the local HTTP bind endpoint.
+func (e *EventStreamServer) PublishLinkBindRequested(req LinkSpineBindRequest) error {
 	payload := map[string]interface{}{
-		"exposure_id":        exposureID,
-		"lease_id":           leaseID,
-		"hostname":           hostname,
-		"target_port":        targetPort,
-		"local_addr":         localAddr,
-		"hyphae_tunnel_addr": tunnelAddr,
+		"link_id":            req.LinkID,
+		"kind":               req.Kind,
+		"org_id":             req.OrgID,
+		"hostname":           req.Hostname,
+		"hyphae_tunnel_addr": req.HyphaeTunnelAddr,
+		"spec": map[string]interface{}{
+			"lease_id":         req.Spec.LeaseID,
+			"target_port":      req.Spec.TargetPort,
+			"local_addr":       req.Spec.LocalAddr,
+			"target":           req.Spec.Target,
+			"target_type":      req.Spec.TargetType,
+			"role":             req.Spec.Role,
+			"grant":            req.Spec.Grant,
+			"source_server_id": req.Spec.SourceServerID,
+			"dest_server_id":   req.Spec.DestServerID,
+			"purpose":          req.Spec.Purpose,
+			"expires_at":       req.Spec.ExpiresAt,
+			"created_at":       req.Spec.CreatedAt,
+		},
 	}
-	return e.PublishEvent("exposure.bind.requested", payload, "exposure", exposureID)
+	return e.PublishEvent("link.bind.requested", payload, req.Kind, req.LinkID)
 }
 
-// PublishExposureUnbindRequested emits an exposure.unbind.requested UA event to MMA.
-// Called when the agent receives an exposure.unbind.request from Spine.
-func (e *EventStreamServer) PublishExposureUnbindRequested(exposureID string) error {
+// PublishLinkUnbindRequested emits a link.unbind.requested UA event to MMA.
+func (e *EventStreamServer) PublishLinkUnbindRequested(linkID, kind string) error {
 	payload := map[string]interface{}{
-		"exposure_id": exposureID,
+		"link_id": linkID,
+		"kind":    kind,
 	}
-	return e.PublishEvent("exposure.unbind.requested", payload, "exposure", exposureID)
-}
-
-// PublishTunnelBindRequested emits a tunnel.bind.requested UA event to MMA.
-// Called when the agent receives a tunnel.bind.request from Spine or from the local
-// HTTP bind endpoint (local-tunnel mode).
-func (e *EventStreamServer) PublishTunnelBindRequested(
-	tunnelID string,
-	leaseID string,
-	hostname string,
-	target string,
-	targetType string,
-	tunnelAddr string,
-) error {
-	payload := map[string]interface{}{
-		"tunnel_id":          tunnelID,
-		"lease_id":           leaseID,
-		"hostname":           hostname,
-		"target":             target,
-		"target_type":        targetType,
-		"hyphae_tunnel_addr": tunnelAddr,
-	}
-	return e.PublishEvent("tunnel.bind.requested", payload, "tunnel", tunnelID)
-}
-
-// PublishTunnelUnbindRequested emits a tunnel.unbind.requested UA event to MMA.
-func (e *EventStreamServer) PublishTunnelUnbindRequested(tunnelID string) error {
-	payload := map[string]interface{}{
-		"tunnel_id": tunnelID,
-	}
-	return e.PublishEvent("tunnel.unbind.requested", payload, "tunnel", tunnelID)
-}
-
-// PublishChannelBindRequested emits a channel.bind.requested UA event to MMA.
-// Called when the agent receives a channel.bind.request from Spine.
-func (e *EventStreamServer) PublishChannelBindRequested(
-	channelID string,
-	orgID string,
-	role string,
-	grant string,
-	sourceServerID string,
-	destServerID string,
-	purpose string,
-	hyphaeTunnelAddr string,
-	expiresAt int64,
-	createdAt int64,
-) error {
-	payload := map[string]interface{}{
-		"channel_id":         channelID,
-		"org_id":             orgID,
-		"role":               role,
-		"grant":              grant,
-		"source_server_id":   sourceServerID,
-		"dest_server_id":     destServerID,
-		"purpose":            purpose,
-		"hyphae_tunnel_addr": hyphaeTunnelAddr,
-		"expires_at":         expiresAt,
-		"created_at":         createdAt,
-	}
-	return e.PublishEvent("channel.bind.requested", payload, "channel", channelID)
+	return e.PublishEvent("link.unbind.requested", payload, kind, linkID)
 }
 
 // PublishChannelRouteRegister emits a channel.route.register UA event to MMA.

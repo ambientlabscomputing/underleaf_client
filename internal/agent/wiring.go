@@ -601,68 +601,36 @@ func WireAgent(ctx context.Context, port int, devConfig *devmode.DevConfig) (*De
 			}
 		})
 
-		// Handle exposure bind requests from server API
-		// These are forwarded to MMA via UA events for tunnel provisioning
-		spineClient.Register("exposure.bind.request", func(ctx context.Context, msg spine.Message) {
-			if err := HandleExposureBindRequested(ctx, msg, raftNode, eventStreamServer); err != nil {
-				slog.Warn("failed to handle exposure bind request", "error", err)
+		// Handle unified link bind requests from server_api (exposure | tunnel | channel).
+		// Stores metadata in Raft KV and forwards to MMA via EventStreamServer.
+		spineClient.Register("link.bind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleLinkBindRequested(ctx, msg, raftNode, eventStreamServer); err != nil {
+				slog.Warn("failed to handle link bind request", "error", err)
 			}
 		})
 
-		// Handle exposure unbind requests from server API
-		spineClient.Register("exposure.unbind.request", func(ctx context.Context, msg spine.Message) {
-			if err := HandleExposureUnbindRequested(ctx, msg, raftNode, eventStreamServer); err != nil {
-				slog.Warn("failed to handle exposure unbind request", "error", err)
+		// Handle unified link unbind requests from server_api.
+		spineClient.Register("link.unbind.request", func(ctx context.Context, msg spine.Message) {
+			if err := HandleLinkUnbindRequested(ctx, msg, eventStreamServer); err != nil {
+				slog.Warn("failed to handle link unbind request", "error", err)
 			}
 		})
 
-		// Handle exposure bind completion events emitted by MMA via kernel
-		// Runs in a goroutine — Raft write + HTTP POST to server_api.
-		spineClient.Register("exposure.bind.completed", func(ctx context.Context, msg spine.Message) {
+		// Handle link bind completion events emitted by MMA via kernel.
+		// Runs in a goroutine — Raft write + HTTP POST to server_api (and potential replication).
+		spineClient.Register("link.bind.completed", func(ctx context.Context, msg spine.Message) {
 			go func() {
-				if err := HandleExposureBindCompleted(ctx, msg, raftNode, cplaneClient.Links); err != nil {
-					slog.Warn("failed to handle exposure bind completed", "error", err)
+				if err := HandleLinkBindCompleted(ctx, msg, raftNode, server, serverID.(string), cplaneClient.Links, replicationManager.Load()); err != nil {
+					slog.Warn("failed to handle link bind completed", "error", err)
 				}
 			}()
 		})
 
-		// Handle exposure unbind completion events emitted by MMA via kernel
-		spineClient.Register("exposure.unbind.completed", func(ctx context.Context, msg spine.Message) {
-			if err := HandleExposureUnbindCompleted(ctx, msg, raftNode); err != nil {
-				slog.Warn("failed to handle exposure unbind completed", "error", err)
-			}
-		})
-
-		// Handle tunnel bind requests from server_api (remote agent: user created tunnel with --server)
-		spineClient.Register("tunnel.bind.request", func(ctx context.Context, msg spine.Message) {
-			if err := HandleTunnelBindRequested(ctx, msg, eventStreamServer); err != nil {
-				slog.Warn("failed to handle tunnel bind request", "error", err)
-			}
-		})
-
-		// Handle tunnel bind completion events emitted by MMA via kernel
-		// Runs in a goroutine — HTTP POST to server_api.
-		spineClient.Register("tunnel.bind.completed", func(ctx context.Context, msg spine.Message) {
+		// Handle link unbind completion events emitted by MMA via kernel.
+		spineClient.Register("link.unbind.completed", func(ctx context.Context, msg spine.Message) {
 			go func() {
-				if err := HandleTunnelBindCompleted(ctx, msg, server, cplaneClient.Links); err != nil {
-					slog.Warn("failed to handle tunnel bind completed", "error", err)
-				}
-			}()
-		})
-
-		// Handle channel bind requests from server_api (UNDF-111 peer-to-peer relay)
-		spineClient.Register("channel.bind.request", func(ctx context.Context, msg spine.Message) {
-			if err := HandleChannelBindRequested(ctx, msg, eventStreamServer); err != nil {
-				slog.Warn("failed to handle channel bind request", "error", err)
-			}
-		})
-
-		// Handle channel bind completed events from MMA (UNDF-111)
-		// Runs in a goroutine — HTTP POST to server_api + potential replication delivery.
-		spineClient.Register("channel.bind.completed", func(ctx context.Context, msg spine.Message) {
-			go func() {
-				if err := HandleChannelBindCompleted(ctx, msg, serverID.(string), cplaneClient.Links, replicationManager.Load()); err != nil {
-					slog.Warn("failed to handle channel bind completed", "error", err)
+				if err := HandleLinkUnbindCompleted(ctx, msg, raftNode); err != nil {
+					slog.Warn("failed to handle link unbind completed", "error", err)
 				}
 			}()
 		})
